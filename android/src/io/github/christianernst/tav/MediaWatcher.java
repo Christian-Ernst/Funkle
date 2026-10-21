@@ -7,6 +7,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.graphics.Bitmap;
+import android.media.AudioManager;
 import android.media.MediaMetadata;
 import android.media.session.MediaController;
 import android.media.session.MediaSessionManager;
@@ -14,8 +15,10 @@ import android.media.session.PlaybackState;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.provider.Settings;
 import android.util.Log;
+import android.view.KeyEvent;
 
 import java.util.List;
 
@@ -27,10 +30,15 @@ import java.util.List;
  * <li>Spotify's own broadcasts (needs "Device Broadcast Status" switched on in
  * Spotify's settings): title and artist only, but no extra permission.</li>
  * </ol>
+ * It also drives playback: through the media session when it has one, otherwise with
+ * media-key events, which Android delivers to the active player without any permission.
  */
 final class MediaWatcher {
     interface Listener {
         void onTrack(String title, String artist, Bitmap art);
+
+        /** Called on the main thread whenever the known play/pause state flips. */
+        void onPlayback(boolean playing);
     }
 
     private static final String TAG = "TAV";
@@ -40,7 +48,7 @@ final class MediaWatcher {
     private MediaSessionManager msm;
     private MediaController controller;
     private String lastKey = "";
-    private boolean started, spotifyPlaying;
+    private boolean started, spotifyPlaying, lastPlaying;
 
     private final MediaSessionManager.OnActiveSessionsChangedListener sessionsChanged = this::pick;
 
@@ -53,6 +61,7 @@ final class MediaWatcher {
         @Override
         public void onPlaybackStateChanged(PlaybackState state) {
             if (msm != null) pick(null);
+            notifyPlaying();
         }
     };
 
@@ -70,6 +79,7 @@ final class MediaWatcher {
             } catch (RuntimeException e) {
                 return;
             }
+            notifyPlaying();
             if (controller != null) return;   // media session has richer data
             if (title != null && title.length() <= 300 && (artist == null || artist.length() <= 300))
                 deliver(title, artist, null);
@@ -170,6 +180,45 @@ final class MediaWatcher {
         if (controller != null) controller.unregisterCallback(callback);
         controller = c;
         if (c != null) c.registerCallback(callback, main);
+        notifyPlaying();
+    }
+
+    private void notifyPlaying() {
+        boolean p = isPlaying();
+        if (p == lastPlaying) return;
+        lastPlaying = p;
+        listener.onPlayback(p);
+    }
+
+    // ------------------------------------------------------------------ transport
+
+    void playPause() {
+        MediaController c = controller;
+        if (c != null) {
+            if (isPlaying()) c.getTransportControls().pause();
+            else c.getTransportControls().play();
+        } else {
+            sendKey(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE);
+        }
+    }
+
+    void next() {
+        if (controller != null) controller.getTransportControls().skipToNext();
+        else sendKey(KeyEvent.KEYCODE_MEDIA_NEXT);
+    }
+
+    void previous() {
+        if (controller != null) controller.getTransportControls().skipToPrevious();
+        else sendKey(KeyEvent.KEYCODE_MEDIA_PREVIOUS);
+    }
+
+    /** A media button press, delivered by Android to whichever player is active (or was last). */
+    private void sendKey(int code) {
+        AudioManager am = (AudioManager) ctx.getSystemService(Context.AUDIO_SERVICE);
+        if (am == null) return;
+        long t = SystemClock.uptimeMillis();
+        am.dispatchMediaKeyEvent(new KeyEvent(t, t, KeyEvent.ACTION_DOWN, code, 0));
+        am.dispatchMediaKeyEvent(new KeyEvent(t, t, KeyEvent.ACTION_UP, code, 0));
     }
 
     private void publish(MediaMetadata m) {

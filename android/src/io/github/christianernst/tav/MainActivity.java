@@ -19,7 +19,9 @@ import android.provider.Settings;
 import android.text.TextUtils;
 import android.util.TypedValue;
 import android.view.Gravity;
+import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewConfiguration;
 import android.view.Window;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
@@ -58,14 +60,19 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     private TextView introBody, introButton;
     private boolean permissionPending, openSettingsInstead, askedNotificationAccess;
     private final List<TextView> sceneChips = new ArrayList<>(), sourceChips = new ArrayList<>();
-    private String lastTitle = "";
+    private String lastTitle = "", lastArtist = "";
+    private boolean playing, titleAlways;
+    private TextView nowPlaying;
+    private TransportButton playButton;
     private float[][] albumPalette;
     private float dp;
 
     private final Runnable hideMenu = () -> {
         if (panel.getVisibility() != View.VISIBLE) menuButton.animate().alpha(0f).setDuration(600).start();
     };
-    private final Runnable hideTrack = () -> trackBox.animate().alpha(0f).setDuration(1200).start();
+    private final Runnable hideTrack = () -> {
+        if (!titleAlways) trackBox.animate().alpha(0f).setDuration(1200).start();
+    };
     private final Runnable hideScene = () -> sceneLabel.animate().alpha(0f).setDuration(900).start();
     private final Runnable showHint = () -> {
         ui.postDelayed(this.showHint, 3000);   // keep re-checking until sound returns (onSilence stops it)
@@ -82,6 +89,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         super.onCreate(state);
         dp = getResources().getDisplayMetrics().density;
         prefs = getSharedPreferences("tav", MODE_PRIVATE);
+        titleAlways = prefs.getBoolean("titleAlways", false);
         Window w = getWindow();
         w.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         if (Build.VERSION.SDK_INT >= 28) {
@@ -255,8 +263,10 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
 
     @Override
     public void onTrack(String t, String a, Bitmap art) {
-        boolean newTrack = !t.equals(lastTitle);
+        boolean newTrack = !t.equals(lastTitle) || !a.equals(lastArtist);
         lastTitle = t;
+        lastArtist = a;
+        nowPlaying.setText(a.isEmpty() ? t : t + "  \u00B7  " + a);
         if (art != null) {
             float[][] p = Palettes.fromBitmap(art);
             if (p != null) albumPalette = p;
@@ -268,10 +278,55 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         artist.setText(a);
         trackBox.animate().cancel();
         trackBox.setAlpha(0f);
+        trackBox.setTranslationX(0);
         trackBox.setTranslationY(16 * dp);
-        trackBox.animate().alpha(1f).translationY(0).setDuration(900).start();
+        trackBox.animate().alpha(trackAlpha()).translationY(0).setDuration(900).start();
         ui.removeCallbacks(hideTrack);
         ui.postDelayed(hideTrack, 7000);
+    }
+
+    @Override
+    public void onPlayback(boolean nowPlayingState) {
+        playing = nowPlayingState;
+        playButton.setKind(playing ? TransportButton.PAUSE : TransportButton.PLAY);
+        if (titleAlways && !lastTitle.isEmpty() && trackBox.getAlpha() > 0f)
+            trackBox.animate().alpha(trackAlpha()).setDuration(400).start();
+    }
+
+    /** The on-screen title dims while playback is paused. */
+    private float trackAlpha() {
+        return playing || !titleAlways ? 1f : 0.55f;
+    }
+
+    // ------------------------------------------------------------------ playback
+
+    private void playPause() {
+        media.playPause();
+        flash(playing ? "P A U S E" : "P L A Y");
+        onPlayback(!playing);   // optimistic; the player's own state change follows
+    }
+
+    private void skip(boolean forward) {
+        if (forward) media.next();
+        else media.previous();
+        flash(forward ? "N E X T" : "P R E V I O U S");
+        if (trackBox.getAlpha() > 0f) {   // the title slides out the way it was flicked
+            float d = (forward ? -1 : 1) * 60 * dp;
+            trackBox.animate().translationX(d).alpha(0f).setDuration(180)
+                    .withEndAction(() -> {
+                        trackBox.setTranslationX(-d);
+                        trackBox.animate().translationX(0).alpha(lastTitle.isEmpty() ? 0f : trackAlpha()).setDuration(260).start();
+                    }).start();
+        }
+    }
+
+    /** Short spaced-out label at the top, the same place scene names appear. */
+    private void flash(String label) {
+        sceneLabel.setText(label);
+        sceneLabel.animate().cancel();
+        sceneLabel.setAlpha(1f);
+        ui.removeCallbacks(hideScene);
+        ui.postDelayed(hideScene, 1200);
     }
 
     // ------------------------------------------------------------------ settings
@@ -359,7 +414,11 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         trackBox.addView(title);
         trackBox.addView(artist);
         trackBox.setAlpha(0f);
-        lp = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM | Gravity.START);
+        trackBox.setPadding(0, px(8), px(16), px(8));   // a little more to grab
+        trackBox.setOnTouchListener(new TitleGestures());
+        trackBox.setOnClickListener(v -> playPause());   // the tap, also for screen readers
+        trackBox.setContentDescription("Now playing. Activate to play or pause, swipe for another track.");
+        lp = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.START);
         lp.setMargins(px(28), 0, px(96), px(40));
         root.addView(trackBox, lp);
 
@@ -398,6 +457,42 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         head.setText("T A V");
         head.setLetterSpacing(0.3f);
         panelContent.addView(head);
+
+        TextView nowLabel = text(11.5f, 0x99FFFFFF, false);
+        nowLabel.setText("NOW PLAYING");
+        nowLabel.setLetterSpacing(0.12f);
+        nowLabel.setPadding(0, px(14), 0, px(4));
+        panelContent.addView(nowLabel);
+        nowPlaying = text(15, Color.WHITE, false);
+        nowPlaying.setShadowLayer(0, 0, 0, 0);
+        nowPlaying.setSingleLine(true);
+        nowPlaying.setEllipsize(TextUtils.TruncateAt.END);
+        nowPlaying.setText("Nothing yet \u2014 start a song in Spotify");
+        panelContent.addView(nowPlaying);
+        LinearLayout controls = new LinearLayout(this);
+        controls.setGravity(Gravity.CENTER_VERTICAL);
+        controls.setPadding(0, px(10), 0, 0);
+        TransportButton prev = new TransportButton(this, TransportButton.PREVIOUS, false);
+        playButton = new TransportButton(this, TransportButton.PLAY, true);
+        TransportButton next = new TransportButton(this, TransportButton.NEXT, false);
+        prev.setOnClickListener(v -> {
+            skip(false);
+            pokeMenu();
+        });
+        playButton.setOnClickListener(v -> {
+            playPause();
+            pokeMenu();
+        });
+        next.setOnClickListener(v -> {
+            skip(true);
+            pokeMenu();
+        });
+        LinearLayout.LayoutParams small = new LinearLayout.LayoutParams(px(46), px(46)), big = new LinearLayout.LayoutParams(px(58), px(58));
+        small.rightMargin = big.rightMargin = px(14);
+        controls.addView(prev, small);
+        controls.addView(playButton, big);
+        controls.addView(next, new LinearLayout.LayoutParams(px(46), px(46)));
+        panelContent.addView(controls);
 
         String[] sceneNames = new String[Scene.ALL.length];
         for (int i = 0; i < sceneNames.length; i++) sceneNames[i] = Scene.ALL[i].name;
@@ -442,13 +537,24 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
                     view.queueEvent(() -> renderer.setAutopilot(on));
                 });
 
+        addRow("Song title", new String[]{"Fades out", "Always on screen"}, titleAlways ? 1 : 0, new ArrayList<>(), i -> {
+            titleAlways = i == 1;
+            prefs.edit().putBoolean("titleAlways", titleAlways).apply();
+            ui.removeCallbacks(hideTrack);
+            if (lastTitle.isEmpty()) return;
+            trackBox.animate().cancel();
+            if (titleAlways) trackBox.animate().alpha(trackAlpha()).setDuration(400).start();
+            else ui.postDelayed(hideTrack, 2500);
+        });
+
         addRow("Quality", new String[]{"Battery", "Balanced", "Max"}, prefs.getInt("quality", 1), new ArrayList<>(), i -> {
             prefs.edit().putInt("quality", i).apply();
             view.queueEvent(() -> renderer.setQuality(i));
         });
 
         TextView help = text(12.5f, 0x99FFFFFF, false);
-        help.setText("Tap: ripple   •   Drag: draw with sound   •   Two-finger swipe: next scene   •   Long-press: this menu\n"
+        help.setText("Tap: ripple   \u2022   Drag: draw with sound   \u2022   Two-finger swipe: next scene   \u2022   Long-press: this menu\n"
+                + "Song title on screen: swipe it for the next or previous track, tap it to pause.\n"
                 + "Album colours need notification access (only used to read what's playing).");
         help.setLineSpacing(0, 1.25f);
         help.setPadding(0, px(14), 0, 0);
@@ -634,5 +740,35 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     private void dismissNotice() {
         if (notice != null) root.removeView(notice);
         notice = null;
+    }
+
+    /** Swipe the on-screen song title to skip, tap it to play or pause. Invisible: lets touches through. */
+    private final class TitleGestures implements View.OnTouchListener {
+        private float x0, y0;
+
+        @Override
+        public boolean onTouch(View v, MotionEvent e) {
+            switch (e.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    if (trackBox.getAlpha() < 0.05f) return false;   // faded out: the visuals get the touch
+                    x0 = e.getRawX();
+                    y0 = e.getRawY();
+                    pokeMenu();
+                    return true;
+                case MotionEvent.ACTION_UP: {
+                    float dx = e.getRawX() - x0, dy = e.getRawY() - y0;
+                    float slop = ViewConfiguration.get(MainActivity.this).getScaledTouchSlop();
+                    if (Math.abs(dx) > 56 * dp && Math.abs(dx) > 1.5f * Math.abs(dy)) skip(dx < 0);
+                    else if (Math.hypot(dx, dy) < slop) v.performClick();
+                    if (!titleAlways) {   // using it keeps it around a little longer
+                        ui.removeCallbacks(hideTrack);
+                        ui.postDelayed(hideTrack, 5000);
+                    }
+                    return true;
+                }
+                default:
+                    return true;
+            }
+        }
     }
 }

@@ -47,10 +47,14 @@ exactly what you hear from any app without that app's cooperation. Android puts 
 If a phone's ROM blocks this (some do), TAV falls back to the microphone automatically. You can also pick
 **Listen to → Microphone** yourself.
 
-**Album colours (optional):** choose **Colours → Album** and grant notification access. TAV then reads the
-current track's artwork from the media session and recolours every scene from it. It also shows the title
-and artist when the song changes. Without notification access, Spotify can still announce the track
-if you enable *Settings → Device Broadcast Status* in Spotify.
+**What's playing:** Spotify keeps running as its own app. When the song changes, TAV shows the title and artist
+(menu → **Song title → Always on screen** keeps them there) and can switch scenes with it. Choose
+**Colours → Album** and grant notification access, and every scene is recoloured from the cover art.
+Without notification access, switch on *Settings → Device Broadcast Status* in Spotify for title and artist.
+
+**Playback controls:** previous, play/pause and next sit at the top of the menu, and the on-screen song title
+works as a remote: swipe it left for the next track, right for the previous one, tap it to pause. They work
+even without notification access, because TAV then sends ordinary media-button presses to the active player.
 
 ### Controls
 
@@ -59,7 +63,9 @@ if you enable *Settings → Device Broadcast Status* in Spotify.
 | Tap | Ripple from that point; its rim is the live waveform |
 | Drag | Draw a line the sound wave travels along |
 | Two-finger swipe | Next / previous scene |
-| Long-press or ☰ | Menu: scenes, shape stamps, mirror (mandala) mode, colours, audio source, autopilot, quality |
+| Swipe the song title | Next (left) / previous (right) track |
+| Tap the song title | Play / pause |
+| Long-press or ☰ | Menu: playback controls, scenes, shape stamps, mirror (mandala) mode, colours, audio source, autopilot, song title, quality |
 
 **Autopilot** (on by default) changes scenes when the track changes, when a drop hits, or every 45 s.
 **Mirror** repeats everything you draw 2–12 times around the centre.
