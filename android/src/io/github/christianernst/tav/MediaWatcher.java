@@ -48,7 +48,7 @@ final class MediaWatcher {
     private MediaSessionManager msm;
     private MediaController controller;
     private String lastKey = "";
-    private boolean started, spotifyPlaying, lastPlaying;
+    private boolean started, spotifyPlaying, spotifyStateSeen, lastPlaying;
 
     private final MediaSessionManager.OnActiveSessionsChangedListener sessionsChanged = this::pick;
 
@@ -72,8 +72,10 @@ final class MediaWatcher {
             // crash us, and only plain, short strings are accepted.
             String title, artist;
             try {
-                if ("com.spotify.music.playbackstatechanged".equals(i.getAction()))
+                if ("com.spotify.music.playbackstatechanged".equals(i.getAction()) && i.hasExtra("playing")) {
                     spotifyPlaying = i.getBooleanExtra("playing", spotifyPlaying);
+                    spotifyStateSeen = true;
+                }
                 title = i.getStringExtra("track");
                 artist = i.getStringExtra("artist");
             } catch (RuntimeException e) {
@@ -122,6 +124,11 @@ final class MediaWatcher {
         // The flags overload exists since API 26; RECEIVER_EXPORTED is only read (and required) from API 33.
         if (Build.VERSION.SDK_INT >= 26) ctx.registerReceiver(spotify, f, Context.RECEIVER_EXPORTED);
         else ctx.registerReceiver(spotify, f);
+    }
+
+    /** Whether isPlaying() reflects the player's real state rather than a guess. */
+    boolean knowsState() {
+        return controller != null || spotifyStateSeen;
     }
 
     /** Whether something is known to be playing right now (false when we can't tell). */

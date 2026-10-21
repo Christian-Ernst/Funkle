@@ -304,7 +304,14 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         media.playPause();
         flash(playing ? "P A U S E" : "P L A Y");
         onPlayback(!playing);   // optimistic; the player's own state change follows
+        ui.removeCallbacks(resyncPlayback);
+        ui.postDelayed(resyncPlayback, 1500);
     }
+
+    /** If the player ignored the command, put the button back to what is really happening. */
+    private final Runnable resyncPlayback = () -> {
+        if (media.knowsState() && media.isPlaying() != playing) onPlayback(media.isPlaying());
+    };
 
     private void skip(boolean forward) {
         if (forward) media.next();
