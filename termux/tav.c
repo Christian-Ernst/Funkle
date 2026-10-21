@@ -350,6 +350,7 @@ static void *audio_thread(void *arg) {
                 cfg->play = NULL;
                 cfg->pace = 1;
                 t0 = now_s() - (double)total / SR;
+                pipeLagFrames = 0;   /* nothing queued for a player any more */
                 playbackFailed = 1;
             } else {
                 int pending = 0;   /* audio still in the pipe is not heard yet: the picture waits for it */
