@@ -145,6 +145,7 @@
     <button id="clear" type="button">Clear</button>
     <button id="mirror" type="button">Mirror off</button>
     <button id="colours" type="button">Colours: Neon</button>
+    <button id="bright" type="button">Brightness: Normal</button>
     <button id="auto" type="button" aria-pressed="true">Autopilot</button>
     <button id="full" type="button">Fullscreen</button>
   </div>
@@ -325,6 +326,12 @@ $('colours').addEventListener('click', () => {
   $('colours').textContent = 'Colours: ' + PALETTES[palIdx][0];
   poke();
 });
+$('bright').addEventListener('click', () => {
+  if (!eng) return;
+  eng.setBrightness((eng.brightness + 1) % BRIGHTNESS.length);
+  $('bright').textContent = 'Brightness: ' + BRIGHTNESS[eng.brightness].name;
+  poke();
+});
 $('auto').addEventListener('click', () => {
   autopilot = !autopilot; sceneTimer = 0;
   $('auto').setAttribute('aria-pressed', String(autopilot));
@@ -354,6 +361,7 @@ addEventListener('keydown', (e) => {
   else if (k === 'c') $('clear').click();
   else if (k === 'm') $('mirror').click();
   else if (k === 'k') $('colours').click();
+  else if (k === 'b') $('bright').click();
   else if (k === 's') { eng.addStroke(shapePoints(shapeKey++ % SHAPES.length, 0.62)); }
   else return;
   poke();

@@ -3,10 +3,12 @@ package io.github.christianernst.tav;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 
-/** Preset palettes and colour extraction from album art. */
+/** Preset palettes, the user's own palette and colour extraction from album art. */
 final class Palettes {
-    static final String[] NAMES = {"Album", "Neon", "Sunset", "Toxic", "Ice", "Inferno", "Vapor", "Aurora"};
-    static final int ALBUM = 0;
+    static final String[] NAMES = {"Album", "Neon", "Sunset", "Toxic", "Ice", "Inferno", "Vapor", "Aurora", "Custom"};
+    static final int ALBUM = 0, CUSTOM = 8;
+    /** Lowest HSV brightness the colour editor offers: the neon look needs bright colours. */
+    static final float MIN_VALUE = 0.5f;
     private static final float[][][] PRESETS = {
             null,
             {{1.0f, 0.18f, 0.55f}, {0.15f, 0.75f, 1.0f}, {0.55f, 0.25f, 1.0f}},
@@ -21,10 +23,25 @@ final class Palettes {
     private Palettes() {
     }
 
-    /** Preset palette by index; ALBUM (no art yet) falls back to Neon. */
+    /** Preset palette by index; ALBUM (no art yet) and CUSTOM fall back to Neon. */
     static float[][] preset(int i) {
         float[][] p = (i <= 0 || i >= PRESETS.length) ? PRESETS[1] : PRESETS[i];
         return new float[][]{p[0].clone(), p[1].clone(), p[2].clone()};
+    }
+
+    /** Three ARGB colours, as the custom palette is stored, to shader colours. */
+    static float[][] fromColors(int[] argb) {
+        float[][] p = new float[3][];
+        for (int k = 0; k < 3; k++)
+            p[k] = new float[]{Color.red(argb[k]) / 255f, Color.green(argb[k]) / 255f, Color.blue(argb[k]) / 255f};
+        return p;
+    }
+
+    static int[] toColors(float[][] p) {
+        int[] argb = new int[3];
+        for (int k = 0; k < 3; k++)
+            argb[k] = Color.rgb(Math.round(p[k][0] * 255), Math.round(p[k][1] * 255), Math.round(p[k][2] * 255));
+        return argb;
     }
 
     /**

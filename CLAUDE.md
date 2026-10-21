@@ -11,11 +11,13 @@ which loads the Android shaders). README.md is the user-facing description. Open
   - `MainActivity.java`: all UI is built in code (no XML layouts). It holds the intro and permission
     cards, the long-press menu (`addRow(label, options, selected, chips, pick)`, one chip row per
     setting), the now-playing section with `TransportButton`s, the song-title overlay and gestures.
-    Settings are in SharedPreferences `prefs` (keys `scene`, `sym`, `palette`, `source`, `autopilot`,
-    `titleAlways`, `quality`) and reach the GL thread through `view.queueEvent(() -> renderer.setX(..))`.
+    Settings are in SharedPreferences `prefs` (keys `scene`, `sym`, `palette`, `brightness`, `source`,
+    `autopilot`, `titleAlways`, `quality`, and `custom0`–`custom2`, the custom palette as ARGB ints) and
+    reach the GL thread through `view.queueEvent(() -> renderer.setX(..))`. Colours → Custom opens the
+    colour editor card (`showColourEditor`, sliders are `ColourSlider.java`).
   - `TavRenderer.java`: the frame is scene pass (feedback ping-pong FBOs) → points/particles →
-    transition blend → dual-Kawase bloom → `composite.frag`. `uBloomStrength` 0.9 and `uExposure` 1.0
-    are hard-coded in the composite pass.
+    transition blend → dual-Kawase bloom → `composite.frag`. `uExposure` and `uBloomStrength` come from
+    the Brightness setting (`EXPOSURE`/`BLOOM`, the same table as `BRIGHTNESS` in `web/engine.js`).
   - `AudioAnalyzer.java`: FFT, bands, beat, drop and flow. The same logic lives in `web/analyzer.js` and
     `termux/tav.c`, so keep all three in sync.
   - `AudioCapture.java` (Visualizer on session 0, mic fallback), `MediaWatcher.java` (MediaSession and
@@ -27,6 +29,9 @@ which loads the Android shaders). README.md is the user-facing description. Open
   and with `ANDROID_HOME`.
 - `android/tools/check.sh`: runs glslangValidator on every shader and link pair, plus the analyzer
   self-test.
+- `web/tools/measure.js`: renders every scene at the demo's drop in headless Chromium on a virtual clock
+  and prints clipped, near-white and saturated-flat shares per scene. `--track dense` stands in for a
+  loud mastered song; `--root` measures another checkout (a `git worktree`) for before/after.
 - `setup.sh`: one-shot Termux setup (repair packages, tools, optional signing, build, install).
 - `.github/workflows/build.yml`: CI runs the checks, builds the APK (as an artifact on every push) and
   builds `termux/tav` with gcc and clang `-Werror`. The `latest` release is republished only on pushes
@@ -43,6 +48,10 @@ which loads the Android shaders). README.md is the user-facing description. Open
 - Shaders are GLSL ES 3.00. Keep them NaN-free (one NaN texel spreads through bloom) and use
   `angle()` instead of a bare `atan(y, x)`. Feedback scales with `uStep` for frame-rate independence,
   and time uniforms wrap.
+- Brightness: the tone curve in `composite.frag` is hue-preserving, so hot light stays coloured. Light
+  that a scene adds into its own feedback stacks up to `gain / (1 - fade)`, and Mirror copies stack
+  too, so keep such terms faint and divide by `sqrt(copies)`. Check a change with `web/tools/measure.js`
+  (`--track dense`) before and after; Normal should stay at about 0 % clipped and near-white.
 - No phone or emulator is available in the cloud. Verify with `android/tools/check.sh`, a full
   `android/build.sh` against the SDK, and screenshots of `web/index.html` in headless Chromium. Serve
   the repo root over http: the page loads `../android/assets/shaders`, so it renders the real Android

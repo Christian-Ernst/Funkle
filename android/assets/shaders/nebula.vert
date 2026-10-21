@@ -39,8 +39,11 @@ void main() {
     gl_Position = vec4(sp * min(uRes.x, uRes.y) / uRes, 0.0, 1.0);
     float px = min(uRes.x, uRes.y) / 700.0;
     gl_PointSize = max(1.0, (1.4 + 3.0 * s * h4 + 3.0 * shock) * px * 2.1 / zc);
+    // Thousands of stars overlap at the core: tint it from the palette rather than white and
+    // thin it out, so it glows instead of filling in solid.
     float core = exp(-rad * 4.0);
-    vec3 c = pal(rad * 0.6 + h3 * 0.2 + uFlow * 0.01) * (0.25 + 1.3 * s) + vec3(1.0, 0.85, 0.7) * core * 0.8;
-    c += vec3(1.0) * shock * 0.8;
-    vCol = c * (0.3 + 0.7 * h4) * 0.6;
+    vec3 c = pal(rad * 0.6 + h3 * 0.2 + uFlow * 0.01) * (0.25 + 1.3 * s);
+    c += mix(pal(0.1 + h3 * 0.3), vec3(1.0, 0.85, 0.7), 0.35) * core * 0.5;
+    c += mix(pal(rad * 0.6 + 0.3), vec3(1.0), 0.4) * shock * 0.8;
+    vCol = c * (0.3 + 0.7 * h4) * 0.6 * (1.0 - 0.55 * core);
 }

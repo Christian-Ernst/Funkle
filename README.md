@@ -71,10 +71,14 @@ even without notification access, because TAV then sends ordinary media-button p
 | Two-finger swipe | Next / previous scene |
 | Swipe the song title | Next (left) / previous (right) track |
 | Tap the song title | Play / pause |
-| Long-press or ☰ | Menu: playback controls, scenes, shape stamps, mirror (mandala) mode, colours, audio source, autopilot, song title, quality |
+| Long-press or ☰ | Menu: playback controls, scenes, shape stamps, mirror (mandala) mode, colours, brightness, audio source, autopilot, song title, quality |
 
 **Autopilot** (on by default) changes scenes when the track changes, when a drop hits, or every 45 s.
 **Mirror** repeats everything you draw 2–12 times around the centre.
+**Colours**: *Album* takes the colours from the cover art, *Neon* to *Aurora* are presets, and *Custom* opens an
+editor for your own three colours. Tap a swatch, then drag Hue, Saturation and Brightness; the visuals change while
+you drag, and TAV keeps the colours for next time. Tap *Custom* again to edit them.
+**Brightness**: Dim, Soft, Normal (the default) or Bright. On an OLED screen in a dark room, try Soft or Dim.
 
 ### If the visuals don't move
 
@@ -139,6 +143,7 @@ python3 -m http.server 8000    # then visit http://localhost:8000/web/
 
 Turn on GitHub Pages for the repository and it works at `https://<user>.github.io/TAV/web/` too.
 Browsers can't hear other apps, so it can't follow Spotify; that's what the Android app is for.
+Keys: arrows or `1`–`7` for scenes, `space` play/pause, `k` colours, `b` brightness, `m` mirror, `s` shape, `c` clear.
 
 ---
 
@@ -151,7 +156,7 @@ samples ──► AudioAnalyzer ──► 512-bin log spectrum + peaks, triggere
                     │
                     ▼
    scene shader (reads its own last frame) → particles → your ripples & strokes
-   → scene crossfade → dual-Kawase bloom → tone map, chromatic aberration on beats, grain
+   → scene crossfade → dual-Kawase bloom → hue-preserving tone map, chromatic aberration on beats, grain
 ```
 
 * `android/src/…/AudioAnalyzer.java`, `web/analyzer.js` and the analyzer in `termux/tav.c` are the same
@@ -188,6 +193,7 @@ Until the secrets exist, each CI release is signed with a one-off key (the relea
 ```sh
 android/tools/check.sh   # every shader through glslangValidator + analyzer self-test (needs ANDROID_HOME)
 android/build.sh         # builds android/build/TAV.apk
+node web/tools/measure.js --track dense   # how blown out each scene is at a drop (headless Chromium + Playwright)
 ```
 
 CI runs both, builds the terminal edition with gcc and clang, and publishes the APK as the

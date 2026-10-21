@@ -20,5 +20,6 @@ void main() {
     gl_Position = vec4(q * min(uRes.x, uRes.y) / uRes, 0.0, 1.0);
     gl_PointSize = max(1.5, (1.6 + 1.5 * beat()) * min(uRes.x, uRes.y) / 700.0);
     float s = spec(0.05 + 0.6 * fract(t * lobes));
-    vCol = pal(t * 2.0 + copy / uCopies * 0.4 + uFlow * 0.02) * (0.05 + 0.18 * level() + 0.25 * s * s);
+    // All copies cover the same rosette: 1/sqrt(copies) keeps Mirror from multiplying the brightness.
+    vCol = pal(t * 2.0 + copy / uCopies * 0.4 + uFlow * 0.02) * (0.05 + 0.18 * level() + 0.25 * s * s) * 1.4 / sqrt(uCopies);
 }
