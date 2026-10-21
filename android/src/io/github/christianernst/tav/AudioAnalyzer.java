@@ -37,7 +37,8 @@ final class AudioAnalyzer {
     boolean silent = true;
     float silentFor = 10f;
     boolean drop, onBeat;
-    private float lastSig = Float.NaN;
+    private float lastSig = Float.NaN, staleFor;
+    private final float[] zeros;
 
     /** Rows: spectrum, peaks, waveform, smoothed waveform; R8 texture 512x4. */
     final byte[] audioBytes = new byte[SPEC_BINS * 4];
@@ -54,6 +55,7 @@ final class AudioAnalyzer {
         im = new float[n];
         win = new float[n];
         lp = new float[n];
+        zeros = new float[n];
         for (int i = 0; i < n; i++) win[i] = (float) (0.5 - 0.5 * Math.cos(2 * Math.PI * i / (n - 1)));
         int nb = n / 2 + 1;
         mag = new float[nb];
@@ -98,6 +100,10 @@ final class AudioAnalyzer {
         float sig = samples[0] * 3.1f + samples[n >> 1] * 1.7f + samples[n - 1] + samples[n >> 2] * 0.3f;
         boolean fresh = sig != lastSig;
         lastSig = sig;
+        // A source that stops advancing (dead mic, stalled capture) keeps handing over its last
+        // buffer; auto-gain would pin that at full intensity. After 0.5 s of it, listen to silence.
+        staleFor = fresh ? 0 : staleFor + dt;
+        if (staleFor > 0.5f) samples = zeros;
 
         float sumSq = 0, maxAbs = 0;
         for (int i = 0; i < n; i++) {

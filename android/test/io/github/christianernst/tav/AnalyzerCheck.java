@@ -98,7 +98,16 @@ public final class AnalyzerCheck {
                 && r.silentAtEnd && !inSilence;
         System.out.println("on-kick " + onKick + "/" + r.beats.length + ", silent at end: " + r.silentAtEnd
                 + ", beats during silence: " + inSilence);
-        if (!ok) {
+        // a source that stops advancing: 3 s of groove, then the same last window for 3 s
+        AudioAnalyzer an = new AudioAnalyzer(SR, AudioCapture.N);
+        float[] win = new float[AudioCapture.N];
+        for (int f = 0; f < 6 * 60; f++) {
+            if (f < 3 * 60) System.arraycopy(s, f * SR / 60, win, 0, win.length);
+            an.process(win, 1f / 60);
+        }
+        boolean frozenOk = an.silent && an.bands[0] < 0.2f && an.level < 0.2f;
+        System.out.printf(Locale.ROOT, "frozen input -> silent: %b, bass %.2f, level %.2f%n", an.silent, an.bands[0], an.level);
+        if (!ok || !frozenOk) {
             System.out.println("FAIL");
             System.exit(1);
         }

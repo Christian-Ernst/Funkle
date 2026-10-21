@@ -77,7 +77,7 @@ typedef struct {
     int onsetIdx;
     float onsetPeak, beat, sinceBeat, sinceDrop, intensity, bassFast, bassSlow, flow;
     int beatCount, silent, drop, onBeat;
-    float silentFor, lastSig;
+    float silentFor, lastSig, staleFor;
     float hist[HIST_H][HIST_W];
     int histHead;
     float histAcc;
@@ -157,6 +157,11 @@ static void an_process(Analyzer *a, const float *s, float dt) {
     float sig = s[0] * 3.1f + s[N >> 1] * 1.7f + s[N - 1] + s[N >> 2] * 0.3f;
     int fresh = sig != a->lastSig;
     a->lastSig = sig;
+    /* a source that stops advancing (parec killed, producer stalled) keeps handing over its
+     * last buffer; auto-gain would pin that at full intensity. After 0.5 s, listen to silence. */
+    static const float zeros[N];
+    a->staleFor = fresh ? 0 : a->staleFor + dt;
+    if (a->staleFor > 0.5f) s = zeros;
 
     float sumSq = 0, maxAbs = 0;
     for (int i = 0; i < N; i++) {
@@ -311,14 +316,14 @@ static float circ_freq(float u) {
 /* ------------------------------------------------------------------ audio input */
 
 static float ringL[RING], ringR[RING];
-static long ringW;             /* total frames written */
+static int64_t ringW;          /* total frames written; 64-bit so 32-bit Termux can run for days */
 static pthread_mutex_t ringLock = PTHREAD_MUTEX_INITIALIZER;
 static volatile int audioEof, running = 1;
 
 typedef struct {
     int fd;
     FILE *play;      /* pacat for file playback, or NULL */
-    int pace;        /* no player: pace reads to real time (stdin files, --no-play) */
+    int pace;        /* no player: pace reads to real time (stdin, --no-play files) */
 } AudioCfg;
 
 static void *audio_thread(void *arg) {
@@ -326,7 +331,7 @@ static void *audio_thread(void *arg) {
     unsigned char buf[4096 + 4];
     int carry = 0;
     double t0 = now_s();
-    long total = 0;
+    int64_t total = 0;
     while (running) {
         ssize_t got = read(cfg->fd, buf + carry, 4096);
         if (got <= 0) {
@@ -341,11 +346,12 @@ static void *audio_thread(void *arg) {
         } else if (cfg->pace) {
             double ahead = (double)total / SR - (now_s() - t0);
             if (ahead > 0.02) usleep((useconds_t)((ahead - 0.01) * 1e6));
+            else if (ahead < -0.25) t0 = now_s() - (double)total / SR;   /* a live producer fell behind: resync, no burst */
         }
         pthread_mutex_lock(&ringLock);
         for (int i = 0; i < frames; i++) {
             int16_t l = (int16_t)(buf[4 * i] | buf[4 * i + 1] << 8), r = (int16_t)(buf[4 * i + 2] | buf[4 * i + 3] << 8);
-            long w = ringW % RING;
+            int64_t w = ringW % RING;
             ringL[w] = l / 32768.0f;
             ringR[w] = r / 32768.0f;
             ringW++;
@@ -359,11 +365,11 @@ static void *audio_thread(void *arg) {
 }
 
 /* copies the N frames that end `delay` frames before the newest one */
-static void audio_latest(float *mono, float *L, float *R, long delay) {
+static void audio_latest(float *mono, float *L, float *R, int64_t delay) {
     pthread_mutex_lock(&ringLock);
-    long end = ringW - delay;
+    int64_t end = ringW - delay;
     for (int i = 0; i < N; i++) {
-        long idx = end - N + i;
+        int64_t idx = end - N + i;
         float l = 0, r = 0;
         if (idx >= 0 && idx > ringW - RING) {
             l = ringL[idx % RING];
@@ -1231,7 +1237,7 @@ int main(int argc, char **argv) {
     const char *sourceName = "PulseAudio monitor";
     if (useStdin) {
         cfg.fd = STDIN_FILENO;
-        cfg.pace = !isatty(STDIN_FILENO) && noPlay;
+        cfg.pace = !isatty(STDIN_FILENO);   /* files and fast decoders would otherwise be swallowed whole */
         sourceName = "stdin";
     } else if (cmd) {
         cfg.fd = spawn(cmd, 0, 0);
@@ -1309,7 +1315,7 @@ int main(int argc, char **argv) {
         last = t;
         if (resized) { resized = 0; alloc_buffers(); }
         handle_input();
-        audio_latest(mono, scopeL, scopeR, delayMs * SR / 1000);
+        audio_latest(mono, scopeL, scopeR, (int64_t)delayMs * SR / 1000);
         an_process(&an, mono, dt);
         T += dt;
         /* keep the float music clock small: rebase on scene changes, wrap as a safety net */
@@ -1332,11 +1338,11 @@ int main(int argc, char **argv) {
         if (statusTimer > 0) statusTimer--;
         present();
         if (audioEof && file) {
-            long w;
+            int64_t w;
             pthread_mutex_lock(&ringLock);
             w = ringW;
             pthread_mutex_unlock(&ringLock);
-            static long lastW = -1;
+            static int64_t lastW = -1;
             static double since;
             if (w == lastW) since += dt; else since = 0;
             lastW = w;

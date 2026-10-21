@@ -87,7 +87,7 @@ class Analyzer {
     this.flow = 0; this.time = 0;
     this.silent = true; this.silentFor = 10;
     this.drop = false; this.onBeat = false;
-    this.lastSig = NaN;
+    this.lastSig = NaN; this.staleFor = 0; this.zeros = new Float32Array(n);
 
     this.audioBytes = new Uint8Array(SPEC_BINS * 4);
     this.histRow = new Uint8Array(HIST_W); this.histHead = 0; this.histAcc = 0; this.histPushed = false;
@@ -102,6 +102,10 @@ class Analyzer {
     // Visualizer polling can hand us the same buffer twice; flux must ignore that.
     const sig = samples[0] * 3.1 + samples[n >> 1] * 1.7 + samples[n - 1] + samples[n >> 2] * 0.3;
     const fresh = sig !== this.lastSig; this.lastSig = sig;
+    // A source that stops advancing (suspended context, dead mic) keeps handing over its last
+    // buffer; auto-gain would pin that at full intensity. After 0.5 s of it, listen to silence.
+    this.staleFor = fresh ? 0 : this.staleFor + dt;
+    if (this.staleFor > 0.5) samples = this.zeros;
 
     let sumSq = 0, maxAbs = 0;
     for (let i = 0; i < n; i++) {

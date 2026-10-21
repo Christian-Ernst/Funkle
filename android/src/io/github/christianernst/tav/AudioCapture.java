@@ -35,7 +35,7 @@ final class AudioCapture {
     private float visRate = 44100;
     private AudioRecord record;
     private Thread micThread;
-    private volatile boolean micRunning;
+    private volatile boolean micRunning, micDead;
     private final float[] ring = new float[N * 4];
     private int ringPos;
     private final float micRate = 44100;
@@ -118,6 +118,7 @@ final class AudioCapture {
             }
             record = r;
             micRunning = true;
+            micDead = false;
             micThread = new Thread(() -> micLoop(r), "tav-mic");
             micThread.start();
             return true;
@@ -131,7 +132,10 @@ final class AudioCapture {
         float[] chunk = new float[256];
         while (micRunning) {
             int got = r.read(chunk, 0, chunk.length, AudioRecord.READ_BLOCKING);
-            if (got < 0) return;   // released or broken
+            if (got < 0) {         // released, or the audio server died under us
+                micDead = true;
+                return;
+            }
             if (got == 0) {        // not delivering: don't spin a core while waiting
                 try {
                     Thread.sleep(10);
@@ -164,7 +168,7 @@ final class AudioCapture {
                 for (int i = 0; i < N; i++) dst[i] = i < pad ? 0f : ((visBuf[i - pad] & 0xFF) - 128) / 128f;
                 return true;
             }
-            if (record != null) {
+            if (record != null && !micDead) {
                 int p = ringPos - N;
                 if (p < 0) p += ring.length;
                 for (int i = 0; i < N; i++) {
