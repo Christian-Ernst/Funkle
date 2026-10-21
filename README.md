@@ -27,13 +27,19 @@ There are two editions sharing one audio engine:
 2. Open it and allow installing from your browser when Android asks.
 3. Start TAV, tap **Let it listen**, then play something in Spotify.
 
-Or build it on the phone itself, in Termux:
+Or build it on the phone itself, in Termux, with one script:
 
 ```sh
-pkg install git openjdk-21 aapt2 d8 apksigner zip unzip
-git clone https://github.com/Christian-Ernst/TAV && cd TAV/android
-./build.sh && termux-open build/TAV.apk
+pkg install git
+git clone https://github.com/Christian-Ernst/TAV && cd TAV
+bash setup.sh
 ```
+
+`setup.sh` repairs a half-upgraded Termux (official mirror, discontinued packages, full upgrade),
+installs the tools, offers to set up release signing, builds the APK and opens the installer, and
+installs the terminal edition as `tav`. Run it again any time to update everything. To build by hand
+instead: `pkg install openjdk-21 aapt2 d8 apksigner zip unzip`, then `android/build.sh` and
+`termux-open android/build/TAV.apk`.
 
 The first build downloads Android's framework stubs once (~64 MB) and creates a signing key for
 your phone in `~/.config/tav/`.
@@ -102,6 +108,8 @@ git clone https://github.com/Christian-Ernst/TAV && cd TAV/termux
 ./install.sh
 ```
 
+(`bash setup.sh` in the TAV folder installs this too, together with the Android app.)
+
 ```sh
 tav song.mp3        # play a file and watch it
 tav                 # visualize whatever Termux plays through PulseAudio
@@ -164,7 +172,7 @@ No signing key lives in this repository: a key anyone can download would let any
 Actions as the `TAV_KEYSTORE_B64` and `TAV_KS_PASS` secrets, then starts a fresh build:
 
 ```sh
-cd TAV && android/tools/setup-signing.sh
+cd TAV && android/tools/setup-signing.sh     # or: bash setup.sh, which offers this step
 ```
 
 It installs `gh` and a JDK if needed and asks you to log in to GitHub once. Afterwards every release and

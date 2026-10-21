@@ -49,6 +49,7 @@ fi
 
 base64 < "$KEY" | tr -d '\n' | gh secret set TAV_KEYSTORE_B64 --repo "$REPO"
 printf '%s' "$PASS" | gh secret set TAV_KS_PASS --repo "$REPO"
+echo "$REPO" > "$DIR/github"   # tells setup.sh this is done
 echo "Secrets TAV_KEYSTORE_B64 and TAV_KS_PASS are set on $REPO."
 
 BRANCH=$(gh repo view "$REPO" --json defaultBranchRef --jq .defaultBranchRef.name)
