@@ -77,6 +77,8 @@ if you enable *Settings → Device Broadcast Status* in Spotify.
 
 ## Terminal edition (Termux)
 
+![The terminal edition in Termux](docs/terminal.jpg)
+
 ```sh
 pkg install git
 git clone https://github.com/Christian-Ernst/TAV && cd TAV/termux
@@ -97,6 +99,20 @@ Keys: `space`/arrows switch scenes, `1`–`7` jump to one, `s` stamps a shape, `
 `k` colours, `a` autopilot, `h` help, `q` quit. Tap the screen for ripples and drag to draw.
 Pinch-zoom Termux out for more resolution. If it stutters, try `--fps 20` or `--lite`.
 If sound and picture drift apart in file mode, use `--delay MS`.
+
+---
+
+## Browser edition (`web/`)
+
+The same shaders in WebGL2, driven by a synthesized demo track or any song you open. Serve the repository
+root and open `/web/`:
+
+```sh
+python3 -m http.server 8000    # then visit http://localhost:8000/web/
+```
+
+Turn on GitHub Pages for the repository and it works at `https://<user>.github.io/TAV/web/` too.
+Browsers can't hear other apps, so it can't follow Spotify; that's what the Android app is for.
 
 ---
 

@@ -5,7 +5,7 @@ void main() {
     // the vanishing point drifts lazily
     vec2 p = p0 + 0.14 * vec2(sin(uFlow * 0.13), cos(uFlow * 0.11));
     float r = length(p) + 1e-4;
-    float a = atan(p.y, p.x);
+    float a = angle(p);
     float twist = 1.6 * sin(uFlow * 0.05);
     float z = 1.1 / r + uFlow * 1.6;               // depth along the tunnel
     float u = fract(a / TAU + 0.5 + twist * 0.06 * z / (1.0 + 0.05 * z) - uFlow * 0.004);

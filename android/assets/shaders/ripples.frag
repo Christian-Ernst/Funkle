@@ -10,7 +10,7 @@ void main() {
         float age = rp.z, fi = float(i);
         vec2 d = p - rp.xy;
         float r = length(d);
-        float u = atan(d.y, d.x) / TAU + 0.5;
+        float u = angle(d) / TAU + 0.5;
         float life = exp(-age * 0.9) * smoothstep(0.0, 0.06, age) * rp.w;
         for (int k = 0; k < 3; k++) {
             float fk = float(k);

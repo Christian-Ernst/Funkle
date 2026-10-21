@@ -66,12 +66,15 @@ final class TavRenderer implements GLSurfaceView.Renderer {
     // state
     private int scene, sym = 1, quality = 1;
     private float renderScale = QUALITY_SCALE[1], adaptScale = 1f;
-    private float time, stepScale = 1, transStart = -10, flash, seed;
+    // Clocks are double on the CPU; the shaders get them wrapped (see use()) because fp32
+    // uniforms in the thousands lose the precision that fract()/sin() patterns need.
+    private double time, transStart = -10;
+    private float stepScale = 1, flash, seed;
     private long lastNanos;
     private float slowFrames, sceneTimer;
     private boolean autopilot = true, lastSilent;
     private final float[][] palette = Palettes.preset(1), target = Palettes.preset(1);
-    private final List<float[]> ripples = new ArrayList<>();   // x, y, born, strength
+    private final List<double[]> ripples = new ArrayList<>();   // x, y, born, strength
     private final List<Stroke> strokes = new ArrayList<>();
     private Stroke liveStroke;
     private final float[] palFlat = new float[9], rippleFlat = new float[MAX_RIPPLES * 4];
@@ -98,6 +101,7 @@ final class TavRenderer implements GLSurfaceView.Renderer {
         }
         scene = i;
         sceneTimer = 0;
+        if (an != null && an.flow > 400) an.flow = 0;   // rebase the music clock while the crossfade hides the jump
         host.onSceneChanged(i);
     }
 
@@ -135,7 +139,7 @@ final class TavRenderer implements GLSurfaceView.Renderer {
     }
 
     void addRipple(float x, float y, float strength) {
-        ripples.add(new float[]{x, y, time, strength});
+        ripples.add(new double[]{x, y, time, strength});
         if (ripples.size() > MAX_RIPPLES) ripples.remove(0);
     }
 
@@ -253,6 +257,7 @@ final class TavRenderer implements GLSurfaceView.Renderer {
         }
 
         time += dt;
+        if (an.flow > 2000) an.flow -= 2000;   // safety net when autopilot is off and no scene changes
         stepScale = Math.min(4f, Math.max(0.25f, dt * 60f));
         adapt(dt);
         autopilot(dt);
@@ -312,7 +317,7 @@ final class TavRenderer implements GLSurfaceView.Renderer {
         }
         drawUserLayer();
 
-        float tm = (time - transStart) / 0.9f;
+        float tm = (float) ((time - transStart) / 0.9);
         if (tm < 1) {
             glBindVertexArray(vao);
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -427,11 +432,11 @@ final class TavRenderer implements GLSurfaceView.Renderer {
                 use(p);
                 java.util.Arrays.fill(rippleFlat, 0);
                 for (int i = 0; i < ripples.size(); i++) {
-                    float[] r = ripples.get(i);
-                    rippleFlat[i * 4] = r[0];
-                    rippleFlat[i * 4 + 1] = r[1];
-                    rippleFlat[i * 4 + 2] = time - r[2];
-                    rippleFlat[i * 4 + 3] = r[3];
+                    double[] r = ripples.get(i);
+                    rippleFlat[i * 4] = (float) r[0];
+                    rippleFlat[i * 4 + 1] = (float) r[1];
+                    rippleFlat[i * 4 + 2] = (float) (time - r[2]);
+                    rippleFlat[i * 4 + 3] = (float) r[3];
                 }
                 glUniform4fv(p.loc("uRipple"), MAX_RIPPLES, rippleFlat, 0);
                 glUniform1i(p.loc("uRippleCount"), ripples.size());
@@ -456,7 +461,7 @@ final class TavRenderer implements GLSurfaceView.Renderer {
             glVertexAttribPointer(3, 1, GL_FLOAT, false, 24, 20);
             uniform1f(p, "uLen", s.len);
             uniform1f(p, "uHue", s.hue);
-            uniform1f(p, "uAlpha", Math.min(1, (time - s.born) * 3));
+            uniform1f(p, "uAlpha", (float) Math.min(1, (time - s.born) * 3));
             glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, s.count, (int) copies);
         }
         glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -472,7 +477,7 @@ final class TavRenderer implements GLSurfaceView.Renderer {
             if (cur != null) glUniform2f(res, cur.w, cur.h);
             else glUniform2f(res, width, height);
         }
-        uniform1f(p, "uTime", time);
+        uniform1f(p, "uTime", (float) (time % 3600.0));
         uniform1f(p, "uFlow", an.flow);
         uniform1f(p, "uStep", stepScale);
         uniform1f(p, "uHistHead", an.histHead);
@@ -582,12 +587,16 @@ final class TavRenderer implements GLSurfaceView.Renderer {
         }
     }
 
+    /** One-byte-per-texel (R8) texture, zero-filled. */
     private static int makeTex(int w, int h, int ifmt, int fmt, int type, int wrapT) {
         int[] t = new int[1];
         glGenTextures(1, t, 0);
         glBindTexture(GL_TEXTURE_2D, t[0]);
         glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-        glTexImage2D(GL_TEXTURE_2D, 0, ifmt, w, h, 0, fmt, type, null);
+        // GLES leaves a null-initialised image undefined (WebGL zero-fills it); the spectrogram
+        // ring takes seconds to fill, so start from real zeros instead of leftover GPU memory.
+        ByteBuffer zeros = ByteBuffer.allocateDirect(w * h).order(ByteOrder.nativeOrder());
+        glTexImage2D(GL_TEXTURE_2D, 0, ifmt, w, h, 0, fmt, type, zeros);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -676,12 +685,13 @@ final class TavRenderer implements GLSurfaceView.Renderer {
     /** A user stroke: points in centred coordinates, uploaded as a triangle strip. */
     private static final class Stroke {
         final List<float[]> points = new ArrayList<>();
-        final float hue, born;
+        final float hue;
+        final double born;
         int vbo, count;
         float len;
         boolean dirty = true;
 
-        Stroke(float hue, float born) {
+        Stroke(float hue, double born) {
             this.hue = hue;
             this.born = born;
         }

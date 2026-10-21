@@ -44,7 +44,7 @@ jobs:
         run: |
           gh release delete latest --yes --cleanup-tag || true
           gh release create latest android/build/TAV.apk \
-            --target "$GITHUB_SHA" --prerelease --title "TAV — latest build" \
+            --target "$GITHUB_SHA" --latest --title "TAV — latest build" \
             --notes "Built from ${GITHUB_SHA::7} on \`${GITHUB_REF_NAME}\`. Download **TAV.apk** on your phone and open it to install (allow installs from your browser/file manager when asked)."
 
   terminal:

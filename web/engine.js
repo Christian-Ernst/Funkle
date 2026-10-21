@@ -106,7 +106,8 @@ class TavEngine {
     gl.useProgram(prog.p);
     const set1 = (n, v) => { if (L[n]) gl.uniform1f(L[n], v); };
     if (L.uRes) gl.uniform2f(L.uRes, this.cur ? this.cur.w : this.w, this.cur ? this.cur.h : this.h);
-    set1('uTime', this.time); set1('uFlow', an.flow); set1('uStep', this.step || 1); set1('uHistHead', an.histHead);
+    // fp32 uniforms in the thousands lose the precision fract()/sin() patterns need: wrap the clocks
+    set1('uTime', this.time % 3600); set1('uFlow', an.flow); set1('uStep', this.step || 1); set1('uHistHead', an.histHead);
     set1('uSym', this.sym); set1('uSeed', this.seed);
     if (L.uBands) gl.uniform4f(L.uBands, an.bands[0], an.bands[1], an.bands[2], an.bands[3]);
     if (L.uEnergy) gl.uniform4f(L.uEnergy, an.level, an.beat, an.beatCount, an.intensity);
@@ -141,6 +142,7 @@ class TavEngine {
     gl.blitFramebuffer(0, 0, src.w, src.h, 0, 0, this.trans.w, this.trans.h, gl.COLOR_BUFFER_BIT, gl.NEAREST);
     this.transStart = this.time;
     this.scene = i;
+    this.rebaseFlow = true;
   }
 
   addRipple(x, y, strength = 1) {
@@ -197,6 +199,9 @@ class TavEngine {
   frame(dt, an) {
     const gl = this.gl, sc = SCENES[this.scene];
     this.time += dt;
+    if (this.rebaseFlow && an.flow > 400) an.flow = 0;   // rebase the music clock while the crossfade hides the jump
+    this.rebaseFlow = false;
+    if (an.flow > 2000) an.flow -= 2000;
     this.step = Math.min(4, Math.max(0.25, dt * 60));
     if (an.drop) { this.seed = (this.seed + 1) % 64; this.flash = 0.6; }
     this.flash *= Math.exp(-dt * 4);

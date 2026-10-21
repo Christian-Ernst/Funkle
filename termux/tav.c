@@ -1032,9 +1032,12 @@ static int scene, autopilot = 1, palIdx;
 static float sceneTimer;
 static int dragging, downX, downY, moved;
 
+static int rebaseFlow;
+
 static void set_scene(int i) {
     scene = ((i % NSCENES) + NSCENES) % NSCENES;
     sceneTimer = 0;
+    rebaseFlow = 1;
     set_status("%s   (%d/%d)   press h for help", SCENES[scene].name, scene + 1, NSCENES);
 }
 
@@ -1309,6 +1312,10 @@ int main(int argc, char **argv) {
         audio_latest(mono, scopeL, scopeR, delayMs * SR / 1000);
         an_process(&an, mono, dt);
         T += dt;
+        /* keep the float music clock small: rebase on scene changes, wrap as a safety net */
+        if (rebaseFlow && an.flow > 400) an.flow = 0;
+        rebaseFlow = 0;
+        if (an.flow > 2000) an.flow -= 2000;
         sceneTimer += dt;
         if (an.drop) seed = fmodf(seed + 1, 64);
         if (autopilot && ((an.drop && sceneTimer > 12) || sceneTimer > 45)) {

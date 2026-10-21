@@ -55,7 +55,7 @@ void main() {
             vec3 n = normalAt(pos);
             vec3 l = normalize(vec3(0.6, 0.8, 0.7));
             float diff = max(dot(n, l), 0.0);
-            float fres = pow(1.0 - max(dot(n, -rd), 0.0), 3.0);
+            float fres = pow(clamp(1.0 - dot(n, -rd), 0.0, 1.0), 3.0);   // rounding can push the base below 0
             vec3 h = normalize(l - rd);
             float spec2 = pow(max(dot(n, h), 0.0), 60.0);
             float spike = spikeField(normalize(pos));

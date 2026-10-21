@@ -27,7 +27,8 @@ void main() {
     float s = spec(clamp(rad / 1.45, 0.0, 1.0) * 0.8 + 0.03);
     // shockwave: a ring that leaves the core on each beat
     float front = (1.0 - beat()) * 1.6;
-    float shock = exp(-pow((rad - front) * 7.0, 2.0)) * beat();
+    float dr = (rad - front) * 7.0;   // squared by hand: pow() of a negative base is undefined
+    float shock = exp(-dr * dr) * beat();
     pos *= 1.0 + 0.12 * s + 0.25 * shock;
     pos.y += (h3 - 0.5) * 0.4 * s * s;
     // camera: tilted disc slowly turning

@@ -3,7 +3,7 @@
 // the feedback pulls every echo inward so the ornament keeps recursing.
 vec2 fold(vec2 p, float n, out float a) {
     float seg = TAU / n;
-    a = atan(p.y, p.x);
+    a = angle(p);
     a = mod(a + seg * 0.5, seg) - seg * 0.5;
     a = abs(a);
     return vec2(cos(a), sin(a)) * length(p);

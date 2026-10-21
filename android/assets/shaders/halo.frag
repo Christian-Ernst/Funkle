@@ -4,7 +4,7 @@
 void main() {
     vec2 p = toP(gl_FragCoord.xy);
     float r = length(p);
-    float a = atan(p.y, p.x);
+    float a = angle(p);
     float u = a / TAU + 0.5;
     float b = bass(), bt = beat(), lv = level();
 
