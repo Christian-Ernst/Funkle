@@ -17,7 +17,11 @@ VERSION_CODE=${VERSION_CODE:-$(( $(date +%s) / 60 ))}
 # Signing key: TAV_KEYSTORE if given (CI passes the one from repository secrets), otherwise a
 # key made once for this device. Keys are never kept in the repository.
 KEYSTORE=${TAV_KEYSTORE:-$HOME/.config/tav/tav.keystore}
-KS_PASS=${TAV_KS_PASS:-android}
+if [ -z "${TAV_KS_PASS:-}" ] && [ -z "${TAV_KEYSTORE:-}" ] && [ -f "$HOME/.config/tav/password" ]; then
+    KS_PASS=$(cat "$HOME/.config/tav/password")   # written by tools/setup-signing.sh
+else
+    KS_PASS=${TAV_KS_PASS:-android}
+fi
 KS_ALIAS=${TAV_KS_ALIAS:-tav}
 
 die() { echo "build.sh: $*" >&2; exit 1; }

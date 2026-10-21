@@ -160,20 +160,20 @@ samples ──► AudioAnalyzer ──► 512-bin log spectrum + peaks, triggere
 No signing key lives in this repository: a key anyone can download would let anyone ship an
 "update" that silently inherits TAV's microphone and notification access.
 
-* `build.sh` signs with `$TAV_KEYSTORE` if set, else with a key it creates once per device in
-  `~/.config/tav/tav.keystore`.
-* CI signs with the repository secrets `TAV_KEYSTORE_B64` and `TAV_KS_PASS`. Until you add them, each
-  release gets a one-off key, and installing a newer release means uninstalling the old one first.
-  To set them up once:
+**One-time setup (2 minutes, in Termux):** this makes a release key on your phone and gives it to GitHub
+Actions as the `TAV_KEYSTORE_B64` and `TAV_KS_PASS` secrets, then starts a fresh build:
 
-  ```sh
-  keytool -genkeypair -keystore tav.keystore -alias tav -keyalg RSA -keysize 2048 -validity 20000 -dname CN=TAV
-  base64 -w0 tav.keystore   # paste into Settings → Secrets → Actions → TAV_KEYSTORE_B64
-  ```
+```sh
+cd TAV && android/tools/setup-signing.sh
+```
 
-  and store the password you chose as `TAV_KS_PASS`.
-* Builds signed with different keys can't update each other: uninstall TAV before switching between
-  a release APK and one you built yourself.
+It installs `gh` and a JDK if needed and asks you to log in to GitHub once. Afterwards every release and
+every APK you build on the phone share that key, so updates install over each other. Uninstall the TAV
+you have once before installing the first release signed with it. Back up `~/.config/tav/`: without the
+key, a later release can't update the installed app.
+
+Until the secrets exist, each CI release is signed with a one-off key (the release notes say so), and
+`build.sh` signs with a key it creates once per device in `~/.config/tav/`.
 
 ### Checks
 
