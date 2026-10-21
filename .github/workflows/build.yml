@@ -8,6 +8,9 @@ on:
 jobs:
   apk:
     runs-on: ubuntu-latest
+    concurrency:   # a newer push supersedes an older run, so "latest" never goes backwards
+      group: apk-${{ github.ref }}
+      cancel-in-progress: true
     permissions:
       contents: write   # to publish the "latest" release with the APK
     steps:
@@ -51,7 +54,7 @@ jobs:
           path: android/build/TAV.apk
 
       - name: Publish as the "latest" release
-        if: github.event_name != 'pull_request'
+        if: github.event_name == 'push' && github.ref_name == github.event.repository.default_branch
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -67,5 +70,8 @@ jobs:
       - name: Build tav (gcc and clang)
         working-directory: termux
         run: |
-          make CC=gcc CFLAGS="-O2 -Wall -Wextra -Werror" && ./tav --help > /dev/null && make clean
-          make CC=clang CFLAGS="-O2 -Wall -Wextra -Werror" && ./tav --help > /dev/null
+          make CC=gcc CFLAGS="-O2 -Wall -Wextra -Werror"
+          ./tav --help > /dev/null
+          make clean
+          make CC=clang CFLAGS="-O2 -Wall -Wextra -Werror"
+          ./tav --help > /dev/null

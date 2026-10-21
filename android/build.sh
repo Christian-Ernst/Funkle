@@ -33,6 +33,7 @@ if [[ "${PREFIX:-}" == *com.termux* ]]; then
         mkdir -p "$(dirname "$JAR")"
         echo "Downloading android-$API platform stubs (once)..."
         tmp=$(mktemp -d)
+        trap 'rm -rf "$tmp"' EXIT   # an interrupted 64 MB download must not pile up in $PREFIX/tmp
         curl -fL --progress-bar -o "$tmp/platform.zip" "https://dl.google.com/android/repository/platform-${API}_r02.zip"
         unzip -p "$tmp/platform.zip" "android-$API/android.jar" > "$JAR.part"
         mv "$JAR.part" "$JAR"
@@ -42,7 +43,7 @@ else
     HINT="Install the Android SDK (build-tools + platforms;android-$API) and set ANDROID_HOME."
     SDK=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}
     [ -n "$SDK" ] || die "ANDROID_HOME is not set. $HINT"
-    BT=$(ls -d "$SDK"/build-tools/*/ 2>/dev/null | sort -V | tail -1)
+    BT=$(ls -d "$SDK"/build-tools/*/ 2>/dev/null | sort -V | tail -1 || true)   # empty -> the die below explains
     [ -n "$BT" ] || die "no build-tools in $SDK. $HINT"
     AAPT2=$BT/aapt2 D8=$BT/d8 APKSIGNER=$BT/apksigner
     JAR=$SDK/platforms/android-$API/android.jar
