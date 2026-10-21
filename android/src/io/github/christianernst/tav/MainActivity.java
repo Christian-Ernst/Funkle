@@ -26,6 +26,7 @@ import android.view.Window;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.view.WindowManager;
+import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
@@ -71,8 +72,23 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         if (panel.getVisibility() != View.VISIBLE) menuButton.animate().alpha(0f).setDuration(600).start();
     };
     private final Runnable hideTrack = () -> {
-        if (!titleAlways) trackBox.animate().alpha(0f).setDuration(1200).start();
+        if (!titleAlways) fadeTrack(0f, 1200);
     };
+
+    /**
+     * Animates the song title's opacity. At 0 it becomes INVISIBLE, so it takes no touches
+     * (a transparent but clickable view would swallow taps meant for the visuals) and screen
+     * readers skip it.
+     */
+    private void fadeTrack(float alpha, long ms) {
+        trackBox.animate().cancel();
+        if (alpha > 0f) {
+            trackBox.setVisibility(View.VISIBLE);
+            trackBox.animate().alpha(alpha).setDuration(ms).start();
+        } else {
+            trackBox.animate().alpha(0f).setDuration(ms).withEndAction(() -> trackBox.setVisibility(View.INVISIBLE)).start();
+        }
+    }
     private final Runnable hideScene = () -> sceneLabel.animate().alpha(0f).setDuration(900).start();
     private final Runnable showHint = () -> {
         ui.postDelayed(this.showHint, 3000);   // keep re-checking until sound returns (onSilence stops it)
@@ -115,6 +131,9 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
 
         root = new FrameLayout(this);
         root.setBackgroundColor(Color.BLACK);
+        // A second finger joins the view the first one touched, so a two-finger scene swipe that
+        // lands partly on the song title still reaches the visuals as one gesture.
+        root.setMotionEventSplittingEnabled(false);
         root.addView(view, new FrameLayout.LayoutParams(-1, -1));
         buildOverlay();
         setContentView(root);
@@ -276,7 +295,10 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         view.queueEvent(renderer::onTrackChanged);
         title.setText(t);
         artist.setText(a);
+        trackBox.setContentDescription("Now playing: " + t + (a.isEmpty() ? "" : " by " + a)
+                + ". Double-tap to play or pause.");
         trackBox.animate().cancel();
+        trackBox.setVisibility(View.VISIBLE);
         trackBox.setAlpha(0f);
         trackBox.setTranslationX(0);
         trackBox.setTranslationY(16 * dp);
@@ -290,7 +312,10 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         playing = nowPlayingState;
         playButton.setKind(playing ? TransportButton.PAUSE : TransportButton.PLAY);
         // no alpha test: a fade-in that started this frame still reads 0 and must be redirected too
-        if (titleAlways && !lastTitle.isEmpty()) trackBox.animate().alpha(trackAlpha()).setDuration(400).start();
+        if (titleAlways && !lastTitle.isEmpty()) {
+            trackBox.setVisibility(View.VISIBLE);
+            trackBox.animate().alpha(trackAlpha()).setDuration(400).start();   // keeps a running slide-in going
+        }
     }
 
     /** The on-screen title dims while playback is paused. */
@@ -308,13 +333,17 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         if (forward) media.next();
         else media.previous();
         flash(forward ? "N E X T" : "P R E V I O U S");
-        if (trackBox.getAlpha() > 0f) {   // the title slides out the way it was flicked
+        if (trackBox.getVisibility() == View.VISIBLE && trackBox.getAlpha() > 0f) {   // the title slides out the way it was flicked
             float d = (forward ? -1 : 1) * 60 * dp;
             trackBox.animate().translationX(d).alpha(0f).setDuration(180)
                     .withEndAction(() -> {
                         trackBox.setTranslationX(-d);
-                        trackBox.animate().translationX(0).alpha(lastTitle.isEmpty() ? 0f : trackAlpha()).setDuration(260).start();
+                        trackBox.animate().translationX(0).alpha(trackAlpha()).setDuration(260).start();
                     }).start();
+            if (!titleAlways) {   // brought back by the skip: let it fade again
+                ui.removeCallbacks(hideTrack);
+                ui.postDelayed(hideTrack, 5000);
+            }
         }
     }
 
@@ -412,10 +441,28 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         trackBox.addView(title);
         trackBox.addView(artist);
         trackBox.setAlpha(0f);
+        trackBox.setVisibility(View.INVISIBLE);
         trackBox.setPadding(0, px(8), px(16), px(8));   // a little more to grab
         trackBox.setOnTouchListener(new TitleGestures());
         trackBox.setOnClickListener(v -> playPause());   // the tap, also for screen readers
-        trackBox.setContentDescription("Now playing. Activate to play or pause, swipe for another track.");
+        trackBox.setAccessibilityDelegate(new View.AccessibilityDelegate() {
+            // screen-reader users can't make the swipe: offer next/previous as actions
+            @Override
+            public void onInitializeAccessibilityNodeInfo(View host, AccessibilityNodeInfo info) {
+                super.onInitializeAccessibilityNodeInfo(host, info);
+                info.addAction(new AccessibilityNodeInfo.AccessibilityAction(R.id.action_next_track, "Next track"));
+                info.addAction(new AccessibilityNodeInfo.AccessibilityAction(R.id.action_previous_track, "Previous track"));
+            }
+
+            @Override
+            public boolean performAccessibilityAction(View host, int action, Bundle args) {
+                if (action == R.id.action_next_track || action == R.id.action_previous_track) {
+                    skip(action == R.id.action_next_track);
+                    return true;
+                }
+                return super.performAccessibilityAction(host, action, args);
+            }
+        });
         lp = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.START);
         lp.setMargins(px(28), 0, px(96), px(40));
         root.addView(trackBox, lp);
@@ -540,8 +587,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
             prefs.edit().putBoolean("titleAlways", titleAlways).apply();
             ui.removeCallbacks(hideTrack);
             if (lastTitle.isEmpty()) return;
-            trackBox.animate().cancel();
-            if (titleAlways) trackBox.animate().alpha(trackAlpha()).setDuration(400).start();
+            if (titleAlways) fadeTrack(trackAlpha(), 400);
             else ui.postDelayed(hideTrack, 2500);
         });
 
@@ -742,18 +788,47 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
 
     /** Swipe the on-screen song title to skip, tap it to play or pause. Invisible: lets touches through. */
     private final class TitleGestures implements View.OnTouchListener {
-        private float x0, y0;
+        private float x0, y0, swipeX0;
+        private boolean tracking, multi;
+
+        private float avgX(MotionEvent e) {
+            float sum = 0;
+            for (int i = 0; i < e.getPointerCount(); i++) sum += e.getX(i);
+            return sum / e.getPointerCount();
+        }
 
         @Override
         public boolean onTouch(View v, MotionEvent e) {
             switch (e.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN:
-                    if (trackBox.getAlpha() < 0.05f) return false;   // faded out: the visuals get the touch
+                    tracking = true;
+                    multi = false;
                     x0 = e.getRawX();
                     y0 = e.getRawY();
                     pokeMenu();
                     return true;
+                case MotionEvent.ACTION_POINTER_DOWN:
+                    multi = true;   // two fingers on the title: a scene swipe, as on the visuals
+                    swipeX0 = avgX(e);
+                    return true;
+                case MotionEvent.ACTION_POINTER_UP:
+                    if (multi && e.getPointerCount() == 2) {
+                        float dx = avgX(e) - swipeX0;
+                        if (Math.abs(dx) > 90 * dp) {
+                            final int dir = dx < 0 ? 1 : -1;
+                            view.queueEvent(() -> renderer.nextScene(dir));
+                        }
+                    }
+                    return true;
+                case MotionEvent.ACTION_CANCEL:
+                    tracking = false;
+                    return true;
                 case MotionEvent.ACTION_UP: {
+                    if (!tracking || multi) {
+                        tracking = false;
+                        return true;
+                    }
+                    tracking = false;
                     float dx = e.getRawX() - x0, dy = e.getRawY() - y0;
                     float slop = ViewConfiguration.get(MainActivity.this).getScaledTouchSlop();
                     if (Math.abs(dx) > 56 * dp && Math.abs(dx) > 1.5f * Math.abs(dy)) skip(dx < 0);

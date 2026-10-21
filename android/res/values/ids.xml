@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- custom accessibility actions on the on-screen song title -->
+    <item type="id" name="action_next_track" />
+    <item type="id" name="action_previous_track" />
+</resources>
