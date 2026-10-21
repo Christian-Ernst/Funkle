@@ -319,6 +319,8 @@ static float ringL[RING], ringR[RING];
 static int64_t ringW;          /* total frames written; 64-bit so 32-bit Termux can run for days */
 static pthread_mutex_t ringLock = PTHREAD_MUTEX_INITIALIZER;
 static volatile int audioEof, running = 1;
+static volatile int playbackFailed;   /* pacat/PulseAudio died during file playback */
+static volatile int pipeLagFrames;    /* written to pacat but still sitting in the pipe */
 
 typedef struct {
     int fd;
@@ -341,9 +343,20 @@ static void *audio_thread(void *arg) {
         }
         int bytes = carry + (int)got, frames = bytes / 4;
         if (cfg->play) {
-            fwrite(buf, 4, frames, cfg->play);  /* blocks: the sound card sets the pace */
-            fflush(cfg->play);
-        } else if (cfg->pace) {
+            /* blocks: the sound card sets the pace */
+            if (fwrite(buf, 4, frames, cfg->play) != (size_t)frames || fflush(cfg->play) != 0) {
+                /* pacat or PulseAudio died: keep drawing in real time, without sound */
+                fclose(cfg->play);
+                cfg->play = NULL;
+                cfg->pace = 1;
+                t0 = now_s() - (double)total / SR;
+                playbackFailed = 1;
+            } else {
+                int pending = 0;   /* audio still in the pipe is not heard yet: the picture waits for it */
+                if (ioctl(fileno(cfg->play), FIONREAD, &pending) == 0) pipeLagFrames = pending / 4;
+            }
+        }
+        if (!cfg->play && cfg->pace) {
             double ahead = (double)total / SR - (now_s() - t0);
             if (ahead > 0.02) usleep((useconds_t)((ahead - 0.01) * 1e6));
             else if (ahead < -0.25) t0 = now_s() - (double)total / SR;   /* a live producer fell behind: resync, no burst */
@@ -846,6 +859,7 @@ static char *out;
 static size_t outCap, outLen;
 static uint32_t *prevCell;   /* packed glyph + colours of what is on screen */
 
+#define EMIT_LIT(s) emit(s, sizeof(s) - 1)
 static void emit(const char *s, size_t n) {
     if (outLen + n > outCap) {
         outCap = (outLen + n) * 2;
@@ -872,10 +886,19 @@ static void flush_out(void) {
     outLen = 0;
 }
 
+/* Autowrap is off while we run: a full last row must never scroll the screen. */
+static const char TERM_INIT[] = "\x1b[?1049h\x1b[?25l\x1b[?7l\x1b[?1000h\x1b[?1002h\x1b[?1006h\x1b[2J";
+static const char TERM_RESTORE[] = "\x1b[?1006l\x1b[?1002l\x1b[?1000l\x1b[0m\x1b[?7h\x1b[?25h\x1b[?1049l";
+static struct termios rawTerm;
+
+/* async-signal-safe: write() and tcsetattr() only */
 static void restore_term(void) {
-    const char *s = "\x1b[?1006l\x1b[?1002l\x1b[?1000l\x1b[0m\x1b[?25h\x1b[?1049l";
-    if (write(STDOUT_FILENO, s, strlen(s)) < 0) { /* nothing more we can do */ }
+    if (write(STDOUT_FILENO, TERM_RESTORE, sizeof TERM_RESTORE - 1) < 0) { /* nothing more we can do */ }
     if (termSaved) tcsetattr(ttyIn, TCSANOW, &origTerm);
+}
+static void enter_term(void) {
+    if (termSaved) tcsetattr(ttyIn, TCSANOW, &rawTerm);
+    if (write(STDOUT_FILENO, TERM_INIT, sizeof TERM_INIT - 1) < 0) { /* the frame loop will notice */ }
 }
 static void on_signal(int sig) {
     (void)sig;
@@ -884,6 +907,20 @@ static void on_signal(int sig) {
 static volatile int resized = 1;
 static void on_winch(int sig) {
     (void)sig;
+    resized = 1;
+}
+/* Ctrl-Z: hand the shell a normal terminal, then really stop. */
+static void on_tstp(int sig) {
+    (void)sig;
+    restore_term();
+    signal(SIGTSTP, SIG_DFL);
+    raise(SIGTSTP);
+}
+/* fg: take the terminal back and repaint everything. */
+static void on_cont(int sig) {
+    (void)sig;
+    enter_term();
+    signal(SIGTSTP, on_tstp);
     resized = 1;
 }
 
@@ -903,6 +940,11 @@ static void set_status(const char *fmt, ...) {
     va_end(ap);
     statusTimer = 90;
 }
+/* a message that stays until the next status: for problems the user has to act on */
+static void set_alert(const char *msg) {
+    snprintf(status, sizeof status, "%s", msg);
+    statusTimer = 1 << 30;
+}
 
 static void alloc_buffers(void) {
     struct winsize ws;
@@ -919,7 +961,7 @@ static void alloc_buffers(void) {
     cellBlur = calloc((size_t)cols * rows * 3, sizeof(float));
     cellTmp = calloc((size_t)cols * rows * 3, sizeof(float));
     prevCell = calloc((size_t)cols * rows * 3, sizeof(uint32_t));
-    emit("\x1b[0m\x1b[2J", 7);
+    EMIT_LIT("\x1b[0m\x1b[2J");
 }
 
 static unsigned char tone(float v) {
@@ -945,6 +987,27 @@ static void blur_cells(const float *src, float *dst) {
         }
 }
 
+/* Copies at most maxCols characters of UTF-8 text, replacing control bytes (a file name
+ * could carry escape sequences) and never splitting a multi-byte character. */
+static void clip_line(const char *src, int maxCols, char *dst, size_t cap) {
+    size_t o = 0;
+    int colsUsed = 0;
+    const unsigned char *p = (const unsigned char *)src;
+    while (*p && colsUsed < maxCols) {
+        int len = *p < 0x80 ? 1 : (*p >> 5) == 6 ? 2 : (*p >> 4) == 14 ? 3 : (*p >> 3) == 30 ? 4 : 0;
+        if (len == 0) { p++; continue; }   /* stray continuation byte */
+        int ok = 1;
+        for (int k = 1; k < len; k++) if ((p[k] & 0xC0) != 0x80) ok = 0;
+        if (!ok) { p++; continue; }
+        if (o + (size_t)len + 1 > cap) break;
+        if (len == 1 && (*p < 0x20 || *p == 0x7F)) dst[o++] = '?';
+        else for (int k = 0; k < len; k++) dst[o++] = (char)p[k];
+        p += len;
+        colsUsed++;
+    }
+    dst[o] = 0;
+}
+
 /* framebuffer -> braille cells with glowing truecolor backgrounds */
 static void present(void) {
     static const int dotBit[4][2] = {{0x01, 0x08}, {0x02, 0x10}, {0x04, 0x20}, {0x40, 0x80}};
@@ -965,7 +1028,7 @@ static void present(void) {
     blur_cells(cellBlur, cellTmp);
 
     int statusRow = (statusTimer > 0 || showHelp) ? rows - 1 : -1;
-    emit("\x1b[?2026h", 8);
+    EMIT_LIT("\x1b[?2026h");
     int cursorX = -1, cursorY = -1;
     int lastFg = -1, lastBg = -1;
     for (int cy = 0; cy < rows; cy++) {
@@ -1000,7 +1063,7 @@ static void present(void) {
             pc[0] = glyph; pc[1] = fgc; pc[2] = bg;
             if (cursorY != cy || cursorX != cx) emitf("\x1b[%d;%dH", cy + 1, cx + 1);
             if (bg != lastBg) {
-                if (bg == 0) emit("\x1b[49m", 5);
+                if (bg == 0) EMIT_LIT("\x1b[49m");
                 else if (colorMode == 24) emitf("\x1b[48;2;%d;%d;%dm", bg >> 16, (bg >> 8) & 255, bg & 255);
                 else emitf("\x1b[48;5;%dm", xterm256(bg >> 16, (bg >> 8) & 255, bg & 255));
                 lastBg = bg;
@@ -1014,7 +1077,7 @@ static void present(void) {
                 char u[3] = {(char)(0xE0 | (glyph >> 12)), (char)(0x80 | ((glyph >> 6) & 0x3F)), (char)(0x80 | (glyph & 0x3F))};
                 emit(u, 3);
             } else {
-                emit(" ", 1);
+                EMIT_LIT(" ");
             }
             cursorX = cx + 1;
             cursorY = cy;
@@ -1023,12 +1086,16 @@ static void present(void) {
     if (statusRow >= 0) {
         const char *help = " space/\xe2\x86\x92 next  1-7 scene  tap ripple  drag draw  s shape  m mirror  c clear  k colours  a autopilot  q quit ";
         const char *txt = showHelp ? help : status;
-        emitf("\x1b[%d;1H\x1b[0m\x1b[38;2;235;235;245m\x1b[48;2;20;16;34m\x1b[2K %s", rows, txt);
-        emit("\x1b[0m", 4);
+        char line[512];
+        clip_line(txt, cols - 2, line, sizeof line);
+        emitf("\x1b[%d;1H\x1b[0m\x1b[38;2;235;235;245m\x1b[48;2;20;16;34m\x1b[2K", rows);
+        EMIT_LIT(" ");
+        emit(line, strlen(line));
+        EMIT_LIT("\x1b[0m");
         for (int cx = 0; cx < cols; cx++) prevCell[3 * ((rows - 1) * cols + cx)] = 0xFFFFFFFFu;   /* repaint after */
         lastFg = lastBg = -1;
     }
-    emit("\x1b[?2026l", 8);
+    EMIT_LIT("\x1b[?2026l");
     flush_out();
 }
 
@@ -1037,6 +1104,11 @@ static void present(void) {
 static int scene, autopilot = 1, palIdx;
 static float sceneTimer;
 static int dragging, downX, downY, moved;
+/* Termux turns finger drags into wheel events at the finger's position (it never sends
+ * motion for touch). Wheel events that move are a drawing; a burst that stays put is a
+ * real mouse wheel and changes the scene once, when the burst ends. */
+static double wheelAt;
+static int wheelX, wheelY, wheelDir, wheelMoved, wheelPending, wheelStroke = -1;
 
 static int rebaseFlow;
 
@@ -1063,9 +1135,31 @@ static void handle_mouse(int b, int x, int y, int press) {
         if (dragging && !moved) add_ripple(px, py, 1);
         dragging = 0;
         liveStroke = -1;
-    } else if (b == 64 || b == 65) {    /* wheel: scenes */
-        set_scene(scene + (b == 64 ? -1 : 1));
+    } else if (b == 64 || b == 65) {    /* wheel: a Termux finger drag, or a mouse wheel */
+        int moving = wheelPending && (x != wheelX || y != wheelY);
+        if (moving) {
+            if (wheelStroke < 0 || wheelStroke >= nStrokes) {
+                Stroke *s = new_stroke();
+                wheelStroke = (int)(s - strokes);
+                stroke_add(s, fromX((wheelX - 1) * 2 + 1), fromY((wheelY - 1) * 4 + 2));
+            }
+            stroke_add(&strokes[wheelStroke], px, py);
+            wheelMoved = 1;
+        }
+        if (!wheelPending) { wheelMoved = 0; wheelStroke = -1; }
+        wheelPending = 1;
+        wheelDir = b == 64 ? -1 : 1;
+        wheelX = x; wheelY = y;
+        wheelAt = now_s();
     }
+}
+
+/* called every frame: a wheel burst that went quiet is resolved here */
+static void settle_wheel(void) {
+    if (!wheelPending || now_s() - wheelAt < 0.25) return;
+    if (!wheelMoved) set_scene(scene + wheelDir);
+    wheelPending = 0;
+    wheelStroke = -1;
 }
 
 static void handle_input(void) {
@@ -1078,7 +1172,19 @@ static void handle_input(void) {
         unsigned char c = buf[i];
         if (c == 0x1b) {
             if (i + 1 >= have) { if (n <= 0) { running = 0; i++; } break; }   /* lone ESC quits */
-            if (buf[i + 1] == '[' && i + 2 < have && buf[i + 2] == '<') {    /* SGR mouse */
+            if (buf[i + 1] == 'O') {             /* SS3: F1-F4 and application-mode arrows */
+                if (i + 2 >= have) break;
+                char k = buf[i + 2];
+                if (k == 'C') set_scene(scene + 1);
+                else if (k == 'D') set_scene(scene - 1);
+                i += 3;
+                continue;
+            }
+            if (buf[i + 1] != '[') {             /* Alt+key: ignore it rather than quit */
+                i += 2;
+                continue;
+            }
+            if (i + 2 < have && buf[i + 2] == '<') {    /* SGR mouse */
                 int j = i + 3, vals[3] = {0, 0, 0}, k = 0;
                 while (j < have && k < 3) {
                     if (buf[j] >= '0' && buf[j] <= '9') vals[k] = vals[k] * 10 + (buf[j] - '0');
@@ -1091,16 +1197,14 @@ static void handle_input(void) {
                 i = j + 1;
                 continue;
             }
-            if (buf[i + 1] == '[' && i + 2 < have) {
-                char k = buf[i + 2];
-                if (k == 'C') set_scene(scene + 1);
-                else if (k == 'D') set_scene(scene - 1);
-                i += 3;
-                continue;
-            }
-            if (buf[i + 1] == '[') break;
-            running = 0;
-            i++;
+            /* CSI: parameter bytes 0x30-0x3F, intermediates 0x20-0x2F, then one final byte;
+             * so Ctrl/Shift+arrows (ESC[1;5C) and F-keys (ESC[15~) are consumed whole */
+            int j = i + 2;
+            while (j < have && buf[j] >= 0x20 && buf[j] <= 0x3F) j++;
+            if (j >= have) break;   /* incomplete: wait for the rest */
+            if (buf[j] == 'C') set_scene(scene + 1);
+            else if (buf[j] == 'D') set_scene(scene - 1);
+            i = j + 1;
             continue;
         }
         switch (c) {
@@ -1147,7 +1251,7 @@ static pid_t spawnedPid[2];
 /* popen() variant that remembers the pid so we can kill it on exit */
 static int spawn(const char *cmd, int wantWrite, int slot) {
     int fds[2];
-    if (pipe(fds) < 0) return -1;
+    if (pipe2(fds, O_CLOEXEC) < 0) return -1;   /* dup2 below clears CLOEXEC on the child's copy */
     pid_t pid = fork();
     if (pid < 0) return -1;
     if (pid == 0) {
@@ -1167,6 +1271,11 @@ static int spawn(const char *cmd, int wantWrite, int slot) {
     }
     spawnedPid[slot] = pid;
     if (wantWrite) {
+#ifdef F_SETPIPE_SZ
+        /* A default 64 KiB pipe holds ~0.4 s of audio that is "played" but not heard yet;
+         * the smallest pipe keeps picture and sound together. */
+        fcntl(fds[1], F_SETPIPE_SZ, 4096);
+#endif
         close(fds[0]);
         spawned[slot] = fdopen(fds[1], "w");
         return fds[1];
@@ -1181,10 +1290,15 @@ static int have_cmd(const char *name) {
     return system(cmd) == 0;
 }
 
-static void ensure_pulse(void) {
-    if (system("pactl info >/dev/null 2>&1") == 0) return;
-    if (system("pulseaudio --start --exit-idle-time=-1 >/dev/null 2>&1") != 0) return;
-    for (int i = 0; i < 20 && system("pactl info >/dev/null 2>&1") != 0; i++) usleep(100000);
+/* returns 0 when a PulseAudio server answers */
+static int ensure_pulse(void) {
+    if (system("pactl info >/dev/null 2>&1") == 0) return 0;
+    if (system("pulseaudio --start --exit-idle-time=-1 >/dev/null 2>&1") != 0) return -1;
+    for (int i = 0; i < 20; i++) {
+        if (system("pactl info >/dev/null 2>&1") == 0) return 0;
+        usleep(100000);
+    }
+    return -1;
 }
 
 static void shell_quote(char *dst, size_t cap, const char *s) {
@@ -1233,6 +1347,7 @@ int main(int argc, char **argv) {
     if (fps > 120) fps = 120;
 
     AudioCfg cfg = {-1, NULL, 0};
+    const char *startAlert = NULL;
     char shellCmd[4096], q[3000];
     const char *sourceName = "PulseAudio monitor";
     if (useStdin) {
@@ -1243,17 +1358,18 @@ int main(int argc, char **argv) {
         cfg.fd = spawn(cmd, 0, 0);
         sourceName = "command";
     } else if (file) {
+        if (access(file, R_OK) != 0) { fprintf(stderr, "tav: cannot read %s: %s\n", file, strerror(errno)); return 1; }
         if (!have_cmd("ffmpeg")) { fprintf(stderr, "tav: playing files needs ffmpeg (pkg install ffmpeg)\n"); return 1; }
         shell_quote(q, sizeof q, file);
         snprintf(shellCmd, sizeof shellCmd, "exec ffmpeg -nostdin -loglevel error -i %s -f s16le -ac 2 -ar 44100 -", q);
         cfg.fd = spawn(shellCmd, 0, 0);
-        if (!noPlay && have_cmd("pacat")) {
-            ensure_pulse();
+        if (!noPlay && have_cmd("pacat") && ensure_pulse() == 0) {
             spawn("exec pacat --raw --format=s16le --rate=44100 --channels=2 --latency-msec=60", 1, 1);
             cfg.play = spawned[1];
             if (delayMs < 0) delayMs = 90;
         } else {
             cfg.pace = 1;
+            if (!noPlay) startAlert = "No sound: PulseAudio is not available (pkg install pulseaudio; pulseaudio --start)";
         }
         const char *base = strrchr(file, '/');
         sourceName = base ? base + 1 : file;
@@ -1262,7 +1378,10 @@ int main(int argc, char **argv) {
             fprintf(stderr, "tav: needs PulseAudio (pkg install pulseaudio), or use: tav song.mp3 / --stdin\n");
             return 1;
         }
-        ensure_pulse();
+        if (ensure_pulse() != 0) {
+            fprintf(stderr, "tav: PulseAudio is not running and would not start; run 'pulseaudio --start' to see why\n");
+            return 1;
+        }
         const char *dev = "@DEFAULT_MONITOR@";
         if (mic) {
             if (system("pactl list short sources 2>/dev/null | grep -q tav_mic") != 0)
@@ -1282,20 +1401,21 @@ int main(int argc, char **argv) {
     if (ttyIn < 0 || !isatty(STDOUT_FILENO)) { fprintf(stderr, "tav: needs an interactive terminal\n"); return 1; }
     if (tcgetattr(ttyIn, &origTerm) == 0) {
         termSaved = 1;
-        struct termios raw = origTerm;
-        raw.c_lflag &= ~(ICANON | ECHO);
-        raw.c_cc[VMIN] = 0;
-        raw.c_cc[VTIME] = 0;
-        tcsetattr(ttyIn, TCSANOW, &raw);
+        rawTerm = origTerm;
+        rawTerm.c_lflag &= ~(ICANON | ECHO);
+        rawTerm.c_cc[VMIN] = 0;
+        rawTerm.c_cc[VTIME] = 0;
     }
     atexit(restore_term);
     signal(SIGINT, on_signal);
     signal(SIGTERM, on_signal);
     signal(SIGHUP, on_signal);
+    signal(SIGQUIT, on_signal);
     signal(SIGPIPE, SIG_IGN);
     signal(SIGWINCH, on_winch);
-    const char *init = "\x1b[?1049h\x1b[?25l\x1b[?1000h\x1b[?1002h\x1b[?1006h\x1b[2J";
-    if (write(STDOUT_FILENO, init, strlen(init)) < 0) return 1;
+    signal(SIGTSTP, on_tstp);
+    signal(SIGCONT, on_cont);
+    enter_term();
 
     pthread_t th;
     pthread_create(&th, NULL, audio_thread, &cfg);
@@ -1306,6 +1426,8 @@ int main(int argc, char **argv) {
     float mono[N];
     set_scene(scene);
     set_status("%s  \xc2\xb7  listening to %s  \xc2\xb7  h for help", SCENES[scene].name, sourceName);
+    if (startAlert) set_alert(startAlert);
+    int reported = 0;
 
     double last = now_s(), frameDur = 1.0 / fps;
     unsigned rng = 12345;
@@ -1315,7 +1437,16 @@ int main(int argc, char **argv) {
         last = t;
         if (resized) { resized = 0; alloc_buffers(); }
         handle_input();
-        audio_latest(mono, scopeL, scopeR, (int64_t)delayMs * SR / 1000);
+        settle_wheel();
+        audio_latest(mono, scopeL, scopeR, (int64_t)delayMs * SR / 1000 + pipeLagFrames);
+        if (playbackFailed && !reported) {
+            reported = 1;
+            set_alert("Sound stopped: PulseAudio went away (pulseaudio --start). Still drawing in time.");
+        }
+        if (audioEof && !file && !reported) {   /* the source ended: say so instead of a silent picture */
+            reported = 1;
+            set_alert(useStdin ? "stdin ended" : "The audio source stopped. Is PulseAudio running? (pulseaudio --start)");
+        }
         an_process(&an, mono, dt);
         T += dt;
         /* keep the float music clock small: rebase on scene changes, wrap as a safety net */
@@ -1355,11 +1486,14 @@ int main(int argc, char **argv) {
         }
     }
     running = 0;
+    /* the audio thread may still be inside fwrite/read on these: let exit() close them */
     for (int i = 0; i < 2; i++) if (spawnedPid[i] > 0) kill(spawnedPid[i], SIGTERM);
-    if (cfg.play) fclose(cfg.play);
-    close(cfg.fd);
     restore_term();
     termSaved = 0;
     for (int i = 0; i < 2; i++) if (spawnedPid[i] > 0) waitpid(spawnedPid[i], NULL, 0);
+    if (file && ringW == 0) {
+        fprintf(stderr, "tav: ffmpeg could not decode %s\n", file);
+        return 1;
+    }
     return 0;
 }

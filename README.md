@@ -107,8 +107,9 @@ tav --help
 session and `tav` in another. ncspot plays through PulseAudio, and `tav` listens to PulseAudio's monitor.
 
 Keys: `space`/arrows switch scenes, `1`–`7` jump to one, `s` stamps a shape, `m` mirror mode, `c` clear,
-`k` colours, `a` autopilot, `h` help, `q` quit. Tap the screen for ripples and drag to draw.
-Pinch-zoom Termux out for more resolution. If it stutters, try `--fps 20` or `--lite`.
+`k` colours, `a` autopilot, `h` help, `q` quit. Tap the screen for ripples and drag to draw. Termux reports
+finger drags as scrolling, which only moves in whole rows, so strokes with some up-down movement draw best;
+`s` stamps complete shapes. Pinch-zoom Termux out for more resolution. If it stutters, try `--fps 20` or `--lite`.
 If sound and picture drift apart in file mode, use `--delay MS`.
 
 ---
