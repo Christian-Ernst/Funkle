@@ -111,6 +111,11 @@ final class AudioCapture {
                 return false;
             }
             r.startRecording();
+            // Another app holding the mic makes startRecording() fail silently on older Androids.
+            if (r.getRecordingState() != AudioRecord.RECORDSTATE_RECORDING) {
+                r.release();
+                return false;
+            }
             record = r;
             micRunning = true;
             micThread = new Thread(() -> micLoop(r), "tav-mic");
@@ -127,7 +132,14 @@ final class AudioCapture {
         while (micRunning) {
             int got = r.read(chunk, 0, chunk.length, AudioRecord.READ_BLOCKING);
             if (got < 0) return;   // released or broken
-            if (got == 0) continue;
+            if (got == 0) {        // not delivering: don't spin a core while waiting
+                try {
+                    Thread.sleep(10);
+                } catch (InterruptedException e) {
+                    return;
+                }
+                continue;
+            }
             synchronized (lock) {
                 for (int i = 0; i < got; i++) {
                     ring[ringPos] = chunk[i];

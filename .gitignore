@@ -1,3 +1,5 @@
 android/build/
 termux/tav
 *.idsig
+android/*.keystore
+*.jks

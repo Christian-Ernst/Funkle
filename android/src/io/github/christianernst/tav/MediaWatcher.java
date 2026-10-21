@@ -40,7 +40,7 @@ final class MediaWatcher {
     private MediaSessionManager msm;
     private MediaController controller;
     private String lastKey = "";
-    private boolean started;
+    private boolean started, spotifyPlaying;
 
     private final MediaSessionManager.OnActiveSessionsChangedListener sessionsChanged = this::pick;
 
@@ -59,9 +59,20 @@ final class MediaWatcher {
     private final BroadcastReceiver spotify = new BroadcastReceiver() {
         @Override
         public void onReceive(Context c, Intent i) {
+            // Any app can send these actions to an exported receiver: a malformed bundle must not
+            // crash us, and only plain, short strings are accepted.
+            String title, artist;
+            try {
+                if ("com.spotify.music.playbackstatechanged".equals(i.getAction()))
+                    spotifyPlaying = i.getBooleanExtra("playing", spotifyPlaying);
+                title = i.getStringExtra("track");
+                artist = i.getStringExtra("artist");
+            } catch (RuntimeException e) {
+                return;
+            }
             if (controller != null) return;   // media session has richer data
-            String title = i.getStringExtra("track"), artist = i.getStringExtra("artist");
-            if (title != null) deliver(title, artist, null);
+            if (title != null && title.length() <= 300 && (artist == null || artist.length() <= 300))
+                deliver(title, artist, null);
         }
     };
 
@@ -101,6 +112,15 @@ final class MediaWatcher {
         // The flags overload exists since API 26; RECEIVER_EXPORTED is only read (and required) from API 33.
         if (Build.VERSION.SDK_INT >= 26) ctx.registerReceiver(spotify, f, Context.RECEIVER_EXPORTED);
         else ctx.registerReceiver(spotify, f);
+    }
+
+    /** Whether something is known to be playing right now (false when we can't tell). */
+    boolean isPlaying() {
+        if (controller != null) {
+            PlaybackState st = controller.getPlaybackState();
+            return st != null && st.getState() == PlaybackState.STATE_PLAYING;
+        }
+        return spotifyPlaying;
     }
 
     void stop() {

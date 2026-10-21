@@ -10,6 +10,7 @@ import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -38,6 +39,9 @@ import java.util.Locale;
 public final class MainActivity extends Activity implements TavRenderer.Host, AudioCapture.Listener, MediaWatcher.Listener {
     private static final int REQ_AUDIO = 7;
     private static final int[] SYMMETRY = {1, 2, 3, 4, 6, 8, 12};
+    private static final String HINT_IDLE = "Play something on Spotify \u266A\nTap to make ripples \u00B7 drag to draw with sound";
+    private static final String HINT_BLOCKED = "Music is playing, but TAV hears silence.\nTurn the volume up, or open \u2630 \u2192 Listen to \u2192 Microphone.";
+    private static final String HINT_NO_PERMISSION = "Without audio access TAV can't hear the music.\nTap and drag still make waves.";
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private SharedPreferences prefs;
@@ -50,7 +54,9 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     private TextView sceneLabel, hint, title, artist, menuButton;
     private LinearLayout trackBox, panelContent;
     private ScrollView panel;
-    private View intro;
+    private View intro, notice;
+    private TextView introBody, introButton;
+    private boolean permissionPending, openSettingsInstead, askedNotificationAccess;
     private final List<TextView> sceneChips = new ArrayList<>(), sourceChips = new ArrayList<>();
     private String lastTitle = "";
     private float[][] albumPalette;
@@ -61,7 +67,15 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     };
     private final Runnable hideTrack = () -> trackBox.animate().alpha(0f).setDuration(1200).start();
     private final Runnable hideScene = () -> sceneLabel.animate().alpha(0f).setDuration(900).start();
-    private final Runnable showHint = () -> hint.animate().alpha(1f).setDuration(800).start();
+    private final Runnable showHint = () -> {
+        ui.postDelayed(this.showHint, 3000);   // keep re-checking until sound returns (onSilence stops it)
+        if (intro != null || notice != null) return;   // a card is explaining things already
+        // Music is known to be playing but the output mix reads as silence: the ROM or the
+        // player is keeping audio away from the visualizer. Point at the microphone.
+        boolean blocked = capture.source() == AudioCapture.SOURCE_SYSTEM && media.isPlaying();
+        hint.setText(!hasAudioPermission() ? HINT_NO_PERMISSION : blocked ? HINT_BLOCKED : HINT_IDLE);
+        if (hint.getAlpha() < 1f) hint.animate().alpha(1f).setDuration(800).start();
+    };
 
     @Override
     protected void onCreate(Bundle state) {
@@ -100,22 +114,43 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         if (!hasAudioPermission()) showIntro();
     }
 
+    // Rendering and listening follow visibility, not focus: in split-screen on Android 7-9 the
+    // window you are not touching is only paused, and TAV next to Spotify must keep going.
+    @Override
+    protected void onStart() {
+        super.onStart();
+        view.onResume();
+        if (hasAudioPermission()) {
+            removeIntro();   // also covers access granted from the system settings
+            startAudio();
+        }
+        media.start();
+    }
+
     @Override
     protected void onResume() {
         super.onResume();
         immersive();
-        view.onResume();
-        if (hasAudioPermission()) startAudio();
-        media.start();
         pokeMenu();
+        if (askedNotificationAccess) {
+            askedNotificationAccess = false;
+            if (MediaWatcher.hasNotificationAccess(this)) pushPalette();
+            else if (Build.VERSION.SDK_INT >= 33) explainRestrictedSettings();
+        }
     }
 
     @Override
-    protected void onPause() {
+    protected void onStop() {
         view.onPause();
         capture.stop();
         media.stop();
-        super.onPause();
+        super.onStop();
+    }
+
+    @Override
+    protected void onDestroy() {
+        ui.removeCallbacksAndMessages(null);   // the hint re-check loop would otherwise outlive us
+        super.onDestroy();
     }
 
     @Override
@@ -144,13 +179,35 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     @Override
     public void onRequestPermissionsResult(int code, String[] perms, int[] results) {
         if (code != REQ_AUDIO) return;
+        permissionPending = false;
+        if (results.length == 0) return;   // the request was interrupted, nothing was decided
         if (hasAudioPermission()) {
-            if (intro != null) root.removeView(intro);
-            intro = null;
+            removeIntro();
             startAudio();
-        } else {
-            hint.setText("Without audio access TAV can't hear the music.\nTap and drag still make waves.");
-            hint.setAlpha(1f);
+        } else if (introBody != null && !shouldShowRequestPermissionRationale(Manifest.permission.RECORD_AUDIO)) {
+            // Android won't show the dialog again; the only way left is the app's settings page.
+            openSettingsInstead = true;
+            introBody.setText("Android won't ask again. To let TAV hear the music, open App info \u2192 Permissions "
+                    + "\u2192 Microphone and choose Allow. Tap and drag work either way.");
+            introButton.setText("Open App info");
+        }
+    }
+
+    private void requestAudio() {
+        if (openSettingsInstead) {
+            openAppInfo();
+            return;
+        }
+        if (permissionPending) return;   // a second tap would cancel the dialog that is already up
+        permissionPending = true;
+        requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQ_AUDIO);
+    }
+
+    private void openAppInfo() {
+        try {
+            startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName())));
+        } catch (RuntimeException e) {
+            Toast.makeText(this, "Open Settings \u2192 Apps \u2192 TAV", Toast.LENGTH_LONG).show();
         }
     }
 
@@ -186,7 +243,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     public void onSilence(boolean silent) {
         ui.post(() -> {
             ui.removeCallbacks(showHint);
-            if (silent) ui.postDelayed(showHint, 2500);
+            if (silent) ui.postDelayed(showHint, 2500);   // re-posts itself until sound returns
             else hint.animate().alpha(0f).setDuration(500).start();
         });
     }
@@ -284,11 +341,12 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
 
         hint = text(16, 0xB3FFFFFF, false);
         hint.setGravity(Gravity.CENTER);
-        hint.setText("Play something on Spotify ♪\nTap to make ripples · drag to draw with sound");
+        hint.setText(HINT_IDLE);
         hint.setLineSpacing(0, 1.3f);
         hint.setAlpha(0f);
-        lp = new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER);
-        lp.topMargin = px(220);
+        // anchored to the bottom so it stays on screen in landscape too
+        lp = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+        lp.setMargins(px(24), 0, px(24), px(120));
         root.addView(hint, lp);
 
         trackBox = new LinearLayout(this);
@@ -374,6 +432,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         addRow("Listen to", new String[]{"Phone audio (Spotify)", "Microphone"}, prefs.getInt("source", 0), sourceChips, i -> {
             prefs.edit().putInt("source", i).apply();
             if (hasAudioPermission()) startAudio();
+            else requestAudio();
         });
 
         addRow("Autopilot (switch scenes with the music)", new String[]{"On", "Off"}, prefs.getBoolean("autopilot", true) ? 0 : 1,
@@ -476,6 +535,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     }
 
     private void askNotificationAccess() {
+        askedNotificationAccess = true;   // checked when we come back in onResume
         Toast.makeText(this, "Allow TAV in the list to colour the visuals from album art", Toast.LENGTH_LONG).show();
         Intent i;
         if (Build.VERSION.SDK_INT >= 30) {
@@ -492,41 +552,87 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         }
     }
 
-    /** First-run card explaining why the audio permission is needed. */
-    private void showIntro() {
+    /** A glass card over the visuals with one main action and a way to dismiss it. */
+    private LinearLayout card(String heading, String text, String action, Runnable onAction, Runnable onDismiss) {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setGravity(Gravity.CENTER_HORIZONTAL);
-        card.setPadding(px(26), px(26), px(26), px(22));
+        card.setPadding(px(26), px(24), px(26), px(18));
         GradientDrawable glass = new GradientDrawable();
         glass.setColor(0xE60B0B14);
         glass.setCornerRadius(px(26));
         glass.setStroke(px(1), 0x33FFFFFF);
         card.setBackground(glass);
+        card.setClickable(true);   // touches on the card don't fall through to the visuals
 
-        TextView h = text(30, Color.WHITE, true);
-        h.setText("T A V");
-        h.setLetterSpacing(0.3f);
+        TextView h = text(heading.length() <= 5 ? 30 : 20, Color.WHITE, true);
+        h.setText(heading);
+        h.setGravity(Gravity.CENTER);
+        if (heading.length() <= 5) h.setLetterSpacing(0.3f);
         card.addView(h);
         TextView body = text(15, 0xD9FFFFFF, false);
-        body.setText("TAV turns whatever your phone is playing — Spotify, YouTube, anything — into light.\n\n"
-                + "To hear it, Android needs the “record audio” permission. TAV only analyses the sound "
-                + "frame by frame to drive the visuals; nothing is recorded, stored or sent anywhere.");
+        body.setText(text);
         body.setLineSpacing(0, 1.25f);
         body.setGravity(Gravity.CENTER);
         body.setPadding(0, px(14), 0, px(20));
         card.addView(body);
         TextView go = text(16, Color.WHITE, true);
-        go.setText("Let it listen");
+        go.setText(action);
         go.setShadowLayer(0, 0, 0, 0);
         go.setPadding(px(28), px(12), px(28), px(12));
         styleChip(go, true);
-        go.setOnClickListener(v -> requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQ_AUDIO));
+        go.setOnClickListener(v -> onAction.run());
         card.addView(go);
+        TextView later = text(14, 0x99FFFFFF, false);
+        later.setText("Not now");
+        later.setPadding(px(20), px(14), px(20), px(4));
+        later.setOnClickListener(v -> onDismiss.run());
+        card.addView(later);
+        card.setTag(new TextView[]{body, go});
 
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-1, -2, Gravity.CENTER);
         lp.setMargins(px(24), 0, px(24), 0);
-        intro = card;
         root.addView(card, lp);
+        return card;
+    }
+
+    /** First-run card explaining why the audio permission is needed. */
+    private void showIntro() {
+        LinearLayout c = card("T A V",
+                "TAV turns whatever your phone is playing \u2014 Spotify, YouTube, anything \u2014 into light.\n\n"
+                        + "To hear it, Android needs the \u201Crecord audio\u201D permission. TAV only analyses the sound "
+                        + "frame by frame to drive the visuals; nothing is recorded, stored or sent anywhere.",
+                "Let it listen", this::requestAudio, this::removeIntro);
+        TextView[] parts = (TextView[]) c.getTag();
+        introBody = parts[0];
+        introButton = parts[1];
+        intro = c;
+    }
+
+    private void removeIntro() {
+        if (intro != null) root.removeView(intro);
+        intro = null;
+        introBody = introButton = null;
+    }
+
+    /**
+     * Android 13+ greys out notification access for apps installed from a downloaded APK
+     * ("restricted setting") until the user allows it from the app's info page.
+     */
+    private void explainRestrictedSettings() {
+        if (notice != null) return;
+        notice = card("One more switch",
+                "Android blocks notification access for apps installed outside an app store. "
+                        + "Open App info, tap \u22EE in the top corner, choose \u201CAllow restricted settings\u201D, "
+                        + "then pick Colours \u2192 Album in TAV again.",
+                "Open App info", () -> {
+                    dismissNotice();
+                    openAppInfo();
+                }, this::dismissNotice);
+    }
+
+    private void dismissNotice() {
+        if (notice != null) root.removeView(notice);
+        notice = null;
     }
 }

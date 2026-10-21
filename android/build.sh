@@ -11,9 +11,12 @@ cd "$(dirname "$0")"
 API=35
 MIN_API=24
 OUT=build
-VERSION_NAME=${VERSION_NAME:-1.0.0}
-VERSION_CODE=${VERSION_CODE:-1}
-KEYSTORE=${TAV_KEYSTORE:-tav-debug.keystore}
+VERSION_NAME=${VERSION_NAME:-1.0.0-local}
+# Minutes since 1970: always increases, so a newer build installs over an older one.
+VERSION_CODE=${VERSION_CODE:-$(( $(date +%s) / 60 ))}
+# Signing key: TAV_KEYSTORE if given (CI passes the one from repository secrets), otherwise a
+# key made once for this device. Keys are never kept in the repository.
+KEYSTORE=${TAV_KEYSTORE:-$HOME/.config/tav/tav.keystore}
 KS_PASS=${TAV_KS_PASS:-android}
 KS_ALIAS=${TAV_KS_ALIAS:-tav}
 
@@ -45,6 +48,14 @@ else
     JAR=$SDK/platforms/android-$API/android.jar
     [ -f "$JAR" ] || die "missing $JAR. $HINT"
     need javac java zip
+fi
+
+if [ ! -f "$KEYSTORE" ]; then
+    command -v keytool >/dev/null 2>&1 || die "missing 'keytool' (part of the JDK). $HINT"
+    mkdir -p "$(dirname "$KEYSTORE")"
+    keytool -genkeypair -keystore "$KEYSTORE" -storepass "$KS_PASS" -keypass "$KS_PASS" -alias "$KS_ALIAS" \
+        -keyalg RSA -keysize 2048 -validity 20000 -dname "CN=TAV" >/dev/null 2>&1 || die "keytool failed"
+    echo "Created a signing key for this device: $KEYSTORE"
 fi
 
 rm -rf "$OUT"

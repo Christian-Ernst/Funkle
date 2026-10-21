@@ -35,7 +35,8 @@ git clone https://github.com/Christian-Ernst/TAV && cd TAV/android
 ./build.sh && termux-open build/TAV.apk
 ```
 
-The first build downloads Android's framework stubs once (~64 MB).
+The first build downloads Android's framework stubs once (~64 MB) and creates a signing key for
+your phone in `~/.config/tav/`.
 
 ### How it hears Spotify
 
@@ -62,6 +63,16 @@ if you enable *Settings → Device Broadcast Status* in Spotify.
 
 **Autopilot** (on by default) changes scenes when the track changes, when a drop hits, or every 45 s.
 **Mirror** repeats everything you draw 2–12 times around the centre.
+
+### If the visuals don't move
+
+* **Volume at zero:** some phones hand the visualizer silence when the media volume is muted. Turn it up a notch.
+* **Phone blocks output capture:** a few ROMs refuse the global visualizer; TAV then switches to the microphone
+  on its own and says so. Others hand it silence instead. If Spotify is playing while TAV hears nothing, it tells
+  you to pick **Listen to → Microphone**; hold the phone near the speaker.
+* **Album colours missing:** grant notification access (menu → Colours → Album), or switch on
+  *Device Broadcast Status* in Spotify's settings for track names.
+* **Stutters on an older phone:** menu → Quality → Battery. TAV also lowers its resolution by itself when frames run late.
 
 ### Scenes
 
@@ -136,6 +147,26 @@ samples ──► AudioAnalyzer ──► 512-bin log spectrum + peaks, triggere
   Resolution adapts when the GPU can't keep up.
 * No Gradle and no libraries: `android/build.sh` drives `aapt2`, `javac`, `d8` and `apksigner`
   directly, which is why it also runs inside Termux.
+
+### Signing
+
+No signing key lives in this repository: a key anyone can download would let anyone ship an
+"update" that silently inherits TAV's microphone and notification access.
+
+* `build.sh` signs with `$TAV_KEYSTORE` if set, else with a key it creates once per device in
+  `~/.config/tav/tav.keystore`.
+* CI signs with the repository secrets `TAV_KEYSTORE_B64` and `TAV_KS_PASS`. Until you add them, each
+  release gets a one-off key, and installing a newer release means uninstalling the old one first.
+  To set them up once:
+
+  ```sh
+  keytool -genkeypair -keystore tav.keystore -alias tav -keyalg RSA -keysize 2048 -validity 20000 -dname CN=TAV
+  base64 -w0 tav.keystore   # paste into Settings → Secrets → Actions → TAV_KEYSTORE_B64
+  ```
+
+  and store the password you chose as `TAV_KS_PASS`.
+* Builds signed with different keys can't update each other: uninstall TAV before switching between
+  a release APK and one you built yourself.
 
 ### Checks
 
