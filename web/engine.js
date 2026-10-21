@@ -19,6 +19,14 @@ const SHADER_FILES = ['common.glsl', 'fullscreen.vert', 'bloom_down.frag', 'bloo
   ...new Set(SCENES.flatMap((s) => [s.frag, s.points && s.points.vert].filter(Boolean)))];
 
 const MAX_RIPPLES = 8, BLOOM_LEVELS = 4;
+// Brightness setting: composite exposure and bloom per level. Same table as TavRenderer.
+const BRIGHTNESS = [
+  { name: 'Dim', exposure: 0.45, bloom: 0.45 },
+  { name: 'Soft', exposure: 0.65, bloom: 0.65 },
+  { name: 'Normal', exposure: 0.85, bloom: 0.85 },
+  { name: 'Bright', exposure: 1.1, bloom: 1.0 },
+];
+const DEFAULT_BRIGHTNESS = 2;
 
 class TavEngine {
   constructor(gl, sources) {
@@ -31,6 +39,7 @@ class TavEngine {
     this.palette = [[1.0, 0.18, 0.55], [0.15, 0.75, 1.0], [0.55, 0.25, 1.0]];
     this.ripples = []; this.strokes = [];
     this.transStart = -10; this.flash = 0;
+    this.brightness = DEFAULT_BRIGHTNESS;
     this.renderScale = 1; this.w = 0; this.h = 0;
     this.audioTex = this.makeTex(512, 4, gl.R8, gl.RED, gl.UNSIGNED_BYTE, gl.LINEAR, gl.CLAMP_TO_EDGE);
     this.histTex = this.makeTex(256, 128, gl.R8, gl.RED, gl.UNSIGNED_BYTE, gl.LINEAR, gl.REPEAT);
@@ -144,6 +153,8 @@ class TavEngine {
     this.scene = i;
     this.rebaseFlow = true;
   }
+
+  setBrightness(i) { this.brightness = Math.max(0, Math.min(BRIGHTNESS.length - 1, i)); }
 
   addRipple(x, y, strength = 1) {
     this.ripples.push({ x, y, born: this.time, s: strength });
@@ -280,8 +291,9 @@ class TavEngine {
     const bind = this.use(comp, an);
     gl.uniform2f(comp.loc.uRes, this.w, this.h);
     bind('uScene', this.sceneA.tex); bind('uBloom', src.tex);
-    gl.uniform1f(comp.loc.uBloomStrength, 0.9);
-    gl.uniform1f(comp.loc.uExposure, 1.0);
+    const lit = BRIGHTNESS[this.brightness];
+    gl.uniform1f(comp.loc.uBloomStrength, lit.bloom);
+    gl.uniform1f(comp.loc.uExposure, lit.exposure);
     gl.uniform1f(comp.loc.uFlash, this.flash);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
 
@@ -325,4 +337,4 @@ class TavEngine {
   }
 }
 
-if (typeof module !== 'undefined') module.exports = { TavEngine, SCENES, SHADER_FILES };
+if (typeof module !== 'undefined') module.exports = { TavEngine, SCENES, SHADER_FILES, BRIGHTNESS };

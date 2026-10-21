@@ -33,6 +33,9 @@ final class TavRenderer implements GLSurfaceView.Renderer {
     private static final String TAG = "TAV";
     private static final int MAX_RIPPLES = 8, BLOOM_LEVELS = 4, MAX_STROKES = 12, MAX_STROKE_POINTS = 900;
     static final float[] QUALITY_SCALE = {0.5f, 0.7f, 1.0f};
+    /** Brightness levels Dim, Soft, Normal, Bright: composite exposure and bloom. Same table as web/engine.js. */
+    static final float[] EXPOSURE = {0.45f, 0.65f, 0.85f, 1.1f}, BLOOM = {0.45f, 0.65f, 0.85f, 1.0f};
+    static final int DEFAULT_BRIGHTNESS = 2;
 
     interface Host {
         void onSceneChanged(int scene);
@@ -64,7 +67,7 @@ final class TavRenderer implements GLSurfaceView.Renderer {
     private Fbo cur, prev;
 
     // state
-    private int scene, sym = 1, quality = 1;
+    private int scene, sym = 1, quality = 1, brightness = DEFAULT_BRIGHTNESS;
     private float renderScale = QUALITY_SCALE[1], adaptScale = 1f;
     // Clocks are double on the CPU; the shaders get them wrapped (see use()) because fp32
     // uniforms in the thousands lose the precision that fract()/sin() patterns need.
@@ -128,8 +131,20 @@ final class TavRenderer implements GLSurfaceView.Renderer {
         applyScale();
     }
 
+    void setBrightness(int level) {
+        brightness = Math.max(0, Math.min(EXPOSURE.length - 1, level));
+    }
+
     void setPalette(float[][] p) {
-        for (int k = 0; k < 3; k++) System.arraycopy(p[k], 0, target[k], 0, 3);
+        setPalette(p, false);
+    }
+
+    /** snap: show the colours at once instead of easing toward them (live preview while editing). */
+    void setPalette(float[][] p, boolean snap) {
+        for (int k = 0; k < 3; k++) {
+            System.arraycopy(p[k], 0, target[k], 0, 3);
+            if (snap) System.arraycopy(p[k], 0, palette[k], 0, 3);
+        }
     }
 
     /** Called when the playing track changes: autopilot moves on with the music. */
@@ -343,8 +358,8 @@ final class TavRenderer implements GLSurfaceView.Renderer {
             use(cp);
             bindTex(cp, "uScene", sceneA.tex, 4);
             bindTex(cp, "uBloom", bloom.tex, 5);
-            uniform1f(cp, "uBloomStrength", 0.9f);
-            uniform1f(cp, "uExposure", 1.0f);
+            uniform1f(cp, "uBloomStrength", BLOOM[brightness]);
+            uniform1f(cp, "uExposure", EXPOSURE[brightness]);
             uniform1f(cp, "uFlash", flash);
             glDrawArrays(GL_TRIANGLES, 0, 3);
         }

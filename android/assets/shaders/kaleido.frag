@@ -19,6 +19,8 @@ void main() {
 
     // echoes: previous frame, pulled inward and twisted
     vec3 col = feedback(p0, 1.025 + 0.03 * beat(), 0.01 + 0.01 * sin(uFlow * 0.2), 0.78);
+    // echoes converge on the centre and would stack into a solid disc: fade them faster there
+    col *= pow(mix(0.75, 1.0, smoothstep(0.05, 0.5, length(p0))), uStep);
 
     // rings of jewels; each ring listens to its own slice of the spectrum
     for (int k = 0; k < 5; k++) {
@@ -40,6 +42,6 @@ void main() {
     float sa = spec(clamp(r * 0.6, 0.0, 1.0) * 0.75 + 0.03);
     col += pal(0.8 + r * 0.2) * glow(a * r, 0.003 + 0.01 * sa) * sa * 0.6;
     // centre bloom on the beat
-    col += mix(pal(0.9), vec3(1.0), 0.3) * glow(length(p0), 0.015 + 0.05 * beat()) * (0.2 + 0.8 * beat());
+    col += mix(pal(0.9), vec3(1.0), 0.15) * glow(length(p0), 0.015 + 0.05 * beat()) * (0.12 + 0.5 * beat());
     fragColor = vec4(col, 1.0);
 }

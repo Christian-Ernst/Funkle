@@ -67,9 +67,15 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     private TransportButton playButton;
     private float[][] albumPalette;
     private float dp;
+    // colour editor (Colours -> Custom)
+    private View colourEditor;
+    private final int[] custom = new int[3];
+    private final View[] swatches = new View[3];
+    private ColourSlider hueSlider, satSlider, valSlider;
+    private int editing;
 
     private final Runnable hideMenu = () -> {
-        if (panel.getVisibility() != View.VISIBLE) menuButton.animate().alpha(0f).setDuration(600).start();
+        if (panel.getVisibility() != View.VISIBLE && colourEditor == null) menuButton.animate().alpha(0f).setDuration(600).start();
     };
     private final Runnable hideTrack = () -> {
         if (!titleAlways) fadeTrack(0f, 1200);
@@ -188,7 +194,8 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
 
     @Override
     public void onBackPressed() {
-        if (panel.getVisibility() == View.VISIBLE) togglePanel();
+        if (colourEditor != null) closeColourEditor(true);   // back to the menu it came from
+        else if (panel.getVisibility() == View.VISIBLE) togglePanel();
         else super.onBackPressed();
     }
 
@@ -360,20 +367,39 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
 
     private void applyPrefs() {
         final int scene = prefs.getInt("scene", 0), sym = prefs.getInt("sym", 1), q = prefs.getInt("quality", 1);
+        final int lit = prefs.getInt("brightness", TavRenderer.DEFAULT_BRIGHTNESS);
         final boolean auto = prefs.getBoolean("autopilot", true);
         view.queueEvent(() -> {
             renderer.setScene(scene);
             renderer.setSymmetry(sym);
             renderer.setQuality(q);
+            renderer.setBrightness(lit);
             renderer.setAutopilot(auto);
         });
         pushPalette();
     }
 
     private void pushPalette() {
-        int idx = prefs.getInt("palette", Palettes.ALBUM);
-        final float[][] p = (idx == Palettes.ALBUM && albumPalette != null) ? albumPalette : Palettes.preset(idx);
+        final float[][] p = paletteFor(prefs.getInt("palette", Palettes.ALBUM));
         view.queueEvent(() -> renderer.setPalette(p));
+    }
+
+    private float[][] paletteFor(int idx) {
+        if (idx == Palettes.CUSTOM) return Palettes.fromColors(savedCustom());
+        return (idx == Palettes.ALBUM && albumPalette != null) ? albumPalette : Palettes.preset(idx);
+    }
+
+    /** The custom colours (ARGB) in prefs custom0..custom2; Neon until the editor has stored any. */
+    private int[] savedCustom() {
+        int[] neon = Palettes.toColors(Palettes.preset(1)), c = new int[3];
+        for (int k = 0; k < 3; k++) c[k] = prefs.getInt("custom" + k, neon[k]);
+        return c;
+    }
+
+    private void saveCustom() {
+        SharedPreferences.Editor e = prefs.edit();
+        for (int k = 0; k < 3; k++) e.putInt("custom" + k, custom[k]);
+        e.apply();
     }
 
     // ------------------------------------------------------------------ UI
@@ -486,11 +512,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
 
     private void buildPanel() {
         panel = new ScrollView(this);
-        GradientDrawable glass = new GradientDrawable();
-        glass.setColor(0xD90B0B14);
-        glass.setCornerRadius(px(26));
-        glass.setStroke(px(1), 0x33FFFFFF);
-        panel.setBackground(glass);
+        panel.setBackground(glass(0xD90B0B14));
         panel.setVisibility(View.GONE);
         panel.setVerticalScrollBarEnabled(false);
         panelContent = new LinearLayout(this);
@@ -564,10 +586,22 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         });
 
         addRow("Colours", Palettes.NAMES, prefs.getInt("palette", Palettes.ALBUM), new ArrayList<>(), i -> {
+            // the first custom palette starts from the colours on screen, so read them before switching
+            if (i == Palettes.CUSTOM && !prefs.contains("custom0")) {
+                System.arraycopy(Palettes.toColors(paletteFor(prefs.getInt("palette", Palettes.ALBUM))), 0, custom, 0, 3);
+                saveCustom();
+            }
             prefs.edit().putInt("palette", i).apply();
             if (i == Palettes.ALBUM && !MediaWatcher.hasNotificationAccess(this)) askNotificationAccess();
             pushPalette();
+            if (i == Palettes.CUSTOM) showColourEditor();
         });
+
+        addRow("Brightness", new String[]{"Dim", "Soft", "Normal", "Bright"},
+                prefs.getInt("brightness", TavRenderer.DEFAULT_BRIGHTNESS), new ArrayList<>(), i -> {
+                    prefs.edit().putInt("brightness", i).apply();
+                    view.queueEvent(() -> renderer.setBrightness(i));
+                });
 
         addRow("Listen to", new String[]{"Phone audio (Spotify)", "Microphone"}, prefs.getInt("source", 0), sourceChips, i -> {
             prefs.edit().putInt("source", i).apply();
@@ -613,12 +647,25 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         void on(int index);
     }
 
-    private void addRow(String label, String[] options, int selected, List<TextView> keep, Pick pick) {
+    /** Small spaced capitals above a row of chips or a slider. */
+    private TextView label(String s) {
         TextView l = text(11.5f, 0x99FFFFFF, false);
-        l.setText(label.toUpperCase(Locale.ROOT));
+        l.setText(s.toUpperCase(Locale.ROOT));
         l.setLetterSpacing(0.12f);
         l.setPadding(0, px(14), 0, px(6));
-        panelContent.addView(l);
+        return l;
+    }
+
+    private GradientDrawable glass(int fill) {
+        GradientDrawable g = new GradientDrawable();
+        g.setColor(fill);
+        g.setCornerRadius(px(26));
+        g.setStroke(px(1), 0x33FFFFFF);
+        return g;
+    }
+
+    private void addRow(String label, String[] options, int selected, List<TextView> keep, Pick pick) {
+        panelContent.addView(label(label));
         HorizontalScrollView hs = new HorizontalScrollView(this);
         hs.setHorizontalScrollBarEnabled(false);
         LinearLayout row = new LinearLayout(this);
@@ -662,7 +709,11 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     }
 
     private void togglePanel() {
-        boolean show = panel.getVisibility() != View.VISIBLE;
+        if (colourEditor != null) closeColourEditor(false);   // ✕ or a long-press while editing closes everything
+        else showPanel(panel.getVisibility() != View.VISIBLE);
+    }
+
+    private void showPanel(boolean show) {
         if (show) {
             panel.setVisibility(View.VISIBLE);
             panel.setAlpha(0f);
@@ -682,6 +733,133 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         menuButton.setAlpha(0.85f);
         ui.removeCallbacks(hideMenu);
         ui.postDelayed(hideMenu, 3500);
+    }
+
+    // ------------------------------------------------------------------ colour editor
+
+    /**
+     * Glass card in the menu's place for the custom palette: three swatches, and hue, saturation
+     * and brightness for the selected one. Changes show on the visuals while you drag.
+     */
+    private void showColourEditor() {
+        if (colourEditor != null) return;
+        System.arraycopy(savedCustom(), 0, custom, 0, 3);
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(px(18), px(4), px(18), px(16));
+        box.addView(label("Your colours · tap one to change it"));
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        for (int k = 0; k < 3; k++) {
+            final int idx = k;
+            View s = new View(this);
+            s.setContentDescription("Colour " + (k + 1));
+            s.setOnClickListener(v -> selectSwatch(idx));
+            LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(px(44), px(44));
+            slp.rightMargin = px(14);
+            row.addView(s, slp);
+            swatches[k] = s;
+        }
+        row.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1f));
+        TextView done = text(15, Color.WHITE, true);
+        done.setShadowLayer(0, 0, 0, 0);
+        done.setText("Done");
+        done.setPadding(px(22), px(10), px(22), px(10));
+        styleChip(done, true);
+        done.setOnClickListener(v -> closeColourEditor(false));
+        row.addView(done);
+        box.addView(row);
+        hueSlider = slider(box, "Hue");
+        satSlider = slider(box, "Saturation");
+        valSlider = slider(box, "Brightness");
+        int[] rainbow = new int[7];
+        for (int i = 0; i < rainbow.length; i++) rainbow[i] = Color.HSVToColor(new float[]{i * 60f, 1f, 1f});
+        hueSlider.setColors(rainbow);
+
+        ScrollView card = new ScrollView(this);   // scrolls on a short landscape screen
+        card.setBackground(glass(0xE60B0B14));
+        card.setVerticalScrollBarEnabled(false);
+        card.setClickable(true);   // touches on the card don't fall through to the visuals
+        card.addView(box);
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM);
+        lp.setMargins(px(12), 0, px(12), px(100));
+        root.addView(card, lp);
+        card.setAlpha(0f);
+        card.setTranslationY(40 * dp);
+        card.animate().alpha(1f).translationY(0).setDuration(250).start();
+        if (panel.getVisibility() == View.VISIBLE) showPanel(false);   // the editor takes its place
+        colourEditor = card;
+        menuButton.setText("✕");
+        selectSwatch(0);
+        pokeMenu();
+    }
+
+    private ColourSlider slider(LinearLayout box, String name) {
+        TextView l = label(name);
+        l.setPadding(0, px(8), 0, 0);
+        box.addView(l);
+        ColourSlider s = new ColourSlider(this, name);
+        s.setListener((v, done) -> editColour(done));
+        box.addView(s, new LinearLayout.LayoutParams(-1, -2));
+        return s;
+    }
+
+    private void selectSwatch(int k) {
+        editing = k;
+        float[] hsv = new float[3];
+        Color.colorToHSV(custom[k], hsv);
+        hueSlider.setValue(hsv[0] / 360f);
+        satSlider.setValue(hsv[1]);
+        valSlider.setValue((hsv[2] - Palettes.MIN_VALUE) / (1 - Palettes.MIN_VALUE));
+        refreshEditor();
+    }
+
+    /** The slider positions as HSV; brightness never goes below Palettes.MIN_VALUE. */
+    private float[] editorHsv() {
+        return new float[]{hueSlider.value() * 360f, satSlider.value(),
+                Palettes.MIN_VALUE + (1 - Palettes.MIN_VALUE) * valSlider.value()};
+    }
+
+    private void editColour(boolean done) {
+        custom[editing] = Color.HSVToColor(editorHsv());
+        refreshEditor();
+        final float[][] p = Palettes.fromColors(custom);
+        view.queueEvent(() -> renderer.setPalette(p, true));
+        if (done) saveCustom();
+    }
+
+    private void refreshEditor() {
+        float[] hsv = editorHsv();
+        for (int k = 0; k < 3; k++) {
+            GradientDrawable d = new GradientDrawable();
+            d.setShape(GradientDrawable.OVAL);
+            d.setColor(custom[k]);
+            d.setStroke(px(k == editing ? 3 : 1), k == editing ? Color.WHITE : 0x55FFFFFF);
+            swatches[k].setBackground(d);
+            swatches[k].setSelected(k == editing);
+        }
+        satSlider.setColors(Color.HSVToColor(new float[]{hsv[0], 0f, hsv[2]}), Color.HSVToColor(new float[]{hsv[0], 1f, hsv[2]}));
+        valSlider.setColors(Color.HSVToColor(new float[]{hsv[0], hsv[1], Palettes.MIN_VALUE}),
+                Color.HSVToColor(new float[]{hsv[0], hsv[1], 1f}));
+        int c = Color.HSVToColor(hsv);
+        hueSlider.setKnobColor(c);
+        satSlider.setKnobColor(c);
+        valSlider.setKnobColor(c);
+    }
+
+    /** backToMenu: Back returns to the menu the editor came from; Done and ✕ close both. */
+    private void closeColourEditor(boolean backToMenu) {
+        final View card = colourEditor;
+        if (card == null) return;
+        colourEditor = null;
+        saveCustom();
+        card.animate().alpha(0f).translationY(40 * dp).setDuration(200).withEndAction(() -> root.removeView(card)).start();
+        if (backToMenu) {
+            showPanel(true);
+        } else {
+            menuButton.setText("☰");
+            pokeMenu();
+        }
     }
 
     private void askNotificationAccess() {
@@ -708,11 +886,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         card.setOrientation(LinearLayout.VERTICAL);
         card.setGravity(Gravity.CENTER_HORIZONTAL);
         card.setPadding(px(26), px(24), px(26), px(18));
-        GradientDrawable glass = new GradientDrawable();
-        glass.setColor(0xE60B0B14);
-        glass.setCornerRadius(px(26));
-        glass.setStroke(px(1), 0x33FFFFFF);
-        card.setBackground(glass);
+        card.setBackground(glass(0xE60B0B14));
         card.setClickable(true);   // touches on the card don't fall through to the visuals
 
         TextView h = text(heading.length() <= 5 ? 30 : 20, Color.WHITE, true);
