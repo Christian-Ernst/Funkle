@@ -43,6 +43,7 @@ final class MediaWatcher {
 
     private static final String TAG = "TAV";
     private final Context ctx;
+    private final AudioManager audio;
     private final Listener listener;
     private final Handler main = new Handler(Looper.getMainLooper());
     private MediaSessionManager msm;
@@ -90,6 +91,7 @@ final class MediaWatcher {
 
     MediaWatcher(Context ctx, Listener listener) {
         this.ctx = ctx.getApplicationContext();
+        this.audio = (AudioManager) this.ctx.getSystemService(Context.AUDIO_SERVICE);
         this.listener = listener;
     }
 
@@ -101,6 +103,7 @@ final class MediaWatcher {
     void start() {
         if (started) return;
         started = true;
+        main.post(poll);
         IntentFilter f = new IntentFilter();
         f.addAction("com.spotify.music.metadatachanged");
         f.addAction("com.spotify.music.playbackstatechanged");
@@ -126,23 +129,57 @@ final class MediaWatcher {
         else ctx.registerReceiver(spotify, f);
     }
 
-    /** Whether isPlaying() reflects the player's real state rather than a guess. */
-    boolean knowsState() {
-        return controller != null || spotifyStateSeen;
+    /**
+     * Whether music is playing: the media session's state when we have one, else Spotify's own
+     * broadcast, else Android's "music stream active", which needs no permission at all.
+     */
+    boolean isPlaying() {
+        if (controller != null) return active(controller.getPlaybackState());
+        if (spotifyStateSeen) return spotifyPlaying;
+        return audio != null && audio.isMusicActive();
     }
 
-    /** Whether something is known to be playing right now (false when we can't tell). */
-    boolean isPlaying() {
-        if (controller != null) {
-            PlaybackState st = controller.getPlaybackState();
-            return st != null && st.getState() == PlaybackState.STATE_PLAYING;
+    /** Buffering and skipping are still "playing" from the listener's point of view. */
+    private static boolean active(PlaybackState st) {
+        if (st == null) return false;
+        switch (st.getState()) {
+            case PlaybackState.STATE_PLAYING:
+            case PlaybackState.STATE_BUFFERING:
+            case PlaybackState.STATE_CONNECTING:
+            case PlaybackState.STATE_FAST_FORWARDING:
+            case PlaybackState.STATE_REWINDING:
+            case PlaybackState.STATE_SKIPPING_TO_NEXT:
+            case PlaybackState.STATE_SKIPPING_TO_PREVIOUS:
+            case PlaybackState.STATE_SKIPPING_TO_QUEUE_ITEM:
+                return true;
+            default:
+                return false;
         }
-        return spotifyPlaying;
     }
+
+    /** Without session callbacks nothing reports changes, so look once a second. */
+    private final Runnable poll = new Runnable() {
+        @Override
+        public void run() {
+            notifyPlaying();
+            if (started) main.postDelayed(this, 1000);
+        }
+    };
+
+    /** After a command: report the real state even if it equals what we last said. */
+    private final Runnable recheck = new Runnable() {
+        @Override
+        public void run() {
+            lastPlaying = isPlaying();
+            listener.onPlayback(lastPlaying);
+        }
+    };
 
     void stop() {
         if (!started) return;
         started = false;
+        main.removeCallbacks(poll);
+        main.removeCallbacks(recheck);
         try {
             ctx.unregisterReceiver(spotify);
         } catch (IllegalArgumentException ignored) {
@@ -165,9 +202,11 @@ final class MediaWatcher {
         MediaController best = null;
         int bestScore = -1;
         for (MediaController c : list) {
-            PlaybackState st = c.getPlaybackState();
-            boolean playing = st != null && st.getState() == PlaybackState.STATE_PLAYING;
-            int score = (playing ? 2 : 0) + ("com.spotify.music".equals(c.getPackageName()) ? 1 : 0);
+            // Playing wins; otherwise stay with the session we have (pausing a podcast must not
+            // hand the controls to a paused Spotify); Spotify breaks ties.
+            boolean current = controller != null && controller.getSessionToken().equals(c.getSessionToken());
+            int score = (active(c.getPlaybackState()) ? 4 : 0) + (current ? 2 : 0)
+                    + ("com.spotify.music".equals(c.getPackageName()) ? 1 : 0);
             if (score > bestScore) {
                 best = c;
                 bestScore = score;
@@ -199,14 +238,25 @@ final class MediaWatcher {
 
     // ------------------------------------------------------------------ transport
 
-    void playPause() {
+    /**
+     * Toggles from the state the user sees and returns the state asked for. The answer is
+     * shown at once; 1.5 s later it is corrected if the player didn't follow.
+     */
+    boolean playPause() {
+        boolean target = !lastPlaying;
         MediaController c = controller;
         if (c != null) {
-            if (isPlaying()) c.getTransportControls().pause();
-            else c.getTransportControls().play();
+            if (target) c.getTransportControls().play();
+            else c.getTransportControls().pause();
         } else {
-            sendKey(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE);
+            // explicit keys, so a wrong guess can't turn "pause" into "play"
+            sendKey(target ? KeyEvent.KEYCODE_MEDIA_PLAY : KeyEvent.KEYCODE_MEDIA_PAUSE);
         }
+        lastPlaying = target;
+        listener.onPlayback(target);
+        main.removeCallbacks(recheck);
+        main.postDelayed(recheck, 1500);
+        return target;
     }
 
     void next() {
@@ -221,11 +271,10 @@ final class MediaWatcher {
 
     /** A media button press, delivered by Android to whichever player is active (or was last). */
     private void sendKey(int code) {
-        AudioManager am = (AudioManager) ctx.getSystemService(Context.AUDIO_SERVICE);
-        if (am == null) return;
+        if (audio == null) return;
         long t = SystemClock.uptimeMillis();
-        am.dispatchMediaKeyEvent(new KeyEvent(t, t, KeyEvent.ACTION_DOWN, code, 0));
-        am.dispatchMediaKeyEvent(new KeyEvent(t, t, KeyEvent.ACTION_UP, code, 0));
+        audio.dispatchMediaKeyEvent(new KeyEvent(t, t, KeyEvent.ACTION_DOWN, code, 0));
+        audio.dispatchMediaKeyEvent(new KeyEvent(t, t, KeyEvent.ACTION_UP, code, 0));
     }
 
     private void publish(MediaMetadata m) {
