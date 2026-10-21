@@ -1,0 +1,523 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>TAV Visualizer</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=Figtree:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+  /* Layout: the live canvas fills the screen; quiet glass chrome hugs the top and bottom edges. */
+  :root {
+    color-scheme: dark;
+    --ink: #07060c;          /* the stage */
+    --glass: rgba(16, 13, 28, 0.72);
+    --edge: rgba(236, 233, 255, 0.14);
+    --text: #eceaf6;
+    --mute: #a49fbd;
+    --hot: #ff2e8c;          /* the neon pair the scenes default to */
+    --ice: #2ec8ff;
+    --violet: #7b3cff;
+    --display: "Syne", "Arial Black", system-ui, sans-serif;
+    --ui: "Figtree", "Segoe UI", system-ui, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  }
+  html, body { height: 100%; }
+  [hidden] { display: none !important; }
+  body {
+    margin: 0; background: var(--ink); color: var(--text);
+    font: 15px/1.45 var(--ui); overflow: hidden;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-user-select: none; user-select: none;
+  }
+  #stage { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: crosshair; }
+
+  .chrome { transition: opacity .6s ease; }
+  body.idle .chrome { opacity: .18; }
+  body.idle .chrome:hover, body.idle .chrome:focus-within { opacity: 1; }
+
+  header {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 2;
+    display: flex; justify-content: space-between; align-items: flex-start; gap: 16px;
+    padding-top: calc(14px + env(safe-area-inset-top, 0px));
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    pointer-events: none;
+  }
+  .mark { font: 800 26px/1 var(--display); letter-spacing: .32em; margin: 0; }
+  .mark small { display: block; margin-top: 6px; font: 500 11px/1.2 var(--ui); letter-spacing: .14em; text-transform: uppercase; color: var(--mute); }
+  .meters { display: grid; grid-template-columns: auto 64px; gap: 4px 10px; align-items: center; font: 10.5px/1 var(--mono); color: var(--mute); }
+  .meters .bar { height: 4px; border-radius: 2px; background: var(--edge); overflow: hidden; }
+  .meters .bar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--violet), var(--hot)); }
+  .meters .src { grid-column: 1 / -1; text-align: right; color: var(--text); font-weight: 600; max-width: 46vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .beat { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--hot); margin-right: 6px; opacity: .25; vertical-align: 1px; }
+
+  .start {
+    position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 3;
+    width: min(420px, calc(100% - 32px)); box-sizing: border-box;
+    padding: 22px 22px 18px; border-radius: 22px;
+    background: var(--glass); border: 1px solid var(--edge);
+    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    display: grid; gap: 14px; text-align: center;
+  }
+  .start h2 { margin: 0; font: 700 21px/1.2 var(--display); letter-spacing: .02em; text-wrap: balance; }
+  .start p { margin: 0; color: var(--mute); font-size: 14px; }
+  .start .row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+
+  footer {
+    position: fixed; bottom: 0; left: 0; right: 0; z-index: 2;
+    display: grid; gap: 8px;
+    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+  }
+  .rail { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; padding: 2px; }
+  .rail::-webkit-scrollbar { display: none; }
+  .rail .label { flex: none; align-self: center; font: 600 10.5px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--mute); padding-right: 2px; }
+
+  button, .file {
+    flex: none; font: 500 13.5px/1 var(--ui); color: var(--text);
+    padding: 9px 14px; border-radius: 999px; cursor: pointer;
+    background: var(--glass); border: 1px solid var(--edge);
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  }
+  button:hover, .file:hover { border-color: rgba(236, 233, 255, 0.34); }
+  button:focus-visible, .file:focus-within { outline: 2px solid var(--ice); outline-offset: 2px; }
+  button[aria-pressed="true"] { background: linear-gradient(90deg, var(--hot), var(--violet)); border-color: transparent; }
+  button.primary { background: linear-gradient(90deg, var(--hot), var(--violet)); border-color: transparent; font-weight: 600; padding: 12px 20px; }
+  .file { position: relative; overflow: hidden; display: inline-flex; align-items: center; }
+  .file input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+  .start .file { padding: 12px 20px; }
+
+  .toast {
+    position: fixed; left: 50%; top: calc(76px + env(safe-area-inset-top, 0px)); transform: translateX(-50%); z-index: 2;
+    font: 600 12px/1 var(--mono); letter-spacing: .28em; text-transform: uppercase;
+    color: var(--text); opacity: 0; transition: opacity .5s ease; pointer-events: none; white-space: nowrap;
+  }
+  .toast.show { opacity: .9; }
+  .err { color: #ff9cc4; }
+
+  @media (max-width: 520px) {
+    .meters { grid-template-columns: auto 40px; }
+    .mark { font-size: 22px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .chrome, .toast { transition: none; }
+  }
+</style>
+</head>
+<body>
+
+<canvas id="stage" aria-label="Audio visualizer. Tap for ripples, drag to draw."></canvas>
+
+<header class="chrome">
+  <h1 class="mark">TAV<small>Termux Audio Visualizer</small></h1>
+  <div class="meters" aria-hidden="true">
+    <span>30–150 Hz</span><span class="bar"><i id="m0"></i></span>
+    <span>150–600 Hz</span><span class="bar"><i id="m1"></i></span>
+    <span>0.6–3 kHz</span><span class="bar"><i id="m2"></i></span>
+    <span>3–12 kHz</span><span class="bar"><i id="m3"></i></span>
+    <span class="src"><span class="beat" id="beat"></span><span id="srcName">Demo beat · 128 BPM</span></span>
+  </div>
+</header>
+
+<div class="toast" id="toast" role="status"></div>
+
+<section class="start" id="start">
+  <h2>Music, turned into light</h2>
+  <p id="startText">The demo is already driving the visuals in silence. Press play to hear it, or open a song of your own.</p>
+  <div class="row">
+    <button class="primary" id="playDemo" type="button">Play the demo beat</button>
+    <label class="file">Open a song…<input type="file" id="fileStart" accept="audio/*"></label>
+  </div>
+  <p>Tap to make ripples · drag to draw with sound · swipe or ← → for scenes</p>
+</section>
+
+<footer class="chrome">
+  <div class="rail" id="scenes" role="toolbar" aria-label="Scenes"><span class="label">Scene</span></div>
+  <div class="rail" role="toolbar" aria-label="Tools">
+    <button id="play" type="button">Play</button>
+    <label class="file">Open song<input type="file" id="file" accept="audio/*"></label>
+    <span class="label">Draw</span>
+    <span id="shapes" style="display:contents"></span>
+    <button id="clear" type="button">Clear</button>
+    <button id="mirror" type="button">Mirror off</button>
+    <button id="colours" type="button">Colours: Neon</button>
+    <button id="auto" type="button" aria-pressed="true">Autopilot</button>
+    <button id="full" type="button">Fullscreen</button>
+  </div>
+</footer>
+
+<script src="analyzer.js"></script>
+<script src="engine.js"></script>
+<script src="demo.js"></script>
+<script>
+'use strict';
+const $ = (id) => document.getElementById(id);
+const canvas = $('stage');
+const PALETTES = [
+  ['Neon', [[1.0, 0.18, 0.55], [0.15, 0.75, 1.0], [0.55, 0.25, 1.0]]],
+  ['Sunset', [[1.0, 0.45, 0.1], [1.0, 0.15, 0.45], [0.45, 0.15, 0.85]]],
+  ['Toxic', [[0.5, 1.0, 0.15], [0.05, 0.9, 0.75], [0.9, 1.0, 0.3]]],
+  ['Ice', [[0.75, 0.9, 1.0], [0.2, 0.6, 1.0], [0.35, 0.3, 1.0]]],
+  ['Inferno', [[1.0, 0.2, 0.05], [1.0, 0.6, 0.1], [1.0, 0.95, 0.5]]],
+  ['Vapor', [[1.0, 0.4, 0.85], [0.3, 0.95, 0.9], [0.65, 0.55, 1.0]]],
+  ['Aurora', [[0.2, 1.0, 0.6], [0.2, 0.55, 1.0], [0.85, 0.3, 1.0]]],
+];
+const SHAPES = ['Circle', 'Heart', 'Star', 'Spiral', 'Infinity', 'Hexagon', 'Flower'];
+const MIRRORS = [1, 2, 3, 4, 6, 8, 12];
+const N = 1024;
+let eng, an, gl;
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// ---------------------------------------------------------------- audio: everything plays from an AudioBuffer-like {left,right,sampleRate,duration}
+const audio = { track: null, name: '', loop: true, ctx: null, node: null, startedAt: 0, playing: false, pausedAt: 0, previewStart: performance.now() };
+const win = new Float32Array(N);
+
+function playheadSeconds() {
+  const t = audio.track;
+  if (!t) return 0;
+  if (audio.playing) {
+    const lat = audio.ctx.outputLatency || audio.ctx.baseLatency || 0;
+    const p = audio.ctx.currentTime - audio.startedAt - lat;
+    return audio.loop ? ((p % t.duration) + t.duration) % t.duration : Math.min(p, t.duration);
+  }
+  if (!audio.ctx && !reduceMotion) return ((performance.now() - audio.previewStart) / 1000) % t.duration;   // silent preview
+  return -1;   // paused: silence
+}
+
+function fillWindow() {
+  const t = audio.track, p = playheadSeconds();
+  if (!t || p < 0) { win.fill(0); return; }
+  const end = Math.floor(p * t.sampleRate), L = t.left, R = t.right;
+  for (let i = 0; i < N; i++) {
+    let j = end - N + i;
+    if (audio.loop) j = ((j % L.length) + L.length) % L.length;
+    win[i] = j >= 0 && j < L.length ? 0.5 * (L[j] + R[j]) : 0;
+  }
+}
+
+function ensureCtx() {
+  if (!audio.ctx) audio.ctx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audio.ctx.state === 'suspended') audio.ctx.resume();
+  return audio.ctx;
+}
+
+function toAudioBuffer(ctx, t) {
+  const b = ctx.createBuffer(2, t.left.length, t.sampleRate);
+  b.copyToChannel(t.left, 0); b.copyToChannel(t.right, 1);
+  return b;
+}
+
+function play(fromStart) {
+  const ctx = ensureCtx(), t = audio.track;
+  if (!t) return;
+  stopNode();
+  if (!t.buffer) t.buffer = toAudioBuffer(ctx, t);
+  const node = ctx.createBufferSource();
+  node.buffer = t.buffer;
+  node.loop = audio.loop;
+  node.connect(ctx.destination);
+  const offset = fromStart ? 0 : audio.pausedAt;
+  node.start(0, offset);
+  audio.startedAt = ctx.currentTime - offset;
+  audio.node = node;
+  audio.playing = true;
+  node.onended = () => { if (audio.node === node && !audio.loop) { audio.playing = false; audio.pausedAt = 0; syncPlay(); } };
+  $('start').hidden = true;
+  syncPlay();
+  wakeLock();
+}
+
+function stopNode() {
+  if (audio.node) { audio.node.onended = null; try { audio.node.stop(); } catch (e) { /* already stopped */ } audio.node.disconnect(); }
+  audio.node = null;
+}
+
+function pause() {
+  if (!audio.playing) return;
+  const p = playheadSeconds();
+  audio.pausedAt = Math.max(0, p);
+  stopNode();
+  audio.playing = false;
+  syncPlay();
+}
+
+function syncPlay() { $('play').textContent = audio.playing ? 'Pause' : 'Play'; }
+
+let lock = null;
+async function wakeLock() {
+  try { if ('wakeLock' in navigator && !lock) { lock = await navigator.wakeLock.request('screen'); lock.addEventListener('release', () => { lock = null; }); } } catch (e) { lock = null; }
+}
+
+async function openFile(file) {
+  if (!file) return;
+  const ctx = ensureCtx();
+  $('srcName').textContent = 'Decoding ' + file.name + '…';
+  try {
+    const data = await file.arrayBuffer();
+    const buf = await ctx.decodeAudioData(data);
+    const left = buf.getChannelData(0), right = buf.numberOfChannels > 1 ? buf.getChannelData(1) : left;
+    stopNode();
+    audio.track = { left, right, sampleRate: buf.sampleRate, duration: buf.duration, buffer: buf };
+    audio.loop = false;
+    audio.pausedAt = 0;
+    audio.name = file.name.replace(/\.[^.]+$/, '');
+    $('srcName').textContent = audio.name;
+    if (!an || an.sr !== buf.sampleRate) an = new Analyzer(buf.sampleRate, N);
+    play(true);
+    toast(audio.name);
+  } catch (e) {
+    $('srcName').textContent = 'Could not decode that file';
+    $('srcName').className = 'err';
+    setTimeout(() => { $('srcName').className = ''; $('srcName').textContent = audio.name || 'Demo beat · 128 BPM'; }, 3500);
+  }
+}
+
+// ---------------------------------------------------------------- UI
+let toastTimer;
+function toast(text) {
+  const el = $('toast');
+  el.textContent = text;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 1600);
+}
+
+function chip(text, onClick) {
+  const b = document.createElement('button');
+  b.type = 'button'; b.textContent = text; b.addEventListener('click', onClick);
+  return b;
+}
+
+const sceneButtons = SCENES.map((s, i) => {
+  const b = chip(s.name, () => { setScene(i); poke(); });
+  $('scenes').appendChild(b);
+  return b;
+});
+SHAPES.forEach((name, i) => $('shapes').appendChild(chip(name, () => { if (eng) eng.addStroke(shapePoints(i, 0.62), Math.random()); poke(); })));
+
+let sceneTimer = 0, autopilot = true, mirrorIdx = 0, palIdx = 0;
+function setScene(i) {
+  if (!eng) return;
+  eng.setScene(i);
+  sceneTimer = 0;
+  sceneButtons.forEach((b, k) => b.setAttribute('aria-pressed', String(k === eng.scene)));
+  toast(SCENES[eng.scene].name);
+}
+
+$('playDemo').addEventListener('click', () => { useDemo(); play(true); });
+$('play').addEventListener('click', () => { if (audio.playing) pause(); else play(false); poke(); });
+$('file').addEventListener('change', (e) => openFile(e.target.files[0]));
+$('fileStart').addEventListener('change', (e) => openFile(e.target.files[0]));
+$('clear').addEventListener('click', () => { if (eng) eng.clearStrokes(); poke(); });
+$('mirror').addEventListener('click', () => {
+  mirrorIdx = (mirrorIdx + 1) % MIRRORS.length;
+  if (eng) eng.sym = MIRRORS[mirrorIdx];
+  $('mirror').textContent = MIRRORS[mirrorIdx] === 1 ? 'Mirror off' : 'Mirror ×' + MIRRORS[mirrorIdx];
+  poke();
+});
+$('colours').addEventListener('click', () => {
+  palIdx = (palIdx + 1) % PALETTES.length;
+  targetPalette = PALETTES[palIdx][1];
+  $('colours').textContent = 'Colours: ' + PALETTES[palIdx][0];
+  poke();
+});
+$('auto').addEventListener('click', () => {
+  autopilot = !autopilot; sceneTimer = 0;
+  $('auto').setAttribute('aria-pressed', String(autopilot));
+  poke();
+});
+$('full').addEventListener('click', async () => {
+  try { if (!document.fullscreenElement) await document.documentElement.requestFullscreen(); else await document.exitFullscreen(); }
+  catch (e) { $('full').hidden = true; }
+});
+if (!document.documentElement.requestFullscreen) $('full').hidden = true;
+
+let idleTimer;
+function poke() {
+  document.body.classList.remove('idle');
+  clearTimeout(idleTimer);
+  idleTimer = setTimeout(() => { if (audio.playing) document.body.classList.add('idle'); }, 3500);
+}
+addEventListener('pointermove', poke, { passive: true });
+
+addEventListener('keydown', (e) => {
+  if (e.target.closest && e.target.closest('input')) return;
+  const k = e.key;
+  if (k === 'ArrowRight') setScene(eng.scene + 1);
+  else if (k === 'ArrowLeft') setScene(eng.scene - 1);
+  else if (k === ' ') { e.preventDefault(); if (audio.playing) pause(); else play(false); }
+  else if (k >= '1' && k <= String(SCENES.length)) setScene(+k - 1);
+  else if (k === 'c') $('clear').click();
+  else if (k === 'm') $('mirror').click();
+  else if (k === 'k') $('colours').click();
+  else if (k === 's') { eng.addStroke(shapePoints(shapeKey++ % SHAPES.length, 0.62)); }
+  else return;
+  poke();
+});
+let shapeKey = 0;
+
+// shapes, same outlines as Shapes.java
+function shapePoints(kind, size) {
+  const pts = [];
+  for (let i = 0; i <= 360; i++) {
+    const t = i / 360 * Math.PI * 2;
+    let x, y;
+    if (kind === 1) { x = 16 * Math.sin(t) ** 3 / 17; y = (13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t)) / 17 + 0.1; }
+    else if (kind === 2 || kind === 5) {
+      const segs = kind === 2 ? 10 : 6, k = t / (Math.PI * 2) * segs, f = k - Math.floor(k), seg = Math.floor(k) % segs;
+      let x0, y0, x1, y1;
+      if (kind === 2) {
+        const r0 = seg % 2 ? 0.42 : 1, r1 = seg % 2 ? 1 : 0.42, a0 = Math.PI / 2 + seg * Math.PI / 5, a1 = a0 + Math.PI / 5;
+        x0 = Math.cos(a0) * r0; y0 = Math.sin(a0) * r0; x1 = Math.cos(a1) * r1; y1 = Math.sin(a1) * r1;
+      } else {
+        const a0 = seg * Math.PI / 3 + Math.PI / 6, a1 = a0 + Math.PI / 3;
+        x0 = Math.cos(a0); y0 = Math.sin(a0); x1 = Math.cos(a1); y1 = Math.sin(a1);
+      }
+      x = x0 + (x1 - x0) * f; y = y0 + (y1 - y0) * f;
+    }
+    else if (kind === 3) { const r = 0.08 + 0.92 * i / 360; x = Math.cos(t * 3) * r; y = Math.sin(t * 3) * r; }
+    else if (kind === 4) { const d = 1 + Math.sin(t) ** 2; x = Math.cos(t) / d * 1.1; y = Math.sin(t) * Math.cos(t) / d * 1.1; }
+    else if (kind === 6) { const r = 0.35 + 0.65 * Math.abs(Math.cos(3 * t)); x = Math.cos(t) * r; y = Math.sin(t) * r; }
+    else { x = Math.cos(t); y = Math.sin(t); }
+    pts.push([x * size, y * size]);
+  }
+  return pts;
+}
+
+// ---------------------------------------------------------------- touch: tap = ripple, drag = draw, two-finger swipe = scene
+const pointers = new Map();
+let drawing = false, multi = false, swipeX0 = 0, downX = 0, downY = 0;
+function toCentred(x, y) {
+  const r = canvas.getBoundingClientRect(), m = Math.min(r.width, r.height);
+  return [(x - r.left - r.width / 2) / m * 2, -(y - r.top - r.height / 2) / m * 2];
+}
+const avgX = () => { let s = 0; pointers.forEach((p) => { s += p.x; }); return s / pointers.size; };
+canvas.addEventListener('pointerdown', (e) => {
+  canvas.setPointerCapture(e.pointerId);
+  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (pointers.size === 1) { downX = e.clientX; downY = e.clientY; drawing = false; multi = false; }
+  else { if (drawing && eng) eng.endStroke(); drawing = false; multi = true; swipeX0 = avgX(); }
+  poke();
+});
+canvas.addEventListener('pointermove', (e) => {
+  if (!pointers.has(e.pointerId) || !eng) return;
+  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (multi) return;
+  if (!drawing && Math.hypot(e.clientX - downX, e.clientY - downY) > 10) { drawing = true; eng.beginStroke(...toCentred(downX, downY)); }
+  if (drawing) {
+    const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
+    for (const c of evs) eng.extendStroke(...toCentred(c.clientX, c.clientY));
+  }
+});
+function release(e, cancelled) {
+  if (!pointers.has(e.pointerId)) return;
+  if (multi && pointers.size === 2) {
+    const dx = avgX() - swipeX0;
+    if (Math.abs(dx) > 80 && eng) setScene(eng.scene + (dx < 0 ? 1 : -1));
+  }
+  pointers.delete(e.pointerId);
+  if (pointers.size > 0) return;
+  if (!eng) return;
+  if (drawing) eng.endStroke();
+  else if (!multi && !cancelled) eng.addRipple(...toCentred(e.clientX, e.clientY), 1);
+  drawing = false;
+}
+canvas.addEventListener('pointerup', (e) => release(e, false));
+canvas.addEventListener('pointercancel', (e) => release(e, true));
+
+// ---------------------------------------------------------------- render loop
+let targetPalette = PALETTES[0][1], demo;
+function useDemo() {
+  if (!demo) demo = synthDemo(44100);
+  stopNode();
+  audio.track = demo; audio.loop = true; audio.pausedAt = 0; audio.name = '';
+  $('srcName').textContent = 'Demo beat · 128 BPM';
+  if (!an || an.sr !== demo.sampleRate) an = new Analyzer(demo.sampleRate, N);
+}
+
+async function loadShaders() {
+  const src = {};
+  for (const base of ['shaders/', '../android/assets/shaders/']) {
+    try {
+      const probe = await fetch(base + 'common.glsl');   // one probe per location keeps 404 noise down
+      if (!probe.ok) continue;
+      const texts = await Promise.all(SHADER_FILES.map(async (f) => {
+        const r = await fetch(base + f);
+        if (!r.ok) throw new Error(f);
+        return [f, await r.text()];
+      }));
+      texts.forEach(([f, t]) => { src[f] = t; });
+      return src;
+    } catch (e) { /* try the next location */ }
+  }
+  throw new Error('shaders not found');
+}
+
+let scale = Math.min(1, 1.25 / Math.min(devicePixelRatio || 1, 2));
+function resize() {
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+  const w = Math.max(1, Math.round(canvas.clientWidth * dpr)), h = Math.max(1, Math.round(canvas.clientHeight * dpr));
+  if (canvas.width !== w || canvas.height !== h || eng.renderScale !== scale) {
+    canvas.width = w; canvas.height = h;
+    eng.renderScale = scale;
+    eng.resize(w, h);
+  }
+}
+
+async function boot() {
+  gl = canvas.getContext('webgl2', { antialias: false, alpha: false, powerPreference: 'high-performance' });
+  if (!gl) {
+    $('startText').textContent = 'This browser has no WebGL2, which TAV needs. Try a current Chrome, Firefox or Safari.';
+    $('startText').className = 'err';
+    $('playDemo').disabled = true;
+    return;
+  }
+  let src;
+  try { src = await loadShaders(); } catch (e) {
+    $('startText').textContent = 'The shader files did not load. Serve this folder over http, next to android/assets/shaders.';
+    $('startText').className = 'err';
+    return;
+  }
+  eng = new TavEngine(gl, src);
+  eng.palette = PALETTES[0][1].map((c) => c.slice());
+  eng.sym = 1;
+  eng.compileAll();
+  useDemo();
+  resize();
+  addEventListener('resize', resize);
+  setScene(0);
+  requestAnimationFrame(frame);
+}
+
+let last = 0, slow = 0;
+const meters = [0, 1, 2, 3].map((i) => $('m' + i)), beatDot = $('beat');
+function frame(now) {
+  const dt = last ? Math.min(0.1, (now - last) / 1000) : 1 / 60;
+  last = now;
+  // adaptive resolution: sustained slow frames lower the render scale
+  slow = dt > 1 / 40 ? slow + dt : Math.max(0, slow - dt * 0.5);
+  if (slow > 2 && scale > 0.4) { slow = 0; scale *= 0.85; resize(); }
+
+  fillWindow();
+  an.process(win, dt);
+  for (let k = 0; k < 3; k++) for (let c = 0; c < 3; c++) eng.palette[k][c] += (targetPalette[k][c] - eng.palette[k][c]) * (1 - Math.exp(-dt * 1.5));
+  sceneTimer += dt;
+  if (autopilot && audio.playing && ((an.drop && sceneTimer > 12) || sceneTimer > 40)) {
+    let next = eng.scene;
+    while (next === eng.scene) next = Math.floor(Math.random() * SCENES.length);
+    setScene(next);
+  }
+  eng.frame(dt, an);
+  for (let i = 0; i < 4; i++) meters[i].style.width = Math.round(an.bands[i] * 100) + '%';
+  beatDot.style.opacity = (0.25 + 0.75 * an.beat).toFixed(2);
+  requestAnimationFrame(frame);
+}
+
+boot();
+</script>
+</body>
+</html>

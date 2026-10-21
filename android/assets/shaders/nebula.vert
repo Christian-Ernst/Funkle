@@ -1,0 +1,45 @@
+// NEBULA particles: a stateless spiral galaxy. Every star is a pure function of
+// its id and the music clock. Orbit radius maps to frequency, so each ring of the
+// galaxy breathes with its own part of the spectrum, and every beat sends a
+// shockwave rolling out from the core.
+uniform float uCount;
+out vec3 vCol;
+void main() {
+    float id = float(gl_VertexID);
+    float h1 = hash11(id * 0.1371 + 1.3), h2 = hash11(id * 0.7193 + 4.1), h3 = hash11(id * 0.3117 + 7.7), h4 = hash11(id * 0.917 + 2.2);
+    float h5 = hash11(id * 0.523 + 9.1);
+    float arms = 2.0 + floor(mod(uSeed, 3.0));
+    vec3 pos;
+    float rad;
+    if (h1 < 0.12) {
+        // bulge: a fuzzy sphere at the core
+        float th = h2 * TAU, ph = acos(2.0 * h3 - 1.0);
+        rad = 0.05 + 0.22 * pow(h4, 1.5);
+        pos = vec3(sin(ph) * cos(th), cos(ph) * 0.6, sin(ph) * sin(th)) * rad;
+        pos.xz = rot(uFlow * 0.15) * pos.xz;
+    } else {
+        float arm = floor(h5 * arms);
+        rad = 0.08 + pow(h2, 0.55) * 1.35;
+        float scatter = (h3 - 0.5) * (0.3 + 0.9 * rad) * (0.4 + 0.6 * h4);
+        float ang = arm * TAU / arms + log(rad + 0.05) * 2.2 + scatter + uFlow * (0.04 + 0.06 / (rad + 0.3));
+        pos = vec3(cos(ang) * rad, (h4 - 0.5) * 0.08 * (1.4 - rad), sin(ang) * rad);
+    }
+    float s = spec(clamp(rad / 1.45, 0.0, 1.0) * 0.8 + 0.03);
+    // shockwave: a ring that leaves the core on each beat
+    float front = (1.0 - beat()) * 1.6;
+    float shock = exp(-pow((rad - front) * 7.0, 2.0)) * beat();
+    pos *= 1.0 + 0.12 * s + 0.25 * shock;
+    pos.y += (h3 - 0.5) * 0.4 * s * s;
+    // camera: tilted disc slowly turning
+    pos.yz = rot(0.95 + 0.25 * sin(uTime * 0.04)) * pos.yz;
+    pos.xy = rot(0.3 * sin(uTime * 0.03)) * pos.xy;
+    float zc = 2.1 - pos.z;
+    vec2 sp = pos.xy / zc * 2.5;
+    gl_Position = vec4(sp * min(uRes.x, uRes.y) / uRes, 0.0, 1.0);
+    float px = min(uRes.x, uRes.y) / 700.0;
+    gl_PointSize = max(1.0, (1.4 + 3.0 * s * h4 + 3.0 * shock) * px * 2.1 / zc);
+    float core = exp(-rad * 4.0);
+    vec3 c = pal(rad * 0.6 + h3 * 0.2 + uFlow * 0.01) * (0.25 + 1.3 * s) + vec3(1.0, 0.85, 0.7) * core * 0.8;
+    c += vec3(1.0) * shock * 0.8;
+    vCol = c * (0.3 + 0.7 * h4) * 0.6;
+}
