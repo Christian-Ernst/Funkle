@@ -76,6 +76,9 @@
   .rail { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; padding: 2px; }
   .rail::-webkit-scrollbar { display: none; }
   .rail .label { flex: none; align-self: center; font: 600 10.5px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--mute); padding-right: 2px; }
+  #tune { align-items: center; gap: 14px; }
+  #tune label { display: flex; align-items: center; gap: 8px; font: 600 10.5px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--mute); white-space: nowrap; }
+  #tune input[type=range] { width: 110px; accent-color: var(--hot); }
 
   button, .file {
     flex: none; font: 500 13.5px/1 var(--ui); color: var(--text);
@@ -153,12 +156,20 @@
 
 <footer class="chrome">
   <div class="rail" id="scenes" role="toolbar" aria-label="Scenes"><span class="label">Scene</span></div>
+  <div class="rail" id="tune" role="group" aria-label="Tune this scene" hidden>
+    <span class="label" id="tuneName">Tune</span>
+    <label><span id="tuneL0"></span><input type="range" id="tune0" min="0" max="1" step="0.01"></label>
+    <label><span id="tuneL1"></span><input type="range" id="tune1" min="0" max="1" step="0.01"></label>
+    <label><span id="tuneL2"></span><input type="range" id="tune2" min="0" max="1" step="0.01"></label>
+    <button id="tuneReset" type="button">Reset</button>
+  </div>
   <div class="rail" role="toolbar" aria-label="Tools">
     <button id="play" type="button">Play</button>
     <label class="file">Open song<input type="file" id="file" accept="audio/*"></label>
     <span class="label">Draw</span>
     <span id="shapes" style="display:contents"></span>
     <button id="clear" type="button">Clear</button>
+    <button id="tuneToggle" type="button" aria-pressed="false">Tune</button>
     <button id="mirror" type="button">Mirror off</button>
     <button id="colours" type="button">Colours: Neon</button>
     <button id="motion" type="button">Colour motion: Beat</button>
@@ -353,16 +364,53 @@ function setScene(i, by = 'user') {
   eng.setScene(i);
   sceneTimer = 0;
   sceneButtons.forEach((b, k) => b.setAttribute('aria-pressed', String(k === eng.scene)));
+  showTune();
   toast(SCENES[eng.scene].name);
   TavCloud.track('scene', { scene: SCENES[eng.scene].id, by });
   if (by === 'user') saveSettings();
+}
+
+// ---------------------------------------------------------------- tune: the scene's three sliders (t), live
+let tuneOpen = false;
+function showTune() {
+  if (!eng) return;
+  const sc = SCENES[eng.scene];
+  $('tune').hidden = !tuneOpen;
+  $('tuneToggle').setAttribute('aria-pressed', String(tuneOpen));
+  $('tuneName').textContent = 'Tune ' + sc.name;
+  for (let k = 0; k < TUNE; k++) {
+    $('tuneL' + k).textContent = sc.tune[k];
+    $('tune' + k).value = eng.tune[eng.scene][k];
+  }
+}
+function toggleTune() { tuneOpen = !tuneOpen; showTune(); }
+$('tuneToggle').addEventListener('click', () => { toggleTune(); poke(); });
+for (let k = 0; k < TUNE; k++) {
+  $('tune' + k).addEventListener('input', (e) => { if (eng) eng.setTune(eng.scene, k, +e.target.value); poke(); });
+  $('tune' + k).addEventListener('change', (e) => {
+    if (!eng) return;
+    TavCloud.track('setting_changed', { key: 'tune_' + SCENES[eng.scene].id + '_' + tuneId(eng.scene, k), to: +e.target.value });
+    saveSettings();
+  });
+}
+$('tuneReset').addEventListener('click', () => {
+  if (!eng) return;
+  for (let k = 0; k < TUNE; k++) eng.setTune(eng.scene, k, 0.5);
+  showTune(); saveSettings(); poke();
+});
+// every scene's sliders as { sceneId: [a, b, c] }, only the ones that moved
+function tuneSettings() {
+  const out = {};
+  if (!eng) return out;
+  SCENES.forEach((s, i) => { if (eng.tune[i].some((v) => v !== 0.5)) out[s.id] = eng.tune[i].slice(); });
+  return out;
 }
 
 // ---------------------------------------------------------------- settings: kept in this browser, and in the cloud when signed in
 const SETTINGS_KEY = 'tav.settings';
 let settingsAt = 0;   // when the local settings last changed (ms); the cloud copy wins if it is newer
 function currentSettings() {
-  return { scene: eng ? eng.scene : 0, palette: PALETTES[palIdx][0], mirror: MIRRORS[mirrorIdx], brightness: eng ? eng.brightness : DEFAULT_BRIGHTNESS, autopilot };
+  return { scene: eng ? eng.scene : 0, palette: PALETTES[palIdx][0], mirror: MIRRORS[mirrorIdx], brightness: eng ? eng.brightness : DEFAULT_BRIGHTNESS, autopilot, tune: tuneSettings() };
 }
 function saveSettings() {
   settingsAt = Date.now();
@@ -378,6 +426,10 @@ function applySettings(d) {
   if (m >= 0) { mirrorIdx = m; eng.sym = MIRRORS[m]; $('mirror').textContent = MIRRORS[m] === 1 ? 'Mirror off' : 'Mirror ×' + MIRRORS[m]; }
   if (Number.isInteger(d.brightness) && BRIGHTNESS[d.brightness]) { eng.setBrightness(d.brightness); $('bright').textContent = 'Brightness: ' + BRIGHTNESS[d.brightness].name; }
   if (typeof d.autopilot === 'boolean') { autopilot = d.autopilot; $('auto').setAttribute('aria-pressed', String(autopilot)); }
+  if (d.tune && typeof d.tune === 'object') {
+    SCENES.forEach((s, i) => { const t = d.tune[s.id]; for (let k = 0; k < TUNE; k++) eng.setTune(i, k, Array.isArray(t) ? +t[k] : 0.5); });
+    showTune();
+  }
   if (Number.isInteger(d.scene) && SCENES[d.scene]) setScene(d.scene, 'restore');
 }
 function loadLocalSettings() {
@@ -535,6 +587,7 @@ addEventListener('keydown', (e) => {
   else if (k === 'k') $('colours').click();
   else if (k === 'd') $('motion').click();
   else if (k === 'b') $('bright').click();
+  else if (k === 't') $('tuneToggle').click();
   else if (k === 's') { eng.addStroke(shapePoints(shapeKey++ % SHAPES.length, 0.62)); }
   else return;
   poke();

@@ -96,9 +96,13 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     private final TextView[] cmLabels = new TextView[ColourDrive.NAMES.length];
     private ColourDrive colourDrive;
     private int colourMode;   // the chip in the menu, see ColourDrive.MODE_NAMES
+    private View tuneCard;    // Tune this scene: the scene's three sliders
+    private int tuneScene = -1;   // the scene the open card belongs to
+    private final GradientSlider[] tuneSliders = new GradientSlider[Scene.TUNE];
+    private final TextView[] tuneLabels = new TextView[Scene.TUNE];
 
     private final Runnable hideMenu = () -> {
-        if (panel.getVisibility() != View.VISIBLE && colourEditor == null && equalizerCard == null)
+        if (panel.getVisibility() != View.VISIBLE && colourEditor == null && equalizerCard == null && tuneCard == null)
             menuButton.animate().alpha(0f).setDuration(600).start();
     };
     private final Runnable hideTrack = () -> {
@@ -245,6 +249,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     public void onBackPressed() {
         if (colourEditor != null) closeColourEditor(true);   // back to the menu it came from
         else if (equalizerCard != null) closeEqualizer(true);
+        else if (tuneCard != null) closeTune(true);
         else if (accountCard != null) closeAccount(true);
         else if (colourCard != null) closeColourMotion(true);
         else if (panel.getVisibility() == View.VISIBLE) togglePanel();
@@ -322,6 +327,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
             ui.removeCallbacks(hideScene);
             ui.postDelayed(hideScene, 1800);
             for (int i = 0; i < sceneChips.size(); i++) styleChip(sceneChips.get(i), i == scene);
+            if (tuneCard != null && tuneScene != scene) closeTune(false);   // the sliders belong to the old scene
         });
     }
 
@@ -433,6 +439,77 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         pushPalette();
         pushEqualizer();
         pushColourDrive();
+        pushTune();
+    }
+
+    // ------------------------------------------------------------------ per-scene sliders
+
+    private static String tuneKey(Scene sc, int k) {
+        return "tune_" + sc.id + "_" + k;
+    }
+
+    private float tuneValue(Scene sc, int k) {
+        return prefs.getFloat(tuneKey(sc, k), 0.5f);
+    }
+
+    /** Every scene's sliders from prefs to the renderer. */
+    private void pushTune() {
+        for (int s = 0; s < Scene.ALL.length; s++) {
+            for (int k = 0; k < Scene.TUNE; k++) {
+                final int fs = s, fk = k;
+                final float v = tuneValue(Scene.ALL[s], k);
+                view.queueEvent(() -> renderer.setTune(fs, fk, v));
+            }
+        }
+    }
+
+    private void setTune(int s, int k, float v) {
+        v = Math.max(0f, Math.min(1f, v));
+        prefs.edit().putFloat(tuneKey(Scene.ALL[s], k), v).apply();
+        final int fs = s, fk = k;
+        final float fv = v;
+        view.queueEvent(() -> renderer.setTune(fs, fk, fv));
+    }
+
+    /** Glass card with the current scene's three sliders; every change shows on the scene at once. */
+    private void showTune() {
+        if (tuneCard != null) return;
+        final int s = Math.max(0, Math.min(Scene.ALL.length - 1, prefs.getInt("scene", 0)));
+        final Scene sc = Scene.ALL[s];
+        tuneScene = s;
+        LinearLayout box = sliderCard("Tune " + sc.name, sc.tune, tuneSliders, tuneLabels,
+                (k, v) -> {
+                    setTune(s, k, v);
+                    refreshTuneLabels(sc);
+                }, () -> closeTune(false));
+        tuneCard = openCard(box);
+        for (int k = 0; k < Scene.TUNE; k++) tuneSliders[k].setValue(tuneValue(sc, k));
+        refreshTuneLabels(sc);
+    }
+
+    private void refreshTuneLabels(Scene sc) {
+        for (int k = 0; k < Scene.TUNE; k++) {
+            tuneLabels[k].setText((sc.tune[k] + "  \u00B7  " + Math.round(tuneValue(sc, k) * 100) + " %").toUpperCase(Locale.ROOT));
+        }
+    }
+
+    /** Back to the look the scene was made with (every slider in the middle). */
+    private void resetTune() {
+        int s = Math.max(0, Math.min(Scene.ALL.length - 1, prefs.getInt("scene", 0)));
+        for (int k = 0; k < Scene.TUNE; k++) setTune(s, k, 0.5f);
+        if (tuneCard != null && tuneScene == s) {
+            for (int k = 0; k < Scene.TUNE; k++) tuneSliders[k].setValue(0.5f);
+            refreshTuneLabels(Scene.ALL[s]);
+        }
+        flash("Tune reset");
+    }
+
+    private void closeTune(boolean backToMenu) {
+        final View card = tuneCard;
+        if (card == null) return;
+        tuneCard = null;
+        tuneScene = -1;
+        closeCard(card, backToMenu);
     }
 
     private void pushPalette() {
@@ -624,6 +701,11 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         String[] sceneNames = new String[Scene.ALL.length];
         for (int i = 0; i < sceneNames.length; i++) sceneNames[i] = Scene.ALL[i].name;
         addRow("Scene", sceneNames, prefs.getInt("scene", 0), sceneChips, i -> view.queueEvent(() -> renderer.setScene(i)));
+
+        addRow("Tune this scene (three sliders, live)", new String[]{"Sliders", "Reset"}, -1, null, i -> {
+            if (i == 0) showTune();
+            else resetTune();
+        });
 
         String[] shapes = new String[Shapes.NAMES.length + 1];
         System.arraycopy(Shapes.NAMES, 0, shapes, 0, Shapes.NAMES.length);
@@ -1292,7 +1374,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
             Object cur = all.get(k), v = remote.opt(k);
             if (v == null || v == JSONObject.NULL) continue;
             if (cur instanceof Boolean || v instanceof Boolean) ed.putBoolean(k, v instanceof Boolean ? (Boolean) v : !v.toString().equals("0"));
-            else if (cur instanceof Float || (cur == null && k.startsWith("eq_") && !k.equals("eq_mode")) || (cur == null && k.startsWith("cm_")))
+            else if (cur instanceof Float || (cur == null && k.startsWith("eq_") && !k.equals("eq_mode")) || (cur == null && k.startsWith("cm_")) || (cur == null && k.startsWith("tune_")))
                 ed.putFloat(k, (float) remote.optDouble(k, 0));
             else if (v instanceof Number) ed.putInt(k, ((Number) v).intValue());
             else ed.putString(k, v.toString());

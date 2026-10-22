@@ -2,7 +2,7 @@
 // its id and the music clock. Orbit radius maps to frequency, so each ring of the
 // galaxy breathes with its own part of the spectrum, every beat sends a
 // shockwave rolling out from the core and a drop sends a bigger, slower one. On a
-// tall screen the disc lies along the long axis.
+// tall screen the disc lies along the long axis. Sliders: spin, glow, spread (the disc's reach).
 uniform float uCount;
 out vec3 vCol;
 void main() {
@@ -20,9 +20,9 @@ void main() {
         pos.xz = rot(uFlow * 0.15) * pos.xz;
     } else {
         float arm = floor(h5 * arms);
-        rad = 0.08 + pow(h2, 0.55) * 1.35;
+        rad = 0.08 + pow(h2, 0.55) * tune(2, 0.9, 1.8);
         float scatter = (h3 - 0.5) * (0.3 + 0.9 * rad) * (0.4 + 0.6 * h4);
-        float ang = arm * TAU / arms + log(rad + 0.05) * 2.2 + scatter + uFlow * (0.04 + 0.06 / (rad + 0.3));
+        float ang = arm * TAU / arms + log(rad + 0.05) * 2.2 + scatter + uFlow * tuneExp(0, 0.25, 4.0) * (0.04 + 0.06 / (rad + 0.3));
         pos = vec3(cos(ang) * rad, (h4 - 0.5) * 0.08 * (1.4 - rad), sin(ang) * rad);
     }
     float s = spec(clamp(rad / 1.45, 0.0, 1.0) * 0.8 + 0.03);
@@ -49,5 +49,5 @@ void main() {
     vec3 c = pal(rad * 0.6 + h3 * 0.2 + uFlow * 0.01) * (0.25 + 1.3 * s);
     c += mix(pal(0.1 + h3 * 0.3), palHi(), 0.35) * core * 0.5;
     c += mix(pal(rad * 0.6 + 0.3), palHi(), 0.5) * shock * 0.8;
-    vCol = c * (0.3 + 0.7 * h4) * 0.6 * (1.0 - 0.55 * core);
+    vCol = c * (0.3 + 0.7 * h4) * tuneExp(1, 0.3, 1.2) * (1.0 - 0.55 * core);
 }

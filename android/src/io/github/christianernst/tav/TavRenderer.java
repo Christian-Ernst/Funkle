@@ -81,6 +81,8 @@ final class TavRenderer implements GLSurfaceView.Renderer {
     // uniforms in the thousands lose the precision that fract()/sin() patterns need.
     private double time, transStart = -10;
     private float stepScale = 1, flash, seed;
+    /** Each scene's sliders, 0..1 (0.5 = the look it was made with); uploaded as uTune. */
+    private final float[][] tune = new float[Scene.ALL.length][Scene.TUNE];
     // Drops: seconds since the last one (the scenes' drop() envelope), and a surge that runs the
     // music clock ahead for a moment so every scene lurches forward on the hit.
     private float dropAge = 100, surge, flowExtra;
@@ -100,6 +102,7 @@ final class TavRenderer implements GLSurfaceView.Renderer {
         this.ctx = ctx.getApplicationContext();
         this.capture = capture;
         this.host = host;
+        for (float[] t : tune) java.util.Arrays.fill(t, 0.5f);
     }
 
     // ------------------------------------------------------------------ controls (GL thread)
@@ -179,6 +182,12 @@ final class TavRenderer implements GLSurfaceView.Renderer {
 
     void setColourDrive(ColourDrive d) {
         drive = d;
+    }
+
+    /** Slider k of scene s (menu → Tune this scene); shows on the next frame. */
+    void setTune(int s, int k, float v) {
+        if (s < 0 || s >= tune.length || k < 0 || k >= Scene.TUNE) return;
+        tune[s][k] = Float.isNaN(v) ? 0.5f : Math.max(0f, Math.min(1f, v));
     }
 
     /** Called when the playing track changes: autopilot moves on with the music. */
@@ -556,7 +565,9 @@ final class TavRenderer implements GLSurfaceView.Renderer {
         uniform1f(p, "uHistHead", an.histHead);
         uniform1f(p, "uSym", sym);
         uniform1f(p, "uSeed", seed);
-        int l = p.loc("uBands");
+        int l = p.loc("uTune");
+        if (l >= 0) glUniform4f(l, tune[scene][0], tune[scene][1], tune[scene][2], 0f);
+        l = p.loc("uBands");
         if (l >= 0) glUniform4f(l, shaped[0], shaped[1], shaped[2], shaped[3]);
         l = p.loc("uEnergy");
         if (l >= 0) glUniform4f(l, shapedLevel, shapedBeat, an.beatCount, an.intensity);

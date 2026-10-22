@@ -1,6 +1,7 @@
 // WORMHOLE: an endless polar tunnel. Panels light up with the spectrum, rings
 // flash on the beat and the flight speed follows the music clock. The far end
 // sinks into the palette's fog; a drop twists the tunnel and re-rolls its panels.
+// Sliders: speed (flight), panels (how many around), twist.
 void main() {
     vec2 p0 = toP(gl_FragCoord.xy);
     // the vanishing point drifts lazily
@@ -8,15 +9,15 @@ void main() {
     float r = length(p) + 1e-4;
     float a = angle(p);
     float dp = drop();
-    float twist = 1.6 * sin(uFlow * 0.05) + 1.4 * dp;
-    float z = 1.1 / r + uFlow * 1.6;               // depth along the tunnel
+    float twist = tune(2, 0.0, 3.2) * sin(uFlow * 0.05) + 1.4 * dp;
+    float z = 1.1 / r + uFlow * tuneExp(0, 0.5, 5.12);   // depth along the tunnel
     float u = fract(a / TAU + 0.5 + twist * 0.06 * z / (1.0 + 0.05 * z) - uFlow * 0.004);
     float m = circFreq(u);
     float s = spec(0.03 + 0.75 * m);
     float sp = specPeak(0.03 + 0.75 * m);
 
     float near = smoothstep(0.04, 0.6, r);          // far end dissolves into the fog
-    float seg = 32.0;
+    float seg = floor(tuneExp(1, 8.0, 128.0));
     float lane = fract(u * seg);
     float laneD = min(lane, 1.0 - lane) / seg * TAU * r;          // screen distance to lane edge
     float rz = fract(z * 1.5);

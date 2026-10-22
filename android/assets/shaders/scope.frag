@@ -3,7 +3,7 @@
 // the sides), which fills a tall screen top to bottom.
 void main() {
     vec2 p = toP(gl_FragCoord.xy);
-    vec3 col = feedback(p, 0.988 - 0.012 * bass() - 0.01 * drop(), 0.006 * sin(uFlow * 0.1), 0.82);
+    vec3 col = feedback(p, 0.988 - 0.012 * bass() - 0.01 * drop(), 0.006 * sin(uFlow * 0.1), tune(2, 0.7, 0.94));
     // the feedback keeps about 5 frames of this centre glow stacked, so it stays faint
     col += pal(0.5) * glow(length(p), 0.04 + 0.05 * bass()) * (0.03 + 0.09 * bass());
     float halfH = uRes.y / min(uRes.x, uRes.y);
