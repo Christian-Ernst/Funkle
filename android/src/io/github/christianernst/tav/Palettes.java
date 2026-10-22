@@ -44,9 +44,13 @@ final class Palettes {
         return argb;
     }
 
+    /** Floors for album colours: enough saturation and brightness to glow, the cover's own tone above that. */
+    private static final float ALBUM_MIN_SAT = 0.5f, ALBUM_MIN_VALUE = 0.7f;
+
     /**
-     * Picks three distinct vivid hues from album art (weighted hue histogram, saturation
-     * x value) and pushes them to neon brightness. Returns null for grey artwork.
+     * Picks three distinct hues from album art (weighted hue histogram, saturation x value) and
+     * keeps each one's own saturation and brightness above a floor, so a dusty cover gives a dusty
+     * palette and a neon cover a neon one. Returns null for grey artwork.
      */
     static float[][] fromBitmap(Bitmap art) {
         if (art == null) return null;
@@ -98,8 +102,8 @@ final class Palettes {
                 Color.RGBToHSV(rgb[0], rgb[1], rgb[2], hsv);
                 hsv[0] = (hsv[0] + (k == 1 ? 50 : -50) + 360) % 360;
             }
-            hsv[1] = Math.max(hsv[1], 0.65f);
-            hsv[2] = 1f;
+            hsv[1] = Math.max(hsv[1], ALBUM_MIN_SAT);
+            hsv[2] = Math.max(hsv[2], ALBUM_MIN_VALUE);
             int c = Color.HSVToColor(hsv);
             out[k] = new float[]{Color.red(c) / 255f, Color.green(c) / 255f, Color.blue(c) / 255f};
         }

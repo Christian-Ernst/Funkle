@@ -75,8 +75,8 @@ even without notification access, because TAV then sends ordinary media-button p
 
 **Autopilot** (on by default) changes scenes when the track changes, when a drop hits, or every 45 s.
 **Mirror** repeats everything you draw 2–12 times around the centre.
-**Colours**: *Album* takes the colours from the cover art, *Neon* to *Aurora* are presets, and *Custom* opens an
-editor for your own three colours. Tap a swatch, then drag Hue, Saturation and Brightness; the visuals change while
+**Colours**: *Album* takes the colours from the cover art and keeps its tone (a dusty cover gives a dusty palette,
+a neon cover a neon one), *Neon* to *Aurora* are presets, and *Custom* opens an editor for your own three colours. Tap a swatch, then drag Hue, Saturation and Brightness; the visuals change while
 you drag, and TAV keeps the colours for next time. Tap *Custom* again to edit them.
 **Brightness**: Dim, Soft, Normal (the default) or Bright. On an OLED screen in a dark room, try Soft or Dim.
 **Equalizer** sets how hard the scenes react to the music, for every scene. *Flat* is the look before the
@@ -100,13 +100,23 @@ move with the music. Use it if flashing lights bother you or you are sensitive t
 
 ### Scenes
 
-**Halo** — a plasma core, a waveform ring and spectral rays; every beat launches a ripple.
-**Wormhole** — a neon tunnel flown at the speed of the music.
-**Pulsar** — the spectrogram as receding ridgelines ("Unknown Pleasures").
-**Mandala** — a kaleidoscope that folds over its own previous frame.
-**Ferro** — a raymarched ferrofluid sphere; each spike listens to its own frequency.
-**Nebula** — a 48 000-star galaxy whose rings breathe per band, with a shockwave on every beat.
-**Spiro** — spirograph lace etched with the waveform.
+**Halo** — a plasma core, a waveform ring and spectral rays that run to the corners; every beat launches a
+ripple, and a drop fires the rays and flares the core.
+**Wormhole** — a neon tunnel flown at the speed of the music, its far end lost in fog; a drop twists it and
+re-rolls the panels.
+**Pulsar** — the spectrogram as receding ridgelines ("Unknown Pleasures") under an aurora; a drop lifts the
+whole landscape.
+**Mandala** — a kaleidoscope that folds over its own previous frame; a drop sucks the echoes in and, unless
+Mirror fixes the symmetry, re-rolls the fold count.
+**Ferro** — a raymarched ferrofluid sphere over a floor that mirrors it; each spike listens to its own
+frequency and a drop bursts them.
+**Nebula** — a 48 000-star galaxy laid along the long axis of the screen, whose rings breathe per band, with a
+shockwave on every beat and a bigger one on every drop.
+**Spiro** — spirograph lace etched with the waveform, one hue per strand, over a spectrogram curtain.
+
+Every scene is composed for a phone held upright: the top and bottom carry haze, rings, sky or a floor in the
+palette's own deep tone instead of black. On every drop the music clock surges, so all motion lurches forward
+for a moment.
 
 ---
 

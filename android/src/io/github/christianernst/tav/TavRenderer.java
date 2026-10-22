@@ -81,6 +81,9 @@ final class TavRenderer implements GLSurfaceView.Renderer {
     // uniforms in the thousands lose the precision that fract()/sin() patterns need.
     private double time, transStart = -10;
     private float stepScale = 1, flash, seed;
+    // Drops: seconds since the last one (the scenes' drop() envelope), and a surge that runs the
+    // music clock ahead for a moment so every scene lurches forward on the hit.
+    private float dropAge = 100, surge, flowExtra;
     private long lastNanos;
     private float sceneTimer;
     private boolean autopilot = true, lastSilent;
@@ -112,7 +115,10 @@ final class TavRenderer implements GLSurfaceView.Renderer {
         }
         scene = i;
         sceneTimer = 0;
-        if (an != null && an.flow > 400) an.flow = 0;   // rebase the music clock while the crossfade hides the jump
+        if (an != null && an.flow > 400) {   // rebase the music clock while the crossfade hides the jump
+            an.flow = 0;
+            flowExtra = 0;
+        }
         host.onSceneChanged(i);
     }
 
@@ -318,6 +324,14 @@ final class TavRenderer implements GLSurfaceView.Renderer {
             flash = calm ? 0f : eq.dropFlash();
         }
         flash *= (float) Math.exp(-dt * 4);
+        dropAge += dt;
+        if (an.drop && !calm) {
+            dropAge = 0;
+            surge = 1;
+        }
+        flowExtra += surge * 2f * dt;
+        surge *= (float) Math.exp(-dt * 1.5);
+        if (flowExtra > 2000) flowExtra -= 2000;
         Scene sc = Scene.ALL[scene];
         if (sc.beatRipples && an.onBeat && !calm) addRipple(0, 0, 0.5f + 0.5f * shaped[0]);
 
@@ -524,7 +538,8 @@ final class TavRenderer implements GLSurfaceView.Renderer {
             else glUniform2f(res, width, height);
         }
         uniform1f(p, "uTime", (float) (time % 3600.0));
-        uniform1f(p, "uFlow", an.flow);
+        uniform1f(p, "uFlow", an.flow + flowExtra);
+        uniform1f(p, "uDrop", calm ? 100f : dropAge);
         uniform1f(p, "uStep", stepScale);
         uniform1f(p, "uHistHead", an.histHead);
         uniform1f(p, "uSym", sym);

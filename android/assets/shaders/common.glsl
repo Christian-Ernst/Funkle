@@ -92,3 +92,26 @@ float circFreq(float u) { return 1.0 - abs(abs(fract(u + 0.25) * 2.0 - 1.0) * 2.
 // Neon line profile: 1 at distance 0, half at distance w, then ~1/d^2 so that
 // thousands of overlapping lines don't flood the screen (bloom adds the halo).
 float glow(float d, float w) { return w * w / (d * d + w * w); }
+
+// Seconds since the last drop (large until the first one; Calm motion keeps it large).
+uniform float uDrop;
+// Drop envelope: 1 at the drop, gone after about two seconds. Every scene has a move on it.
+float drop() { return exp(-uDrop * 1.4); }
+
+// Role colours derived from the palette, so every preset and every album carries them
+// without extra fields. They read pal() rather than uPal, so palettes whose colour
+// comes from pal() itself keep working.
+// palBg(): a deep tint for haze, fog, floors and skies (max channel 0.08: the tone curve's
+// toe lifts that to a just-visible tone, not black). palHi(): the light that used to be
+// plain white, kept a little saturated so hot cores stay in the palette.
+vec3 palInk() { return (pal(0.0) + pal(1.0 / 3.0) + pal(2.0 / 3.0)) / 3.0; }
+vec3 palBg() {
+    vec3 n = palInk();
+    n /= max(max(n.r, max(n.g, n.b)), 1e-3);
+    return n * n * 0.08;
+}
+vec3 palHi() {
+    vec3 n = palInk();
+    n /= max(max(n.r, max(n.g, n.b)), 1e-3);
+    return mix(n, vec3(1.0), 0.5);
+}
