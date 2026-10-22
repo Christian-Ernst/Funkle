@@ -49,6 +49,18 @@ Album colours keep the cover's saturation and brightness above a floor (`Palette
   and whether Mandala's fold-count re-roll on a drop is welcome or jarring.
 - Still open from the review: saved looks with thumbnails, music-aware autopilot and a share sheet.
 
+## Quality: Auto, Low, Medium, High (2026-10-22, not yet on a phone)
+
+The Quality row became Auto (default; starts at 70 % of the screen's pixels and climbs to 100 % after 45 s of fast
+frames, steps down to about a third when frames run late), Low (50 %), Medium (70 %) and High (100 %); the web
+edition has the same button (`q`) and the same `AdaptiveScale` class, and the setting syncs between devices.
+
+- On the phone: with Auto, watch whether the climb to 100 % is visible as a sharpness step (three steps of 15 %);
+  if it bothers, lengthen `RAISE_AFTER` or make the steps smaller. On a 90/120 Hz phone every frame counts as
+  fast (`FAST` is 1/55 s), so Auto reaches full resolution even when the GPU is close to its budget; if that
+  stutters, derive the thresholds from the display's refresh rate.
+- A phone on the edge gets a doubling back-off (15, 30, 60, 120 s) before each new climb; the self-tests cover it.
+
 ## Two new scenes and per-scene sliders (2026-10-22, not yet on a phone)
 
 Ink (`fluid.frag`) and Horizon (`landscape.frag`) are new, and every scene has three sliders (menu → Tune
@@ -60,8 +72,9 @@ look the scene had before; the ends were picked so Normal brightness stays at 0 
   (0.978 per 60 Hz frame) were set so a quiet verse leaves thin wisps and a drop fills the screen. If it
   reads as too dark between drops on the phone, raise `gain` first; the ink stacks in the feedback, so
   re-measure.
-- Horizon: 64 march steps and three spectrogram taps per step; check Quality → Battery on an older phone
-  (AdaptiveScale should catch it). The grid lines alias into a shimmer near the horizon; the haze hides most
+- Horizon: 64 march steps and three spectrogram taps per step. Measured with `web/tools/perf.js`: at full
+  resolution it costs the same as Halo (both about 1.8x Mandala), at half resolution half of Halo, so it is not
+  an outlier. Quality Auto (the default now) starts at 70 % and lowers the resolution if a phone can't hold it. The grid lines alias into a shimmer near the horizon; the haze hides most
   of it, and a cheaper fix would be to fade the lines with distance.
 - The sliders' ends (`tune(k, lo, hi)` in each shader) are guesses from the measurement, not from a phone:
   Halo at full Trails and Spiro at full Trails give large solid (not white) blobs; shorten those ranges if

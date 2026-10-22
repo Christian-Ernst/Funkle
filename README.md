@@ -122,7 +122,10 @@ beat pulse and drop flash). The visuals change while you drag.
   *Device Broadcast Status* in Spotify's settings for track names.
 * **No "light it up" notification:** it needs notification access (menu → Light up when music starts), the
   notification permission on Android 13+, and Spotify's own notification to be on; it never shows while TAV is open.
-* **Stutters on an older phone:** menu → Quality → Battery. TAV also lowers its resolution by itself when frames run late, and raises it again once they run fast.
+* **Stutters on an older phone:** Quality is *Auto* by default: TAV starts at 70 % of the screen's pixels, lowers
+  its resolution when frames run late (down to about a third) and climbs back to full once they run fast for a while.
+  *Low* (50 %) saves battery and holds the frame rate on a weak phone, *Medium* (70 %) and *High* (100 %) pin a
+  ceiling; all of them still step down if the phone can't keep up. The web edition has the same button (or `q`).
 
 ### Scenes
 

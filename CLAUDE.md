@@ -12,11 +12,11 @@ which loads the Android shaders). README.md is the user-facing description. Open
     cards, the long-press menu (`addRow(label, options, selected, chips, pick)`, one chip row per
     setting), the now-playing section with `TransportButton`s, the song-title overlay and gestures.
     Settings are in SharedPreferences `prefs` (keys `scene`, `sym`, `palette`, `brightness`, `source`,
-    `autopilot`, `titleAlways`, `quality`, `motion` (0 Full, 1 Calm), `eq_mode` (0 Flat, 1 Punch, 2 Custom), `eq_master`, `eq_punch`, `eq_beat`,
+    `autopilot`, `titleAlways`, `quality` (0 Auto, 1 Low, 2 Medium, 3 High; `TavRenderer.QUALITY_SCALE`, web `QUALITY`), `motion` (0 Full, 1 Calm), `eq_mode` (0 Flat, 1 Punch, 2 Custom), `eq_master`, `eq_punch`, `eq_beat`,
     `eq_g0`–`eq_g3` (floats), `custom0`–`custom2`, the custom palette as ARGB ints, `cm_mode` (the Colour
     motion chip, see `ColourDrive.MODE_NAMES`), `cm_drift`/`cm_beat`/`cm_drop`/`cm_tilt`/`cm_pump` (floats),
     `tune_<sceneId>_<k>` (floats 0..1, the scene's three sliders, see `Scene.tune`) and
-    `prefs_version` (2: Custom moved from palette index 8 to 11 when Ocean, Candy and Rainbow came)) and
+    `prefs_version` (2: Custom moved from palette index 8 to 11 when Ocean, Candy and Rainbow came; 3: Quality renumbered, `MainActivity.qualityV3`)) and
     reach the GL thread through `view.queueEvent(() -> renderer.setX(..))`. Colours → Custom opens the
     colour editor card (`showColourEditor`, sliders are `GradientSlider.java`). The equalizer and the colour
     motion each have a chip row and a slider card (`sliderCard`/`openCard`/`closeCard`, `showEqualizer`,
@@ -53,7 +53,13 @@ which loads the Android shaders). README.md is the user-facing description. Open
     the feedback buffer by a curl-noise current) and Horizon (`landscape.frag`, a raymarched terrain whose
     height is the spectrogram) are the two scenes that aren't built around a circle.
   - `AdaptiveScale.java`: picks the render resolution from frame times (pure Java; shader builds are
-    not counted as slow frames). `TavRenderer` builds the other shaders a frame at a time at start-up.
+    not counted as slow frames): down 15 % after 2.5 s under 42 fps, up again after 15 s over 55 fps, and a
+    climb that gets undone within 30 s doubles the next wait. Quality Auto starts it at `AUTO_START` (0.7) so
+    it climbs to the sharpest the phone holds; Low, Medium and High start at their ceiling. `web/engine.js`
+    has the same class and `web/tools/adaptive-check.js` runs the same cases as `AdaptiveScaleCheck`.
+    `TavRenderer` builds the other shaders a frame at a time at start-up. Quality is a device setting: it is
+    in the synced settings document but deliberately not in a Look (a Look shared to a weaker phone must not
+    pin it at High).
   - `AudioCapture.java` (Visualizer on session 0, mic fallback), `MediaWatcher.java` (MediaSession and
     Spotify broadcasts, play/pause/next/previous, position for the `Hairline` under the title, open the
     player), `MediaListenerService.java` + `NowPlayingNudge.java` (notification access; watches the media
@@ -73,6 +79,9 @@ which loads the Android shaders). README.md is the user-facing description. Open
   adaptive-scale, equalizer and colour-drive self-tests (EqualizerCheck includes a groove with a verse 8 dB under
   the chorus) and LookCheck (needs a real org.json jar, fetched once; android.jar's is a stub).
 - `web/tools/looks-check.js`: the same for `web/looks.js`, in node, including a payload written by Look.java.
+- `web/tools/perf.js`: times every scene's frame in headless Chromium (SwiftShader) and prints the cost relative
+  to the median scene; absolute numbers mean nothing for a phone, the ratios do. At full resolution Halo and
+  Horizon are the two heaviest (about 1.8x Mandala), Pulsar next.
 - `web/tools/measure.js`: renders every scene at the demo's drop in headless Chromium on a virtual clock
   and prints clipped, near-white and saturated-flat shares per scene. `--track dense` stands in for a
   loud mastered song; `--root` measures another checkout (a `git worktree`) for before/after; `--colour N`
