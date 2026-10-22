@@ -1,4 +1,4 @@
-# TAV — Termux Audio Visualizer
+# TAV — music turned into light
 
 Music turned into light on your phone. TAV listens to whatever is playing — Spotify, YouTube, a file —
 and drives GPU shaders with it: rings that ripple out on every kick, a tunnel that speeds up with the
