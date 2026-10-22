@@ -1,8 +1,10 @@
 package io.github.christianernst.tav;
 
 import android.annotation.SuppressLint;
+import android.media.AudioAttributes;
 import android.media.AudioFormat;
 import android.media.AudioRecord;
+import android.media.AudioTrack;
 import android.media.MediaRecorder;
 import android.media.audiofx.Visualizer;
 import android.util.Log;
@@ -14,11 +16,14 @@ import android.util.Log;
  * output mix. This is what lets TAV react to Spotify (or anything else playing)
  * without the other app's cooperation.</li>
  * <li>MIC — the microphone, for devices whose ROM blocks session-0 capture.</li>
+ * <li>DEMO — the built-in demo beat ({@link DemoTrack}), read straight from its samples on a
+ * clock, so the visuals move before the app has (or is allowed) any audio. It can also be played
+ * out loud, in which case the AudioTrack's playback head is the clock.</li>
  * </ul>
  * {@link #read} is called from the GL thread; everything else from the UI thread.
  */
 final class AudioCapture {
-    static final int SOURCE_SYSTEM = 0, SOURCE_MIC = 1;
+    static final int SOURCE_SYSTEM = 0, SOURCE_MIC = 1, SOURCE_DEMO = 2;
     static final int N = 1024;
     private static final String TAG = "TAV";
 
@@ -39,6 +44,9 @@ final class AudioCapture {
     private final float[] ring = new float[N * 4];
     private int ringPos;
     private final float micRate = 44100;
+    private float[] demo;
+    private long demoStartNs;
+    private AudioTrack demoTrack;
 
     AudioCapture(Listener listener) {
         this.listener = listener;
@@ -69,7 +77,65 @@ final class AudioCapture {
     }
 
     float sampleRate() {
-        return source == SOURCE_SYSTEM ? visRate : micRate;
+        return source == SOURCE_SYSTEM ? visRate : source == SOURCE_DEMO ? DemoTrack.RATE : micRate;
+    }
+
+    /** Plays the demo beat into the visuals (silently) and stops any other source. */
+    void startDemo(float[] mono) {
+        stop();
+        synchronized (lock) {
+            demo = mono;
+            demoStartNs = System.nanoTime();
+        }
+        source = SOURCE_DEMO;
+    }
+
+    boolean demoRunning() {
+        return source == SOURCE_DEMO;
+    }
+
+    boolean demoAudible() {
+        return demoTrack != null;
+    }
+
+    /** Plays the demo out loud (looping) or mutes it again; the visuals follow the speaker. */
+    void setDemoAudible(boolean on) {
+        synchronized (lock) {
+            if (!on || demo == null) {
+                releaseDemoTrack();
+                demoStartNs = System.nanoTime();
+                return;
+            }
+            if (demoTrack != null) return;
+            try {
+                int n = demo.length;
+                short[] pcm = new short[n];
+                for (int i = 0; i < n; i++) pcm[i] = (short) Math.max(-32768, Math.min(32767, Math.round(demo[i] * 32767)));
+                AudioTrack t = new AudioTrack(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build(),
+                        new AudioFormat.Builder().setSampleRate(DemoTrack.RATE).setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                                .setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build(),
+                        n * 2, AudioTrack.MODE_STATIC, android.media.AudioManager.AUDIO_SESSION_ID_GENERATE);
+                if (t.write(pcm, 0, n) < n || t.setLoopPoints(0, n, -1) != AudioTrack.SUCCESS) {
+                    t.release();
+                    return;
+                }
+                t.play();
+                demoTrack = t;
+            } catch (RuntimeException e) {   // no audio output, or a huge buffer the device refuses
+                Log.w(TAG, "Demo playback unavailable", e);
+            }
+        }
+    }
+
+    private void releaseDemoTrack() {
+        if (demoTrack == null) return;
+        try {
+            demoTrack.stop();
+        } catch (IllegalStateException ignored) {
+        }
+        demoTrack.release();
+        demoTrack = null;
     }
 
     private boolean startVisualizer() {
@@ -156,6 +222,18 @@ final class AudioCapture {
     /** Copies the newest N samples into dst (oldest first). Returns false when no source runs. */
     boolean read(float[] dst) {
         synchronized (lock) {
+            if (demo != null) {
+                long pos;
+                if (demoTrack != null) pos = demoTrack.getPlaybackHeadPosition() & 0xFFFFFFFFL;
+                else pos = (System.nanoTime() - demoStartNs) / 1000000L * DemoTrack.RATE / 1000L;
+                int end = (int) (pos % demo.length);
+                for (int i = 0; i < N; i++) {
+                    int j = end - N + i;
+                    if (j < 0) j += demo.length;
+                    dst[i] = demo[j];
+                }
+                return true;
+            }
             if (visualizer != null) {
                 try {
                     if (visualizer.getWaveForm(visBuf) != Visualizer.SUCCESS) return false;
@@ -193,6 +271,8 @@ final class AudioCapture {
             }
         }
         synchronized (lock) {
+            releaseDemoTrack();
+            demo = null;
             if (visualizer != null) {
                 try {
                     visualizer.setEnabled(false);

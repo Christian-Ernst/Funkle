@@ -25,7 +25,7 @@ There are two editions sharing one audio engine:
 
 1. On your phone, open the **[latest release](https://github.com/Christian-Ernst/TAV/releases/tag/latest)** and download **TAV.apk**.
 2. Open it and allow installing from your browser when Android asks.
-3. Start TAV, tap **Let it listen**, then play something in Spotify.
+3. Start TAV. It is already running on a built-in beat; tap **Light up my music** and play something in Spotify.
 
 Or build it on the phone itself, in Termux, with one script:
 
@@ -53,10 +53,21 @@ exactly what you hear from any app without that app's cooperation. Android puts 
 If a phone's ROM blocks this (some do), TAV falls back to the microphone automatically. You can also pick
 **Listen to → Microphone** yourself.
 
-**What's playing:** Spotify keeps running as its own app. When the song changes, TAV shows the title and artist
-(menu → **Song title → Always on screen** keeps them there) and can switch scenes with it. Choose
-**Colours → Album** and grant notification access, and every scene is recoloured from the cover art.
+**What's playing:** Spotify keeps running as its own app. When the song changes, TAV shows the cover, title and
+artist with a thin progress line (menu → **Song title → Always on screen** keeps them there) and can switch
+scenes with it. Choose **Colours → Album** and grant notification access, and every scene is recoloured from the
+cover art. Tap the cover to jump to Spotify; **Open Spotify** at the top of the menu does the same.
 Without notification access, switch on *Settings → Device Broadcast Status* in Spotify for title and artist.
+
+**Light up when music starts:** menu → **Light up when music starts → Spotify** (or *Any player*). When Spotify
+starts playing while TAV is closed, a quiet notification (no sound, no pop-up) shows the song and offers to light
+it up; it disappears again when the music stops, and swiping it away keeps it quiet for an hour. It needs the same
+notification access as album colours, plus the notification permission on Android 13+.
+
+**What TAV cannot do with Spotify:** Android's `Visualizer` hands out an 8-bit waveform for the visuals only, and
+Spotify opts out of `AudioPlaybackCapture`, so TAV cannot record Spotify's audio; a shareable clip would be silent
+(that is also what Spotify's licence requires). Spotify's Web API adds nothing here: the audio-features endpoint
+is closed to new apps, and the media session already gives the title, artist and cover without any login.
 
 **Playback controls:** previous, play/pause and next sit at the top of the menu, and the on-screen song title
 works as a remote: swipe it left for the next track, right for the previous one, tap it to pause. They work
@@ -71,8 +82,13 @@ even without notification access, because TAV then sends ordinary media-button p
 | Two-finger swipe | Next / previous scene |
 | Swipe the song title | Next (left) / previous (right) track |
 | Tap the song title | Play / pause |
-| Long-press or ☰ | Menu: playback controls, scenes, shape stamps, mirror (mandala) mode, colours, colour motion, brightness, motion, equalizer, audio source, autopilot, song title, quality |
+| Long-press or ☰ | Menu: playback controls, looks, scenes, shape stamps, mirror (mandala) mode, colours, colour motion, brightness, motion, equalizer, audio source, autopilot, song title, quality |
 
+**Looks**: everything on screen (scene, colours and their motion, mirror, brightness, motion, equalizer) saved
+under a name. *Save this look* keeps the one on screen, *My looks* brings one back with a tap, and *Share* sends it
+as a link with a six-letter code. The link opens the look in a browser, no app or account needed, with an *Open in
+the TAV app* button on Android; *Open a code or link* pastes one in. Looks are stored on the phone and, with the
+cloud edition, follow you to every device.
 **Autopilot** (on by default) follows the music. It hears the track's energy, tempo, drops and section changes
 and picks scenes that suit the moment: a quiet verse stays on a calm scene, a build-up is held, and the switch
 comes on the downbeat of the bar after a drop, so the scene's own drop move plays out first. Changes land on a
@@ -86,6 +102,8 @@ scene you skip right after the autopilot chose it is picked less often.
 a neon cover a neon one), *Neon* to *Candy* are presets, *Rainbow* paints the whole spectrum, and *Custom* opens an
 editor for your own three colours. Tap a swatch, then drag Hue, Saturation and Brightness; the visuals change while
 you drag, and TAV keeps the colours for next time. Tap *Custom* again to edit them.
+*Shuffle* (in the Colours row and in the editor) rolls three random colours that go together: hues a golden angle
+apart, bright and saturated, never the same twice.
 **Colour motion** makes any palette move with the music. *Still* leaves the colours as they are. *Drift* turns the
 hues slowly, faster when the music is loud. *Beat* (the default) turns the hue a step on every beat and a big jump on a drop.
 *Bands* lets bass, mids and treble each pull the picture toward their own colour (the first, second and third
@@ -109,6 +127,8 @@ beat pulse and drop flash). The visuals change while you drag.
   you to pick **Listen to → Microphone**; hold the phone near the speaker.
 * **Album colours missing:** grant notification access (menu → Colours → Album), or switch on
   *Device Broadcast Status* in Spotify's settings for track names.
+* **No "light it up" notification:** it needs notification access (menu → Light up when music starts), the
+  notification permission on Android 13+, and Spotify's own notification to be on; it never shows while TAV is open.
 * **Stutters on an older phone:** menu → Quality → Battery. TAV also lowers its resolution by itself when frames run late, and raises it again once they run fast.
 
 ### Scenes
@@ -174,8 +194,10 @@ python3 -m http.server 8000    # then visit http://localhost:8000/web/
 
 Turn on GitHub Pages for the repository and it works at `https://<user>.github.io/TAV/web/` too.
 Browsers can't hear other apps, so it can't follow Spotify; that's what the Android app is for.
-Keys: arrows or `1`–`7` for scenes, `space` play/pause, `k` colours, `d` colour motion, `b` brightness, `a` autopilot, `m` mirror,
-`s` shape, `c` clear.
+Keys: arrows or `1`–`7` for scenes, `space` play/pause, `k` colours, `x` shuffle, `d` colour motion, `b` brightness,
+`a` autopilot, `m` mirror, `s` shape, `c` clear, `l` looks. **Looks** saves the scene, colours, mirror and brightness under a
+name in this browser (and in the cloud when signed in) and shares them as a link: `#d=` carries the look itself,
+so a link opens anywhere, and `#l=code` is the six-letter cloud code. A link from the Android app opens here too.
 
 ---
 
@@ -226,6 +248,7 @@ Until the secrets exist, each CI release is signed with a one-off key (the relea
 android/tools/check.sh   # every shader through glslangValidator + analyzer self-test (needs ANDROID_HOME)
 android/build.sh         # builds android/build/TAV.apk
 node web/tools/measure.js --track dense   # how blown out each scene is at a drop (headless Chromium + Playwright)
+node web/tools/looks-check.js            # the look document, share payload and shuffle in web/looks.js
 ```
 
 CI runs both, builds the terminal edition with gcc and clang, and publishes the APK as the

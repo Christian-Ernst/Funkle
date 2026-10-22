@@ -41,6 +41,15 @@ which loads the Android shaders). README.md is the user-facing description. Open
     scene joins without a change here. Palettes are picked by name (`PAL_LOW/MID/HIGH`). `web/engine.js` has the
     same class (`Autopilot`, `SCENE_MOODS`, `AUTOPILOT_PALETTES`); `AutopilotCheck` and
     `web/tools/autopilot-check.js` run the same synthetic song on both.
+  - `Look.java`: a saved look (the colour preset JSON from `Palettes.toJson` plus `palette`, `scene`, `sym`,
+    `brightness`, `calm`, `eq`), its share payload (`#d=` base64url JSON, opens without the cloud) and the
+    link parsers; `LookStore.java` is the shelf in prefs `tav_looks`, mirrored to the cloud presets table
+    (a public row gets the six-letter `#l=` code). `web/looks.js` is the same for the browser. The Looks
+    cards, share sheet and the `tav://look` / web-link handling are in `MainActivity` (`showSaveLook`,
+    `showLooks`, `showOpenCode`, `applyLook`, `shareLook`, `handleLink`); `refreshChips()` restyles every
+    menu row from prefs. `Palettes.shuffle()` is the harmonious shuffle (JVM-safe, no android.graphics).
+  - `DemoTrack.java`: the built-in beat (port of `web/demo.js`); `AudioCapture.startDemo` feeds it to the
+    visuals on a clock, or out loud through an AudioTrack, so the first run moves before the permission ask.
   - `Equalizer.java`: how hard the scenes react. A master, a gain per band, punch (blend from the
     auto-gained bands `an.bands` toward the absolute ones `an.bandsAbs`) and the beat strength. The
     renderer hands the scenes `eq.shapeBands`/`shapeLevel`/`shapeBeat`, never the raw analyzer values.
@@ -50,7 +59,10 @@ which loads the Android shaders). README.md is the user-facing description. Open
   - `AdaptiveScale.java`: picks the render resolution from frame times (pure Java; shader builds are
     not counted as slow frames). `TavRenderer` builds the other shaders a frame at a time at start-up.
   - `AudioCapture.java` (Visualizer on session 0, mic fallback), `MediaWatcher.java` (MediaSession and
-    Spotify broadcasts, play/pause/next/previous), `Palettes.java` (presets plus colours from album
+    Spotify broadcasts, play/pause/next/previous, position for the `Hairline` under the title, open the
+    player), `MediaListenerService.java` + `NowPlayingNudge.java` (notification access; watches the media
+    sessions in the background and posts the opt-in, silent "music started" notification, pref `nudge`:
+    0 Off, 1 Spotify, 2 Any player, quiet for an hour after a swipe-away), `Palettes.java` (presets plus colours from album
     art → `uPal[3]`), `Scene.java`, `Shapes.java`, `TavView.java`.
 - `android/assets/shaders/`: `common.glsl` is prepended to every shader. It has the uniforms,
   `pal()` (with the colour motion and the Rainbow palette), `glow()`, `feedback()` and `angle()`, plus
@@ -61,9 +73,10 @@ which loads the Android shaders). README.md is the user-facing description. Open
   reaches about ±2.2 and the top and bottom must carry something.
 - `android/build.sh`: Gradle-free build (aapt2, javac `-source 8`, d8, apksigner). It works in Termux
   and with `ANDROID_HOME`.
-- `android/tools/check.sh`: runs glslangValidator on every shader and link pair, plus the analyzer,
+- `android/tools/check.sh`: runs glslangValidator on every shader and link pair, compiles every Java source against a stand-in `R` class, and runs the analyzer,
   adaptive-scale, equalizer and colour-drive self-tests (EqualizerCheck includes a groove with a verse 8 dB under
-  the chorus).
+  the chorus) and LookCheck (needs a real org.json jar, fetched once; android.jar's is a stub).
+- `web/tools/looks-check.js`: the same for `web/looks.js`, in node, including a payload written by Look.java.
 - `web/tools/measure.js`: renders every scene at the demo's drop in headless Chromium on a virtual clock
   and prints clipped, near-white and saturated-flat shares per scene. `--track dense` stands in for a
   loud mastered song; `--root` measures another checkout (a `git worktree`) for before/after; `--colour N`

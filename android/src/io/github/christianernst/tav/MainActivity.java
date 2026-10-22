@@ -10,6 +10,8 @@ import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.Outline;
+import android.view.ViewOutlineProvider;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -29,11 +31,13 @@ import android.view.WindowManager;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.CheckBox;
 import android.widget.EditText;
+import android.view.inputmethod.EditorInfo;
 import android.widget.Toast;
 
 import org.json.JSONException;
@@ -46,11 +50,12 @@ import java.util.Map;
 
 /** Full-screen visualizer with a glassy pop-up control panel. */
 public final class MainActivity extends Activity implements TavRenderer.Host, AudioCapture.Listener, MediaWatcher.Listener {
-    private static final int REQ_AUDIO = 7;
+    private static final int REQ_AUDIO = 7, REQ_NOTIFY = 8;
     private static final int[] SYMMETRY = {1, 2, 3, 4, 6, 8, 12};
     private static final String HINT_IDLE = "Play something on Spotify \u266A\nTap to make ripples \u00B7 drag to draw with sound";
     private static final String HINT_BLOCKED = "Music is playing, but TAV hears silence.\nTurn the volume up, or open \u2630 \u2192 Listen to \u2192 Microphone.";
     private static final String HINT_NO_PERMISSION = "Without audio access TAV can't hear the music.\nTap and drag still make waves.";
+    private static final String HINT_DEMO = "This is TAV's built-in beat.\nTap to make ripples \u00B7 drag to draw \u00B7 \u2630 \u2192 Listen to, for your own music";
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private SharedPreferences prefs;
@@ -67,10 +72,23 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     private TextView introBody, introButton;
     private boolean permissionPending, openSettingsInstead, askedNotificationAccess;
     private final List<TextView> sceneChips = new ArrayList<>(), sourceChips = new ArrayList<>();
+    // the other rows, so a Look or a newer cloud copy of the settings can move the chips too
+    private final List<TextView> mirrorChips = new ArrayList<>(), paletteChips = new ArrayList<>(), cmChips = new ArrayList<>(),
+            brightChips = new ArrayList<>(), motionChips = new ArrayList<>(), eqChips = new ArrayList<>(),
+            autoChips = new ArrayList<>(), qualityChips = new ArrayList<>();
+    private SharedPreferences firstRun;   // first-run bookkeeping, kept out of the synced settings
+    private LookStore looks;
+    private View looksCard, incoming;   // Looks: save, list, open a code; a shared Look that just arrived
+    private TextView looksChip;
+    private final java.util.Random rnd = new java.util.Random();
+    private static float[] demoSamples;   // the built-in beat, made once per process
     private String lastTitle = "", lastArtist = "";
     private boolean playing, titleAlways;
     private boolean visible, silentNow;   // started (not stopped), and the visuals currently see silence
-    private TextView nowPlaying;
+    private TextView nowPlaying, openPlayer;
+    private ImageView trackArt, panelArt;
+    private Hairline hairline;
+    private Bitmap lastArt;
     private TransportButton playButton;
     private float[][] albumPalette;
     private float dp;
@@ -127,7 +145,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         // Music is known to be playing but the output mix reads as silence: the ROM or the
         // player is keeping audio away from the visualizer. Point at the microphone.
         boolean blocked = capture.source() == AudioCapture.SOURCE_SYSTEM && media.isPlaying();
-        hint.setText(!hasAudioPermission() ? HINT_NO_PERMISSION : blocked ? HINT_BLOCKED : HINT_IDLE);
+        hint.setText(capture.demoRunning() ? HINT_DEMO : !hasAudioPermission() ? HINT_NO_PERMISSION : blocked ? HINT_BLOCKED : HINT_IDLE);
         if (hint.getAlpha() < 1f) hint.animate().alpha(1f).setDuration(800).start();
     };
 
@@ -136,6 +154,9 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         super.onCreate(state);
         dp = getResources().getDisplayMetrics().density;
         prefs = getSharedPreferences("tav", MODE_PRIVATE);
+        firstRun = getSharedPreferences("tav_state", MODE_PRIVATE);
+        if (!firstRun.contains("first_open_at")) firstRun.edit().putLong("first_open_at", System.currentTimeMillis()).apply();
+        looks = new LookStore(this);
         titleAlways = prefs.getBoolean("titleAlways", false);
         equalizer = savedEqualizer();
         eqMode = prefs.getInt("eq_mode", 1);
@@ -180,12 +201,14 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         applyPrefs();
         if (!hasAudioPermission()) showIntro();
         startCloud(getIntent());
+        handleLink(getIntent().getData());
     }
 
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         if (cloud.takeTokens(intent.getData())) Toast.makeText(this, "Signed in", Toast.LENGTH_SHORT).show();
+        handleLink(intent.getData());
     }
 
     // Rendering and listening follow visibility, not focus: in split-screen on Android 7-9 the
@@ -194,14 +217,18 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     protected void onStart() {
         super.onStart();
         visible = true;
+        NowPlayingNudge.tavVisible = true;
+        NowPlayingNudge.cancel(this);   // TAV is on screen: the offer to open it is moot
         view.onResume();
         if (hasAudioPermission()) {
             removeIntro();   // also covers access granted from the system settings
             startAudio();
+        } else {
+            startDemo();   // something to look at before (or without) the permission
         }
         media.start();
         sessionStartedAt = System.currentTimeMillis();
-        cloud.track("session_start", "source", prefs.getInt("source", 0) == 0 ? "visualizer" : "mic");
+        cloud.track("session_start", "source", !hasAudioPermission() ? "demo" : prefs.getInt("source", 0) == 0 ? "visualizer" : "mic");
         ui.removeCallbacks(showHint);   // one hint loop at a time
         if (silentNow) ui.postDelayed(showHint, 1000);   // still silent when we come back: explain again
     }
@@ -213,14 +240,21 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         pokeMenu();
         if (askedNotificationAccess) {
             askedNotificationAccess = false;
-            if (MediaWatcher.hasNotificationAccess(this)) pushPalette();
-            else if (Build.VERSION.SDK_INT >= 33) explainRestrictedSettings();
+            if (MediaWatcher.hasNotificationAccess(this)) {
+                pushPalette();
+                media.stop();   // reconnect so the sessions are read with the new access
+                media.start();
+                if (prefs.getInt(NowPlayingNudge.PREF, NowPlayingNudge.OFF) != NowPlayingNudge.OFF
+                        && Build.VERSION.SDK_INT >= 33 && !NowPlayingNudge.allowed(this))
+                    requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, REQ_NOTIFY);
+            } else if (Build.VERSION.SDK_INT >= 33) explainRestrictedSettings();
         }
     }
 
     @Override
     protected void onStop() {
         visible = false;
+        NowPlayingNudge.tavVisible = false;
         ui.removeCallbacks(showHint);   // otherwise the hint loop keeps waking the CPU in the background
         view.onPause();
         capture.stop();
@@ -247,6 +281,8 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         else if (equalizerCard != null) closeEqualizer(true);
         else if (accountCard != null) closeAccount(true);
         else if (colourCard != null) closeColourMotion(true);
+        else if (looksCard != null) closeLooks(true);
+        else if (incoming != null) dismissIncoming();
         else if (panel.getVisibility() == View.VISIBLE) togglePanel();
         else super.onBackPressed();
     }
@@ -264,6 +300,11 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
 
     @Override
     public void onRequestPermissionsResult(int code, String[] perms, int[] results) {
+        if (code == REQ_NOTIFY) {
+            if (results.length > 0 && !NowPlayingNudge.allowed(this))
+                Toast.makeText(this, "Without notifications TAV can't offer to light up when music starts", Toast.LENGTH_LONG).show();
+            return;
+        }
         if (code != REQ_AUDIO) return;
         permissionPending = false;
         if (results.length == 0) return;   // the request was interrupted, nothing was decided
@@ -369,6 +410,10 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     @Override
     public void onSilence(boolean silent) {
         ui.post(() -> {
+            if (!silent && !firstRun.getBoolean("first_visual", false)) {   // the onboarding metric: first launch to first moving frame
+                firstRun.edit().putBoolean("first_visual", true).apply();
+                cloud.track("first_visual", "seconds_since_first_open", (System.currentTimeMillis() - firstRun.getLong("first_open_at", System.currentTimeMillis())) / 1000);
+            }
             silentNow = silent;
             ui.removeCallbacks(showHint);
             if (silent && visible) ui.postDelayed(showHint, 2500);   // re-posts itself until sound returns
@@ -387,10 +432,12 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         lastTitle = t;
         lastArtist = a;
         nowPlaying.setText(a.isEmpty() ? t : t + "  \u00B7  " + a);
+        openPlayer.setText(playerLabel(true));
         if (art != null) {
             float[][] p = Palettes.fromBitmap(art);
             if (p != null) albumPalette = p;
         }
+        if (art != null || newTrack) showArt(art);
         if (prefs.getInt("palette", Palettes.ALBUM) == Palettes.ALBUM) pushPalette();
         if (!newTrack) return;
         view.queueEvent(renderer::onTrackChanged);
@@ -398,6 +445,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         artist.setText(a);
         trackBox.setContentDescription("Now playing: " + t + (a.isEmpty() ? "" : " by " + a)
                 + ". Double-tap to play or pause.");
+        hairline.clear();   // the new track's position arrives with the next update
         trackBox.animate().cancel();
         trackBox.setVisibility(View.VISIBLE);
         trackBox.setAlpha(0f);
@@ -422,6 +470,51 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     /** The on-screen title dims while playback is paused. */
     private float trackAlpha() {
         return playing || !titleAlways ? 1f : 0.55f;
+    }
+
+    @Override
+    public void onPosition(long positionMs, long durationMs, float speed) {
+        hairline.set(positionMs, durationMs, speed);
+    }
+
+    /** Album art in the title overlay and the menu; both fall back to a soft placeholder. */
+    private void showArt(Bitmap art) {
+        if (art == lastArt) return;
+        lastArt = art;
+        for (ImageView v : new ImageView[]{trackArt, panelArt}) {
+            if (art != null) v.setImageBitmap(art);
+            else v.setImageDrawable(null);
+            v.setVisibility(art != null ? View.VISIBLE : View.GONE);
+        }
+    }
+
+    /** "Open Spotify" when Spotify is what plays or is installed, else the generic wording. */
+    private String playerLabel(boolean playing) {
+        String pkg = media.playerPackage();
+        boolean spotify = NowPlayingNudge.SPOTIFY_PACKAGE.equals(pkg)
+                || (pkg == null && MediaWatcher.isInstalled(this, NowPlayingNudge.SPOTIFY_PACKAGE));
+        return (spotify ? "Open Spotify" : playing ? "Open player" : "Open Spotify") + "  \u2197";
+    }
+
+    private void openPlayer() {
+        if (!media.openPlayer(this))
+            Toast.makeText(this, "No music player found. Install Spotify, or play from any app.", Toast.LENGTH_LONG).show();
+    }
+
+    /** A square view with rounded corners for album art. */
+    private ImageView artView(int sizeDp, final float radiusDp) {
+        ImageView v = new ImageView(this);
+        v.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        v.setOutlineProvider(new ViewOutlineProvider() {
+            @Override
+            public void getOutline(View view, Outline outline) {
+                outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), radiusDp * dp);
+            }
+        });
+        v.setClipToOutline(true);
+        v.setElevation(4 * dp);
+        v.setVisibility(View.GONE);
+        return v;
     }
 
     // ------------------------------------------------------------------ playback
@@ -589,14 +682,28 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         root.addView(hint, lp);
 
         trackBox = new LinearLayout(this);
-        trackBox.setOrientation(LinearLayout.VERTICAL);
+        trackBox.setOrientation(LinearLayout.HORIZONTAL);
+        trackBox.setGravity(Gravity.CENTER_VERTICAL);
+        trackArt = artView(56, 10);
+        trackArt.setContentDescription("Album art. Opens the music player.");
+        trackArt.setOnClickListener(v -> openPlayer());
+        LinearLayout.LayoutParams alp = new LinearLayout.LayoutParams(px(56), px(56));
+        alp.rightMargin = px(14);
+        trackBox.addView(trackArt, alp);
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(LinearLayout.VERTICAL);
         title = text(24, Color.WHITE, true);
         title.setMaxLines(2);
         title.setEllipsize(TextUtils.TruncateAt.END);
         artist = text(15, 0xC0FFFFFF, false);
         artist.setLetterSpacing(0.08f);
-        trackBox.addView(title);
-        trackBox.addView(artist);
+        texts.addView(title);
+        texts.addView(artist);
+        hairline = new Hairline(this);
+        LinearLayout.LayoutParams hlp = new LinearLayout.LayoutParams(px(132), px(2));
+        hlp.topMargin = px(8);
+        texts.addView(hairline, hlp);
+        trackBox.addView(texts, new LinearLayout.LayoutParams(-2, -2));
         trackBox.setAlpha(0f);
         trackBox.setVisibility(View.INVISIBLE);
         trackBox.setPadding(0, px(8), px(16), px(8));   // a little more to grab
@@ -661,12 +768,32 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         nowLabel.setLetterSpacing(0.12f);
         nowLabel.setPadding(0, px(14), 0, px(4));
         panelContent.addView(nowLabel);
+        LinearLayout nowRow = new LinearLayout(this);
+        nowRow.setGravity(Gravity.CENTER_VERTICAL);
+        panelArt = artView(48, 8);
+        panelArt.setContentDescription("Album art");
+        LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(px(48), px(48));
+        plp.rightMargin = px(12);
+        nowRow.addView(panelArt, plp);
+        LinearLayout nowTexts = new LinearLayout(this);
+        nowTexts.setOrientation(LinearLayout.VERTICAL);
         nowPlaying = text(15, Color.WHITE, false);
         nowPlaying.setShadowLayer(0, 0, 0, 0);
         nowPlaying.setSingleLine(true);
         nowPlaying.setEllipsize(TextUtils.TruncateAt.END);
         nowPlaying.setText("Nothing yet \u2014 start a song in Spotify");
-        panelContent.addView(nowPlaying);
+        nowTexts.addView(nowPlaying);
+        openPlayer = text(13, 0xFFFF7AB8, false);
+        openPlayer.setShadowLayer(0, 0, 0, 0);
+        openPlayer.setText(playerLabel(false));
+        openPlayer.setPadding(0, px(4), px(12), px(4));
+        openPlayer.setOnClickListener(v -> {
+            openPlayer();
+            pokeMenu();
+        });
+        nowTexts.addView(openPlayer);
+        nowRow.addView(nowTexts, new LinearLayout.LayoutParams(0, -2, 1f));
+        panelContent.addView(nowRow);
         LinearLayout controls = new LinearLayout(this);
         controls.setGravity(Gravity.CENTER_VERTICAL);
         controls.setPadding(0, px(10), 0, 0);
@@ -692,6 +819,17 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         controls.addView(next, new LinearLayout.LayoutParams(px(46), px(46)));
         panelContent.addView(controls);
 
+        List<TextView> lookChips = new ArrayList<>();
+        addRow("Looks (save what is on screen, share it, bring it back)", new String[]{"Save this look", "My looks", "Open a code or link"}, -1, lookChips, i -> {
+            for (TextView c : lookChips) styleChip(c, false);   // actions, not a choice
+            if (i == 0) showSaveLook();
+            else if (i == 1) showLooks();
+            else showOpenCode();
+        });
+        looksChip = lookChips.get(1);
+        for (TextView c : lookChips) styleChip(c, false);
+        refreshLooksChip();
+
         String[] sceneNames = new String[Scene.ALL.length];
         for (int i = 0; i < sceneNames.length; i++) sceneNames[i] = Scene.ALL[i].name;
         addRow("Scene", sceneNames, prefs.getInt("scene", 0), sceneChips, i -> view.queueEvent(() -> renderer.setScene(i)));
@@ -711,42 +849,50 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         String[] syms = {"Off", "2", "3", "4", "6", "8", "12"};
         int symSel = 0;
         for (int i = 0; i < SYMMETRY.length; i++) if (SYMMETRY[i] == prefs.getInt("sym", 1)) symSel = i;
-        addRow("Mirror (mandala drawing)", syms, symSel, new ArrayList<>(), i -> {
+        addRow("Mirror (mandala drawing)", syms, symSel, mirrorChips, i -> {
             prefs.edit().putInt("sym", SYMMETRY[i]).apply();
             view.queueEvent(() -> renderer.setSymmetry(SYMMETRY[i]));
         });
 
-        addRow("Colours", Palettes.NAMES, prefs.getInt("palette", Palettes.ALBUM), new ArrayList<>(), i -> {
+        String[] paletteNames = new String[Palettes.NAMES.length + 1];
+        System.arraycopy(Palettes.NAMES, 0, paletteNames, 0, Palettes.NAMES.length);
+        paletteNames[Palettes.NAMES.length] = "\u2684 Shuffle";
+        addRow("Colours", paletteNames, prefs.getInt("palette", Palettes.ALBUM), paletteChips, i -> {
+            if (i == Palettes.NAMES.length) {   // a harmonious random palette into the Custom slot
+                shuffleColours();
+                return;
+            }
             // the first custom palette starts from the colours on screen, so read them before switching
             if (i == Palettes.CUSTOM && !prefs.contains("custom0")) {
                 System.arraycopy(Palettes.toColors(paletteFor(prefs.getInt("palette", Palettes.ALBUM))), 0, custom, 0, 3);
                 saveCustom();
             }
             prefs.edit().putInt("palette", i).apply();
-            if (i == Palettes.ALBUM && !MediaWatcher.hasNotificationAccess(this)) askNotificationAccess();
+            if (i == Palettes.ALBUM && !MediaWatcher.hasNotificationAccess(this))
+                askNotificationAccess("Allow TAV in the list to colour the visuals from album art");
             view.queueEvent(renderer::autopilotUserColours);   // the user's colours stay for this track
             pushPalette();
             if (i == Palettes.CUSTOM) showColourEditor();
         });
 
-        addRow("Colour motion (how the colours move with the music)", ColourDrive.MODE_NAMES, colourMode, new ArrayList<>(), i -> {
+        addRow("Colour motion (how the colours move with the music)", ColourDrive.MODE_NAMES, colourMode, cmChips, i -> {
             view.queueEvent(renderer::autopilotUserColours);
             if (i == ColourDrive.CUSTOM) showColourMotion();   // Custom: the sliders
             else setColourDrive(ColourDrive.preset(i), i);
         });
 
         addRow("Brightness", new String[]{"Dim", "Soft", "Normal", "Bright"},
-                prefs.getInt("brightness", TavRenderer.DEFAULT_BRIGHTNESS), new ArrayList<>(), i -> {
+                prefs.getInt("brightness", TavRenderer.DEFAULT_BRIGHTNESS), brightChips, i -> {
                     prefs.edit().putInt("brightness", i).apply();
                     view.queueEvent(() -> renderer.setBrightness(i));
                 });
 
-        addRow("Motion", new String[]{"Full", "Calm (no flashes)"}, prefs.getInt("motion", 0), new ArrayList<>(), i -> {
+        addRow("Motion", new String[]{"Full", "Calm (no flashes)"}, prefs.getInt("motion", 0), motionChips, i -> {
             prefs.edit().putInt("motion", i).apply();
             view.queueEvent(() -> renderer.setCalm(i == 1));
         });
 
-        addRow("Equalizer (how hard the scenes react)", new String[]{"Flat", "Punch", "Custom"}, eqMode, new ArrayList<>(), i -> {
+        addRow("Equalizer (how hard the scenes react)", new String[]{"Flat", "Punch", "Custom"}, eqMode, eqChips, i -> {
             if (i == 2) showEqualizer();   // Custom: the sliders
             else setEqualizer(i == 0 ? Equalizer.flat() : Equalizer.punch(), i);
         });
@@ -758,7 +904,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         });
 
         addRow("Autopilot (follows the music: scenes by energy, new colours per section)", Autopilot.MODE_NAMES, autopilotMode(),
-                new ArrayList<>(), this::setAutopilotMode);
+                autoChips, this::setAutopilotMode);
 
         addRow("Song title", new String[]{"Fades out", "Always on screen"}, titleAlways ? 1 : 0, new ArrayList<>(), i -> {
             titleAlways = i == 1;
@@ -769,7 +915,20 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
             else ui.postDelayed(hideTrack, 2500);
         });
 
-        addRow("Quality", new String[]{"Battery", "Balanced", "Max"}, prefs.getInt("quality", 1), new ArrayList<>(), i -> {
+        addRow("Light up when music starts (a quiet notification)", new String[]{"Off", "Spotify", "Any player"},
+                prefs.getInt(NowPlayingNudge.PREF, NowPlayingNudge.OFF), new ArrayList<>(), i -> {
+                    prefs.edit().putInt(NowPlayingNudge.PREF, i).apply();
+                    if (i == NowPlayingNudge.OFF) {
+                        NowPlayingNudge.cancel(this);
+                        return;
+                    }
+                    if (!MediaWatcher.hasNotificationAccess(this))
+                        askNotificationAccess("Allow TAV in the list so it can see when music starts");
+                    else if (Build.VERSION.SDK_INT >= 33 && !NowPlayingNudge.allowed(this))
+                        requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, REQ_NOTIFY);
+                });
+
+        addRow("Quality", new String[]{"Battery", "Balanced", "Max"}, prefs.getInt("quality", 1), qualityChips, i -> {
             prefs.edit().putInt("quality", i).apply();
             view.queueEvent(() -> renderer.setQuality(i));
         });
@@ -779,7 +938,8 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         TextView help = text(12.5f, 0x99FFFFFF, false);
         help.setText("Tap: ripple   \u2022   Drag: draw with sound   \u2022   Two-finger swipe: next scene   \u2022   Long-press: this menu\n"
                 + "Song title on screen: swipe it for the next or previous track, tap it to pause.\n"
-                + "Album colours need notification access (only used to read what's playing).");
+                + "A look is the scene, colours, mirror, brightness, motion and equalizer together. Share one as a link or six-letter code.\n"
+                + "Album colours and the music-started nudge need notification access (only used to read what's playing).");
         help.setLineSpacing(0, 1.25f);
         help.setPadding(0, px(14), 0, 0);
         panelContent.addView(help);
@@ -859,6 +1019,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         else if (equalizerCard != null) closeEqualizer(false);
         else if (accountCard != null) closeAccount(false);
         else if (colourCard != null) closeColourMotion(false);
+        else if (looksCard != null) closeLooks(false);
         else showPanel(panel.getVisibility() != View.VISIBLE);
     }
 
@@ -910,6 +1071,16 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
             swatches[k] = s;
         }
         row.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1f));
+        TextView shuffle = text(14, Color.WHITE, false);
+        shuffle.setShadowLayer(0, 0, 0, 0);
+        shuffle.setText("\u2684 Shuffle");
+        shuffle.setContentDescription("Shuffle: three random colours that go together");
+        shuffle.setPadding(px(16), px(10), px(16), px(10));
+        styleChip(shuffle, false);
+        shuffle.setOnClickListener(v -> shuffleColours());
+        LinearLayout.LayoutParams shp = new LinearLayout.LayoutParams(-2, -2);
+        shp.rightMargin = px(8);
+        row.addView(shuffle, shp);
         TextView done = text(15, Color.WHITE, true);
         done.setShadowLayer(0, 0, 0, 0);
         done.setText("Done");
@@ -1192,9 +1363,9 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         closeCard(card, backToMenu);
     }
 
-    private void askNotificationAccess() {
+    private void askNotificationAccess(String why) {
         askedNotificationAccess = true;   // checked when we come back in onResume
-        Toast.makeText(this, "Allow TAV in the list to colour the visuals from album art", Toast.LENGTH_LONG).show();
+        Toast.makeText(this, why, Toast.LENGTH_LONG).show();
         Intent i;
         if (Build.VERSION.SDK_INT >= 30) {
             i = new Intent(Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS);
@@ -1250,17 +1421,64 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         return card;
     }
 
-    /** First-run card explaining why the audio permission is needed. */
+    /**
+     * First-run card. The visuals are already running on the built-in beat behind it (see
+     * startDemo), so the permission is asked for after the first wow, not before it.
+     */
     private void showIntro() {
         LinearLayout c = card("T A V",
-                "TAV turns whatever your phone is playing \u2014 Spotify, YouTube, anything \u2014 into light.\n\n"
+                "This is TAV on its built-in beat. Your own music looks like this too: Spotify, YouTube, anything your phone plays.\n\n"
                         + "To hear it, Android needs the \u201Crecord audio\u201D permission. TAV only analyses the sound "
                         + "frame by frame to drive the visuals; nothing is recorded, stored or sent anywhere.",
-                "Let it listen", this::requestAudio, this::removeIntro);
+                "Light up my music", this::requestAudio, () -> {
+                    removeIntro();
+                    showHintNow(HINT_DEMO);
+                });
         TextView[] parts = (TextView[]) c.getTag();
         introBody = parts[0];
         introButton = parts[1];
+        TextView hear = text(14, Color.WHITE, false);
+        hear.setShadowLayer(0, 0, 0, 0);
+        hear.setText("\u25B6 Hear the demo");
+        hear.setPadding(px(20), px(10), px(20), px(10));
+        styleChip(hear, false);
+        hear.setOnClickListener(v -> {
+            boolean on = !capture.demoAudible();
+            if (on) startDemo();
+            capture.setDemoAudible(on);
+            hear.setText(capture.demoAudible() ? "\u275A\u275A Mute the demo" : "\u25B6 Hear the demo");
+        });
+        LinearLayout.LayoutParams hp = new LinearLayout.LayoutParams(-2, -2);
+        hp.topMargin = px(10);
+        c.addView(hear, c.getChildCount() - 1, hp);   // above "Not now"
         intro = c;
+    }
+
+    /** Drives the visuals from the built-in beat while the app may not listen yet. */
+    private void startDemo() {
+        if (capture.demoRunning()) return;
+        float[] s = demoSamples;
+        if (s != null) {
+            capture.startDemo(s);
+            return;
+        }
+        new Thread(() -> {
+            final float[] made = DemoTrack.synth();
+            ui.post(() -> {
+                demoSamples = made;
+                if (visible && !hasAudioPermission() && !capture.demoRunning()) capture.startDemo(made);
+            });
+        }, "tav-demo").start();
+    }
+
+    /** Shows a hint for a few seconds, outside the silence loop. */
+    private void showHintNow(String text) {
+        hint.setText(text);
+        hint.animate().cancel();
+        hint.animate().alpha(1f).setDuration(600).start();
+        ui.postDelayed(() -> {
+            if (!silentNow) hint.animate().alpha(0f).setDuration(800).start();
+        }, 7000);
     }
 
     private void removeIntro() {
@@ -1278,7 +1496,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         notice = card("One more switch",
                 "Android blocks notification access for apps installed outside an app store. "
                         + "Open App info, tap \u22EE in the top corner, choose \u201CAllow restricted settings\u201D, "
-                        + "then pick Colours \u2192 Album in TAV again.",
+                        + "then pick the setting in TAV again.",
                 "Open App info", () -> {
                     dismissNotice();
                     openAppInfo();
@@ -1325,6 +1543,13 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         if (!cloud.enabled()) return;
         prefs.registerOnSharedPreferenceChangeListener(cloudPrefs);
         ui.postDelayed(syncSettings, 3000);   // after the anonymous sign-in has had a chance
+        ui.postDelayed(() -> looks.sync(cloud, (changed, err) -> {
+            refreshLooksChip();
+            if (changed && looksCard != null) {   // redraw the list with what came in
+                closeLooks(false);
+                showLooks();
+            }
+        }), 4500);
     }
 
     private void endSession() {
@@ -1373,7 +1598,10 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         titleAlways = prefs.getBoolean("titleAlways", false);
         equalizer = savedEqualizer();
         eqMode = prefs.getInt("eq_mode", 1);
-        applyPrefs();   // the chips in the menu still show the old choice until the app restarts
+        colourMode = prefs.getInt("cm_mode", ColourDrive.DEFAULT);
+        colourDrive = colourMode == ColourDrive.CUSTOM ? savedColourDrive() : ColourDrive.preset(colourMode);
+        applyPrefs();
+        refreshChips();
     }
 
     private TextView accountText, streakText;
@@ -1521,6 +1749,384 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
             menuButton.setText("☰");
             pokeMenu();
         }
+    }
+
+    // ------------------------------------------------------------------ looks: save, reapply, share
+
+    /** Everything on screen right now as a Look, without a name. */
+    private Look captureLook() {
+        Look l = new Look();
+        int pal = prefs.getInt("palette", Palettes.ALBUM);
+        System.arraycopy(Palettes.toColors(paletteFor(pal)), 0, l.argb, 0, 3);
+        // album colours are a snapshot in a Look: they would mean something else on the receiver's music
+        l.palette = pal == Palettes.CUSTOM || pal == Palettes.ALBUM ? "Custom" : Palettes.NAMES[pal];
+        l.rainbow = pal == Palettes.RAINBOW;
+        l.motion = colourDrive;
+        l.scene = Scene.ALL[clampScene(prefs.getInt("scene", 0))].id;
+        l.sym = prefs.getInt("sym", 1);
+        l.brightness = prefs.getInt("brightness", TavRenderer.DEFAULT_BRIGHTNESS);
+        l.calm = prefs.getInt("motion", 0);
+        l.eq = equalizer;
+        l.eqMode = eqMode;
+        return l;
+    }
+
+    private static int clampScene(int i) {
+        return Math.max(0, Math.min(Scene.ALL.length - 1, i));
+    }
+
+    /** Puts a Look on screen: prefs, renderer, menu chips. origin is own, shared or daily. */
+    private void applyLook(Look l, String origin, String presetId) {
+        SharedPreferences.Editor ed = prefs.edit();
+        int pal = -1;
+        for (int i = 1; i < Palettes.NAMES.length; i++)
+            if (i != Palettes.CUSTOM && Palettes.NAMES[i].equalsIgnoreCase(l.palette)) pal = i;
+        if (pal < 0) {
+            pal = Palettes.CUSTOM;
+            for (int k = 0; k < 3; k++) {
+                custom[k] = l.argb[k];
+                ed.putInt("custom" + k, l.argb[k]);
+            }
+        }
+        ed.putInt("palette", pal);
+        if (l.scene != null) for (int i = 0; i < Scene.ALL.length; i++) if (Scene.ALL[i].id.equals(l.scene)) ed.putInt("scene", i);
+        if (l.sym > 0) ed.putInt("sym", l.sym);
+        if (l.brightness >= 0) ed.putInt("brightness", l.brightness);
+        if (l.calm >= 0) ed.putInt("motion", l.calm);
+        ed.apply();
+        if (l.motion != null) {
+            int mode = ColourDrive.CUSTOM;
+            for (int m = 0; m < ColourDrive.CUSTOM; m++) if (sameDrive(ColourDrive.preset(m), l.motion)) mode = m;
+            setColourDrive(l.motion, mode);
+        }
+        if (l.eq != null) setEqualizer(l.eq, l.eqMode >= 0 ? l.eqMode : 2);
+        applyPrefs();
+        final int lookScene = prefs.getInt("scene", 0);
+        view.queueEvent(() -> {   // a look is the user's pick: the autopilot holds its scene and keeps its colours for this track
+            renderer.setScene(lookScene);
+            renderer.autopilotUserColours();
+        });
+        refreshChips();
+        flash(spaced(l.name));
+        try {
+            cloud.track("look_applied", new JSONObject().put("preset_id", presetId == null ? JSONObject.NULL : presetId).put("origin", origin));
+        } catch (JSONException ignored) {
+        }
+    }
+
+    private static boolean sameDrive(ColourDrive a, ColourDrive b) {
+        return a.drift == b.drift && a.beatStep == b.beatStep && a.dropStep == b.dropStep && a.tilt == b.tilt && a.pump == b.pump;
+    }
+
+    /** Re-styles every chip row from prefs, after a Look or a newer cloud copy of the settings. */
+    private void refreshChips() {
+        select(sceneChips, clampScene(prefs.getInt("scene", 0)));
+        int symSel = 0;
+        for (int i = 0; i < SYMMETRY.length; i++) if (SYMMETRY[i] == prefs.getInt("sym", 1)) symSel = i;
+        select(mirrorChips, symSel);
+        select(paletteChips, prefs.getInt("palette", Palettes.ALBUM));
+        select(cmChips, colourMode);
+        select(brightChips, prefs.getInt("brightness", TavRenderer.DEFAULT_BRIGHTNESS));
+        select(motionChips, prefs.getInt("motion", 0));
+        select(eqChips, eqMode);
+        select(autoChips, autopilotMode());
+        select(qualityChips, prefs.getInt("quality", 1));
+    }
+
+    private void select(List<TextView> chips, int sel) {
+        for (int i = 0; i < chips.size(); i++) styleChip(chips.get(i), i == sel);
+    }
+
+    private void refreshLooksChip() {
+        if (looksChip != null) looksChip.setText(looks.isEmpty() ? "My looks" : "My looks (" + looks.all().size() + ")");
+    }
+
+    /** Three random colours that go together, into the Custom slot (menu → Colours → Shuffle, or the editor). */
+    private void shuffleColours() {
+        System.arraycopy(Palettes.shuffle(rnd), 0, custom, 0, 3);
+        saveCustom();
+        prefs.edit().putInt("palette", Palettes.CUSTOM).apply();
+        final float[][] p = Palettes.fromColors(custom);
+        view.queueEvent(() -> {
+            renderer.setPalette(p, colourEditor != null);
+            renderer.setRainbow(false);
+        });
+        select(paletteChips, Palettes.CUSTOM);
+        if (colourEditor != null) selectSwatch(editing);
+        else flash("S H U F F L E");
+        cloud.track("setting_changed", "key", "colours_shuffle");
+    }
+
+    /** The head of a Looks card: a title and a Done chip. */
+    private LinearLayout cardBox(String title, Runnable done) {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(px(18), px(4), px(18), px(16));
+        LinearLayout head = new LinearLayout(this);
+        head.setGravity(Gravity.CENTER_VERTICAL);
+        head.addView(label(title), new LinearLayout.LayoutParams(0, -2, 1f));
+        TextView doneChip = text(15, Color.WHITE, true);
+        doneChip.setShadowLayer(0, 0, 0, 0);
+        doneChip.setText("Done");
+        doneChip.setPadding(px(22), px(10), px(22), px(10));
+        styleChip(doneChip, true);
+        doneChip.setOnClickListener(v -> done.run());
+        head.addView(doneChip);
+        box.addView(head);
+        return box;
+    }
+
+    private EditText field(String hint, String value) {
+        EditText f = new EditText(this);
+        f.setHint(hint);
+        f.setText(value);
+        f.setSingleLine(true);
+        f.setImeOptions(EditorInfo.IME_ACTION_DONE);
+        f.setTextColor(Color.WHITE);
+        f.setHintTextColor(0x66FFFFFF);
+        f.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        f.setPadding(px(16), px(10), px(16), px(10));
+        GradientDrawable bg = new GradientDrawable();
+        bg.setCornerRadius(px(18));
+        bg.setColor(0x40000000);
+        bg.setStroke(px(1), 0x33FFFFFF);
+        f.setBackground(bg);
+        return f;
+    }
+
+    /** Three dots in a Look's colours. */
+    private View swatchDots(int[] argb) {
+        LinearLayout dots = new LinearLayout(this);
+        dots.setGravity(Gravity.CENTER_VERTICAL);
+        for (int c : argb) {
+            View d = new View(this);
+            GradientDrawable g = new GradientDrawable();
+            g.setShape(GradientDrawable.OVAL);
+            g.setColor(c);
+            d.setBackground(g);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(px(14), px(14));
+            lp.rightMargin = px(3);
+            dots.addView(d, lp);
+        }
+        dots.setPadding(0, 0, px(10), 0);
+        return dots;
+    }
+
+    /** Looks → Save this look: a name (suggested from scene and colours), Save, Save and share. */
+    private void showSaveLook() {
+        if (looksCard != null) return;
+        final Look look = captureLook();
+        int pal = prefs.getInt("palette", Palettes.ALBUM);
+        String colours = pal == Palettes.ALBUM ? (lastTitle.isEmpty() ? "Album" : lastTitle) : pal == Palettes.CUSTOM ? "my colours" : Palettes.NAMES[pal];
+        final EditText name = field("Name", looks.suggestName(Scene.ALL[clampScene(prefs.getInt("scene", 0))].name + " · " + colours));
+        LinearLayout box = cardBox("Save this look", () -> closeLooks(false));
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, px(6), 0, px(4));
+        row.addView(swatchDots(look.argb));
+        row.addView(name, new LinearLayout.LayoutParams(0, -2, 1f));
+        box.addView(row);
+        TextView what = text(12.5f, 0x99FFFFFF, false);
+        what.setShadowLayer(0, 0, 0, 0);
+        what.setText("Scene, colours and their motion, mirror, brightness, motion and equalizer, as they are now.");
+        what.setPadding(0, px(6), 0, px(10));
+        box.addView(what);
+        LinearLayout actions = new LinearLayout(this);
+        actions.addView(actionChip("Save", true, v -> {
+            saveLook(look, name.getText().toString());
+            closeLooks(false);
+        }));
+        actions.addView(actionChip("Save and share", false, v -> {
+            LookStore.Entry e = saveLook(look, name.getText().toString());
+            closeLooks(false);
+            shareLook(e);
+        }));
+        box.addView(actions);
+        name.setOnEditorActionListener((v, action, ev) -> {
+            if (action != EditorInfo.IME_ACTION_DONE) return false;
+            saveLook(look, name.getText().toString());
+            closeLooks(false);
+            return true;
+        });
+        looksCard = openCard(box);
+        name.requestFocus();
+    }
+
+    private LookStore.Entry saveLook(Look look, String name) {
+        look.name = Look.cleanName(name);
+        LookStore.Entry e = looks.add(look, "own");
+        refreshLooksChip();
+        looks.pushEntry(cloud, e, null);
+        flash("S A V E D");
+        try {
+            cloud.track("look_saved", new JSONObject().put("preset_id", e.cloudId == null ? JSONObject.NULL : e.cloudId).put("origin", "own"));
+        } catch (JSONException ignored) {
+        }
+        return e;
+    }
+
+    /** Looks → My looks: tap a name to apply it; Share and ✕ per Look. */
+    private void showLooks() {
+        if (looksCard != null) return;
+        LinearLayout box = cardBox("My looks", () -> closeLooks(false));
+        if (looks.isEmpty()) {
+            TextView t = text(14, 0xCCFFFFFF, false);
+            t.setShadowLayer(0, 0, 0, 0);
+            t.setText("Nothing saved yet. Set the scene, colours and mirror the way you like them, then Looks → Save this look.");
+            t.setLineSpacing(0, 1.25f);
+            t.setPadding(0, px(8), 0, px(6));
+            box.addView(t);
+        }
+        for (final LookStore.Entry e : new ArrayList<>(looks.all())) {
+            LinearLayout row = new LinearLayout(this);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(0, px(5), 0, px(5));
+            row.addView(swatchDots(e.look.argb));
+            TextView name = text(15, Color.WHITE, false);
+            name.setShadowLayer(0, 0, 0, 0);
+            name.setSingleLine(true);
+            name.setEllipsize(TextUtils.TruncateAt.END);
+            name.setText(e.look.name + (e.code != null ? "   · " + e.code : ""));
+            name.setContentDescription("Apply the look " + e.look.name);
+            name.setOnClickListener(v -> {
+                applyLook(e.look, e.origin, e.cloudId);
+                closeLooks(false);
+            });
+            row.addView(name, new LinearLayout.LayoutParams(0, -2, 1f));
+            row.addView(actionChip("Share", false, v -> shareLook(e)));
+            TextView del = actionChip("✕", false, v -> {
+                looks.delete(cloud, e);
+                refreshLooksChip();
+                closeLooks(false);
+                showLooks();
+            });
+            del.setContentDescription("Delete the look " + e.look.name);
+            row.addView(del);
+            box.addView(row);
+        }
+        looksCard = openCard(box);
+    }
+
+    /** Looks → Open a code or link: paste a six-letter code or a whole link. */
+    private void showOpenCode() {
+        if (looksCard != null) return;
+        LinearLayout box = cardBox("Open a shared look", () -> closeLooks(false));
+        final EditText f = field("Code or link", "");
+        f.setImeOptions(EditorInfo.IME_ACTION_GO);
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, px(6), 0, px(6));
+        row.addView(f, new LinearLayout.LayoutParams(0, -2, 1f));
+        TextView go = actionChip("Open", true, v -> openLookText(f.getText().toString()));
+        ((LinearLayout.LayoutParams) go.getLayoutParams()).leftMargin = px(8);
+        row.addView(go);
+        box.addView(row);
+        f.setOnEditorActionListener((v, action, ev) -> {
+            if (action != EditorInfo.IME_ACTION_GO) return false;
+            openLookText(f.getText().toString());
+            return true;
+        });
+        TextView t = text(12.5f, 0x99FFFFFF, false);
+        t.setShadowLayer(0, 0, 0, 0);
+        t.setText("A look someone shared with you: the six letters, or the whole link. Links from TAV open here on their own.");
+        t.setLineSpacing(0, 1.25f);
+        box.addView(t);
+        looksCard = openCard(box);
+        f.requestFocus();
+    }
+
+    private void closeLooks(boolean backToMenu) {
+        final View card = looksCard;
+        if (card == null) return;
+        looksCard = null;
+        closeCard(card, backToMenu);
+    }
+
+    /** A code, a link or a payload, typed or from a deep link. */
+    private void openLookText(String s) {
+        final String code = Look.codeIn(s);
+        Look inline = Look.decode(Look.payloadIn(s));
+        if (inline != null) {
+            receiveLook(inline, code, null);
+            return;
+        }
+        if (code == null) {
+            Toast.makeText(this, "That is not a TAV code or link", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (!cloud.enabled()) {
+            Toast.makeText(this, "Codes need the cloud edition; ask for the full link instead", Toast.LENGTH_LONG).show();
+            return;
+        }
+        flash("O P E N I N G");
+        cloud.presetByCodeAnon(code, (row, err) -> {
+            Look l = row != null ? Look.fromJson(row.optJSONObject("data")) : null;
+            if (l == null) Toast.makeText(this, err != null ? "Could not reach the cloud: " + err.getMessage() : "No look has the code " + code, Toast.LENGTH_LONG).show();
+            else receiveLook(l, code, row.optString("id", null));
+        });
+    }
+
+    /** A Look from a link or code: on screen at once (that is the point), then offered for keeping. */
+    private void receiveLook(final Look l, final String code, final String presetId) {
+        closeLooks(false);
+        if (panel.getVisibility() == View.VISIBLE) showPanel(false);
+        applyLook(l, "shared", presetId);
+        dismissIncoming();
+        for (LookStore.Entry e : looks.all())
+            if (e.look.name.equalsIgnoreCase(l.name) && e.look.toJson().toString().equals(l.toJson().toString())) return;   // already on the shelf
+        if (intro != null) {   // first run, from a link: keep it without a second card over the permission one
+            LookStore.Entry e = looks.add(l, "shared");
+            e.code = code;
+            refreshLooksChip();
+            return;
+        }
+        incoming = card("“" + l.name + "”", "A shared look, now on screen. Keep it, and it is in Looks → My looks whenever you want it back.",
+                "Keep it", () -> {
+                    LookStore.Entry e = looks.add(l, "shared");
+                    e.code = code;
+                    refreshLooksChip();
+                    looks.pushEntry(cloud, e, null);
+                    dismissIncoming();
+                    flash("S A V E D");
+                }, this::dismissIncoming);
+    }
+
+    private void dismissIncoming() {
+        if (incoming != null) root.removeView(incoming);
+        incoming = null;
+    }
+
+    /** Shares a Look as a link (and a six-letter code when the cloud is there) through the system sheet. */
+    private void shareLook(final LookStore.Entry e) {
+        looks.publish(cloud, e, (x, err) -> {
+            refreshLooksChip();
+            String link = e.look.shareUrl(e.code);
+            String text = "My TAV look “" + e.look.name + "”" + (e.code != null ? " · code " + e.code : "") + "\n" + link;
+            Intent send = new Intent(Intent.ACTION_SEND).setType("text/plain")
+                    .putExtra(Intent.EXTRA_SUBJECT, "TAV look: " + e.look.name).putExtra(Intent.EXTRA_TEXT, text);
+            try {
+                startActivity(Intent.createChooser(send, "Share your look"));
+            } catch (RuntimeException ex) {
+                Toast.makeText(this, link, Toast.LENGTH_LONG).show();
+            }
+            try {
+                cloud.track("look_shared", new JSONObject().put("preset_id", e.cloudId == null ? JSONObject.NULL : e.cloudId)
+                        .put("channel", e.code != null ? "code" : "link"));
+            } catch (JSONException ignored) {
+            }
+        });
+    }
+
+    /** tav://look?d=... and the web edition's share links (see AndroidManifest) open the Look. */
+    private boolean handleLink(Uri uri) {
+        if (uri == null) return false;
+        boolean isLook = "tav".equals(uri.getScheme()) ? "look".equals(uri.getHost())
+                : uri.getPath() != null && uri.getPath().startsWith("/TAV/web");
+        if (!isLook) return false;
+        String text = "#" + (uri.getEncodedFragment() != null ? uri.getEncodedFragment() : "") + "&" + (uri.getEncodedQuery() != null ? uri.getEncodedQuery() : "");
+        if (Look.codeIn(text) == null && Look.payloadIn(text) == null) return false;   // the plain web page, nothing to open
+        openLookText(text);
+        return true;
     }
 
     private final class TitleGestures implements View.OnTouchListener {
