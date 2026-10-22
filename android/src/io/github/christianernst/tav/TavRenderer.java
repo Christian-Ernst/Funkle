@@ -331,9 +331,9 @@ final class TavRenderer implements GLSurfaceView.Renderer {
         for (int k = 0; k < 3; k++)
             for (int c = 0; c < 3; c++) palette[k][c] += (target[k][c] - palette[k][c]) * (1 - (float) Math.exp(-dt * 1.5));
         drive.step(colour, dt, shaped, shapedLevel, an.onBeat, an.drop);
-        if (an.drop) {
+        if (an.drop && !calm) {   // Calm: no flash, and no re-roll of the scenes' look on a drop
             seed = (seed + 1) % 64;
-            flash = calm ? 0f : eq.dropFlash();
+            flash = eq.dropFlash();
         }
         flash *= (float) Math.exp(-dt * 4);
         dropAge += dt;

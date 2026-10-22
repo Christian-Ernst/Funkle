@@ -91,8 +91,8 @@ equalizer: each band is scaled to its own recent peak, so a quiet verse looks mu
 sliders: **Master** (how much everything moves), the four bands (**Bass**, **Low mids**, **High mids**,
 **Treble**; each one's share of the motion), **Punch** (how much loud-and-quiet survives) and **Beat** (the
 beat pulse and drop flash). The visuals change while you drag.
-**Motion**: Full (the default) or Calm. Calm stops the beat pulses, beat ripples and drop flashes; the scenes still
-move with the music. Use it if flashing lights bother you or you are sensitive to them.
+**Motion**: Full (the default) or Calm. Calm stops the beat pulses, beat ripples, drop flashes and the drop moves
+(nothing re-rolls or lurches on a drop); the scenes still move with the music. Use it if flashing lights bother you or you are sensitive to them.
 
 ### If the visuals don't move
 
