@@ -36,8 +36,22 @@ fi
 echo "[analyzer]"
 JAR=${ANDROID_JAR:-${ANDROID_HOME:-}/platforms/android-35/android.jar}
 [ -f "$JAR" ] || { echo "set ANDROID_HOME (needs platforms;android-35)"; exit 1; }
-# every source but the activity (which needs the generated R class): the Look check pulls in most of them
-javac -nowarn -d "$OUT/classes" -cp "$JAR" $(ls src/io/github/christianernst/tav/*.java | grep -v MainActivity) \
+# every source, against a stand-in R class with whatever ids and drawables the sources name (aapt2
+# generates the real one in build.sh): the Look check pulls in most of them
+mkdir -p "$OUT/gen"
+{
+    echo "package io.github.christianernst.tav;"
+    echo "public final class R {"
+    for kind in $(grep -rhoE '\bR\.[a-z]+\.[A-Za-z0-9_]+' src | cut -d. -f2 | sort -u); do
+        echo "  public static final class $kind {"
+        n=1; for name in $(grep -rhoE "\\bR\\.$kind\\.[A-Za-z0-9_]+" src | cut -d. -f3 | sort -u); do
+            echo "    public static final int $name = $n;"; n=$((n + 1))
+        done
+        echo "  }"
+    done
+    echo "}"
+} > "$OUT/gen/R.java"
+javac -nowarn -d "$OUT/classes" -cp "$JAR" src/io/github/christianernst/tav/*.java "$OUT/gen/R.java" \
     test/io/github/christianernst/tav/AnalyzerCheck.java test/io/github/christianernst/tav/AdaptiveScaleCheck.java \
     test/io/github/christianernst/tav/EqualizerCheck.java test/io/github/christianernst/tav/ColourDriveCheck.java \
     test/io/github/christianernst/tav/LookCheck.java

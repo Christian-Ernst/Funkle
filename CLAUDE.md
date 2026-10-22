@@ -62,7 +62,7 @@ which loads the Android shaders). README.md is the user-facing description. Open
   reaches about ±2.2 and the top and bottom must carry something.
 - `android/build.sh`: Gradle-free build (aapt2, javac `-source 8`, d8, apksigner). It works in Termux
   and with `ANDROID_HOME`.
-- `android/tools/check.sh`: runs glslangValidator on every shader and link pair, plus the analyzer,
+- `android/tools/check.sh`: runs glslangValidator on every shader and link pair, compiles every Java source against a stand-in `R` class, and runs the analyzer,
   adaptive-scale, equalizer and colour-drive self-tests (EqualizerCheck includes a groove with a verse 8 dB under
   the chorus) and LookCheck (needs a real org.json jar, fetched once; android.jar's is a stub).
 - `web/tools/looks-check.js`: the same for `web/looks.js`, in node, including a payload written by Look.java.
