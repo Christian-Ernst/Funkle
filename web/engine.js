@@ -56,6 +56,8 @@ class ColourDrive {
     this.hueTarget += this.drift * dt * (0.3 + 0.7 * Math.min(level, 1));
     if (onBeat) this.hueTarget += this.beat;
     if (drop) this.hueTarget += this.drop;
+    // no hue motion at all (Still, Bands): ease back to the chosen colours by the shortest way
+    if (!this.drift && !this.beat && !this.drop) this.hueTarget = Math.round(this.hue);
     this.hue += (this.hueTarget - this.hue) * (1 - Math.exp(-dt * COLOUR_EASE));
     const wrap = Math.floor(this.hueTarget);   // keep both small; only the difference matters
     this.hueTarget -= wrap; this.hue -= wrap;

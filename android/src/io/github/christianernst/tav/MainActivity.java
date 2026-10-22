@@ -907,12 +907,19 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
                 prefs.getFloat("cm_drop", d.dropStep), prefs.getFloat("cm_tilt", d.tilt), prefs.getFloat("cm_pump", d.pump));
     }
 
-    /** Saves a colour drive and makes it live. mode is the menu chip it belongs to. */
+    /**
+     * Saves a colour drive and makes it live. mode is the menu chip it belongs to; the cm_* values
+     * are the Custom sliders and survive a visit to the other chips.
+     */
     private void setColourDrive(ColourDrive d, int mode) {
         colourDrive = d;
         colourMode = mode;
-        prefs.edit().putInt("cm_mode", mode).putFloat("cm_drift", d.drift).putFloat("cm_beat", d.beatStep)
-                .putFloat("cm_drop", d.dropStep).putFloat("cm_tilt", d.tilt).putFloat("cm_pump", d.pump).apply();
+        SharedPreferences.Editor e = prefs.edit().putInt("cm_mode", mode);
+        if (mode == ColourDrive.CUSTOM) {
+            e.putFloat("cm_drift", d.drift).putFloat("cm_beat", d.beatStep).putFloat("cm_drop", d.dropStep)
+                    .putFloat("cm_tilt", d.tilt).putFloat("cm_pump", d.pump);
+        }
+        e.apply();
         pushColourDrive();
     }
 

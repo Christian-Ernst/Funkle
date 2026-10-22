@@ -22,6 +22,12 @@ public final class ColourDriveCheck {
         for (int i = 0; i < 120; i++) beat.step(s, 1 / 60f, quiet, 0f, false, false);
         check("four beats make a full turn and wrap", near(s.hue, 0f, 0.002f) && near(s.hueTarget, 0f, 1e-6f));
 
+        beat.step(s, 1 / 60f, quiet, 0f, true, false);
+        for (int i = 0; i < 10; i++) beat.step(s, 1 / 60f, quiet, 0f, false, false);
+        float shifted = s.hue;
+        for (int i = 0; i < 90; i++) still.step(s, 1 / 60f, quiet, 0f, false, false);
+        check("Still eases a shifted hue back to the chosen colours", shifted > 0.1f && near(s.hue, 0f, 0.002f));
+
         ColourDrive drift = new ColourDrive(0.1f, 0f, 0f, 0f, 0f);
         s = new ColourDrive.State();
         for (int i = 0; i < 60; i++) drift.step(s, 1 / 60f, quiet, 1f, false, false);
