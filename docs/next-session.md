@@ -56,6 +56,17 @@ Album colours keep the cover's saturation and brightness above a floor (`Palette
 - Several named custom palettes instead of one (`custom0`–`custom2` is a single slot today).
 - The web edition has the Brightness control (button or `b`) but no custom-colour editor.
 
+## Cloud (accounts, sync, events)
+
+- The Supabase project does not exist yet. The owner creates it and follows `cloud/README.md`
+  (ten minutes); until then both clients run offline and the Account entry is hidden.
+- Open for the next session: the preset gallery UI (list, publish, like, fork; the SQL and the
+  client calls exist in `web/cloud.js` and `Cloud.java`, nothing draws them yet), "preset of the
+  day" on the start card, and the Android menu chips refreshing after a newer cloud copy of the
+  settings lands (today they show the new choice after a restart).
+- Android cannot be built in the cloud session without the SDK build tools; CI builds the APK.
+  The sign-in deep link `tav://auth` and the Google flow have not run on a phone yet.
+
 ## Sharing and release state
 
 - The repo is public, so the link https://github.com/Christian-Ernst/TAV/releases/tag/latest can be
