@@ -145,6 +145,7 @@
     <button id="clear" type="button">Clear</button>
     <button id="mirror" type="button">Mirror off</button>
     <button id="colours" type="button">Colours: Neon</button>
+    <button id="motion" type="button">Colour motion: Beat</button>
     <button id="bright" type="button">Brightness: Normal</button>
     <button id="auto" type="button" aria-pressed="true">Autopilot</button>
     <button id="full" type="button">Fullscreen</button>
@@ -166,6 +167,10 @@ const PALETTES = [
   ['Inferno', [[1.0, 0.2, 0.05], [1.0, 0.6, 0.1], [1.0, 0.95, 0.5]]],
   ['Vapor', [[1.0, 0.4, 0.85], [0.3, 0.95, 0.9], [0.65, 0.55, 1.0]]],
   ['Aurora', [[0.2, 1.0, 0.6], [0.2, 0.55, 1.0], [0.85, 0.3, 1.0]]],
+  ['Ocean', [[0.0, 0.9, 0.8], [0.1, 0.4, 1.0], [0.7, 1.0, 1.0]]],
+  ['Candy', [[1.0, 0.25, 0.6], [1.0, 0.6, 0.15], [0.6, 0.3, 1.0]]],
+  // Rainbow: the shader paints the spectrum; these are what bass, mids and treble pull toward
+  ['Rainbow', [[1.0, 0.1, 0.1], [0.1, 1.0, 0.2], [0.2, 0.3, 1.0]], true],
 ];
 const SHAPES = ['Circle', 'Heart', 'Star', 'Spiral', 'Infinity', 'Hexagon', 'Flower'];
 const MIRRORS = [1, 2, 3, 4, 6, 8, 12];
@@ -300,7 +305,7 @@ const sceneButtons = SCENES.map((s, i) => {
 });
 SHAPES.forEach((name, i) => $('shapes').appendChild(chip(name, () => { if (eng) eng.addStroke(shapePoints(i, 0.62), Math.random()); poke(); })));
 
-let sceneTimer = 0, autopilot = true, mirrorIdx = 0, palIdx = 0;
+let sceneTimer = 0, autopilot = true, mirrorIdx = 0, palIdx = 0, motionIdx = DEFAULT_COLOUR_MODE;
 function setScene(i) {
   if (!eng) return;
   eng.setScene(i);
@@ -320,12 +325,19 @@ $('mirror').addEventListener('click', () => {
   $('mirror').textContent = MIRRORS[mirrorIdx] === 1 ? 'Mirror off' : 'Mirror ×' + MIRRORS[mirrorIdx];
   poke();
 });
-$('colours').addEventListener('click', () => {
-  palIdx = (palIdx + 1) % PALETTES.length;
+$('colours').addEventListener('click', () => { setPalette(palIdx + 1); poke(); });
+function setPalette(i) {
+  palIdx = ((i % PALETTES.length) + PALETTES.length) % PALETTES.length;
   targetPalette = PALETTES[palIdx][1];
+  if (eng) eng.rainbow = !!PALETTES[palIdx][2];
   $('colours').textContent = 'Colours: ' + PALETTES[palIdx][0];
-  poke();
-});
+}
+$('motion').addEventListener('click', () => { setColourMode(motionIdx + 1); poke(); });
+function setColourMode(i) {
+  motionIdx = ((i % COLOUR_MODES.length) + COLOUR_MODES.length) % COLOUR_MODES.length;
+  if (eng) eng.colour.set(COLOUR_MODES[motionIdx]);
+  $('motion').textContent = 'Colour motion: ' + COLOUR_MODES[motionIdx].name;
+}
 $('bright').addEventListener('click', () => {
   if (!eng) return;
   eng.setBrightness((eng.brightness + 1) % BRIGHTNESS.length);
@@ -361,6 +373,7 @@ addEventListener('keydown', (e) => {
   else if (k === 'c') $('clear').click();
   else if (k === 'm') $('mirror').click();
   else if (k === 'k') $('colours').click();
+  else if (k === 'd') $('motion').click();
   else if (k === 'b') $('bright').click();
   else if (k === 's') { eng.addStroke(shapePoints(shapeKey++ % SHAPES.length, 0.62)); }
   else return;
@@ -493,6 +506,7 @@ async function boot() {
   eng = new TavEngine(gl, src);
   eng.palette = PALETTES[0][1].map((c) => c.slice());
   eng.sym = 1;
+  setColourMode(DEFAULT_COLOUR_MODE);
   eng.compileAll();
   useDemo();
   resize();
