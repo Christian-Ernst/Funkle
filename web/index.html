@@ -362,7 +362,8 @@ function setScene(i, by = 'user') {
 const SETTINGS_KEY = 'tav.settings';
 let settingsAt = 0;   // when the local settings last changed (ms); the cloud copy wins if it is newer
 function currentSettings() {
-  return { scene: eng ? eng.scene : 0, palette: PALETTES[palIdx][0], mirror: MIRRORS[mirrorIdx], brightness: eng ? eng.brightness : DEFAULT_BRIGHTNESS, autopilot };
+  return { scene: eng ? eng.scene : 0, palette: PALETTES[palIdx][0], mirror: MIRRORS[mirrorIdx], brightness: eng ? eng.brightness : DEFAULT_BRIGHTNESS, autopilot,
+    colourMotion: COLOUR_MODES[motionIdx].name };
 }
 function saveSettings() {
   settingsAt = Date.now();
@@ -378,6 +379,8 @@ function applySettings(d) {
   if (m >= 0) { mirrorIdx = m; eng.sym = MIRRORS[m]; $('mirror').textContent = MIRRORS[m] === 1 ? 'Mirror off' : 'Mirror ×' + MIRRORS[m]; }
   if (Number.isInteger(d.brightness) && BRIGHTNESS[d.brightness]) { eng.setBrightness(d.brightness); $('bright').textContent = 'Brightness: ' + BRIGHTNESS[d.brightness].name; }
   if (typeof d.autopilot === 'boolean') { autopilot = d.autopilot; $('auto').setAttribute('aria-pressed', String(autopilot)); }
+  const cm = COLOUR_MODES.findIndex((x) => x.name === d.colourMotion);
+  if (cm >= 0) setColourMode(cm, 'restore');
   if (Number.isInteger(d.scene) && SCENES[d.scene]) setScene(d.scene, 'restore');
 }
 function loadLocalSettings() {
@@ -407,10 +410,11 @@ function setPalette(i) {
   saveSettings();
 }
 $('motion').addEventListener('click', () => { setColourMode(motionIdx + 1); poke(); });
-function setColourMode(i) {
+function setColourMode(i, by = 'user') {
   motionIdx = ((i % COLOUR_MODES.length) + COLOUR_MODES.length) % COLOUR_MODES.length;
   if (eng) eng.colour.set(COLOUR_MODES[motionIdx]);
   $('motion').textContent = 'Colour motion: ' + COLOUR_MODES[motionIdx].name;
+  if (by !== 'user') return;   // boot and restore must not stamp the settings as changed, or the cloud copy never wins
   TavCloud.track('setting_changed', { key: 'colour_motion', to: COLOUR_MODES[motionIdx].name });
   saveSettings();
 }
@@ -666,7 +670,7 @@ async function boot() {
   eng = new TavEngine(gl, src);
   eng.palette = PALETTES[0][1].map((c) => c.slice());
   eng.sym = 1;
-  setColourMode(DEFAULT_COLOUR_MODE);
+  setColourMode(DEFAULT_COLOUR_MODE, 'restore');
   eng.compileAll();
   useDemo();
   resize();
