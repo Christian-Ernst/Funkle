@@ -29,7 +29,10 @@ which loads the Android shaders). README.md is the user-facing description. Open
   - `AdaptiveScale.java`: picks the render resolution from frame times (pure Java; shader builds are
     not counted as slow frames). `TavRenderer` builds the other shaders a frame at a time at start-up.
   - `AudioCapture.java` (Visualizer on session 0, mic fallback), `MediaWatcher.java` (MediaSession and
-    Spotify broadcasts, play/pause/next/previous), `Palettes.java` (presets plus colours from album
+    Spotify broadcasts, play/pause/next/previous, position for the `Hairline` under the title, open the
+    player), `MediaListenerService.java` + `NowPlayingNudge.java` (notification access; watches the media
+    sessions in the background and posts the opt-in, silent "music started" notification, pref `nudge`:
+    0 Off, 1 Spotify, 2 Any player, quiet for an hour after a swipe-away), `Palettes.java` (presets plus colours from album
     art → `uPal[3]`), `Scene.java`, `Shapes.java`, `TavView.java`.
 - `android/assets/shaders/`: `common.glsl` is prepended to every shader. It has the uniforms,
   `pal()`, `glow()`, `feedback()` and `angle()`.

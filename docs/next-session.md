@@ -20,6 +20,20 @@ colours (menu → Colours → Custom) are done. What is still open, and what to 
   ones, and boosted bands should not white out the scenes (the brightness measurement is the guardrail).
 - The equalizer is Android only. The web edition and the terminal edition still react with the flat look.
 
+## Spotify integration (branch claude/project-thread-7cbnl1)
+
+- New and not yet on a phone: cover art + progress hairline in the title overlay, "Open Spotify" in the menu,
+  and the opt-in **Light up when music starts** notification (`NowPlayingNudge`). Check on the phone that the
+  notification appears when Spotify starts with TAV closed, vanishes on pause, and never shows while TAV is open.
+- Android 13+ on a sideloaded APK: notification access is a "restricted setting" (the card explains it), and
+  POST_NOTIFICATIONS is asked for after access is granted.
+- Not done, by design: Spotify Web API / App Remote (nothing to gain: audio features are closed to new apps, the
+  media session already has title, artist and cover). Clips cannot carry Spotify audio (Visualizer is 8-bit for
+  visuals only, Spotify opts out of AudioPlaybackCapture, and the licence forbids it): share silent loops.
+- Web edition: browsers cannot see Spotify's playback. A possible path is tab-audio capture (`getDisplayMedia`
+  with audio on the Spotify tab) plus the Web API's currently-playing endpoint for cover and title, which would
+  need a Spotify developer app (client id, redirect URI, PKCE); not started.
+
 ## Colour editor follow-ups (ask first)
 
 - A "Shuffle" chip that rolls a harmonious random palette (golden-ratio hue steps).

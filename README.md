@@ -53,10 +53,21 @@ exactly what you hear from any app without that app's cooperation. Android puts 
 If a phone's ROM blocks this (some do), TAV falls back to the microphone automatically. You can also pick
 **Listen to → Microphone** yourself.
 
-**What's playing:** Spotify keeps running as its own app. When the song changes, TAV shows the title and artist
-(menu → **Song title → Always on screen** keeps them there) and can switch scenes with it. Choose
-**Colours → Album** and grant notification access, and every scene is recoloured from the cover art.
+**What's playing:** Spotify keeps running as its own app. When the song changes, TAV shows the cover, title and
+artist with a thin progress line (menu → **Song title → Always on screen** keeps them there) and can switch
+scenes with it. Choose **Colours → Album** and grant notification access, and every scene is recoloured from the
+cover art. Tap the cover to jump to Spotify; **Open Spotify** at the top of the menu does the same.
 Without notification access, switch on *Settings → Device Broadcast Status* in Spotify for title and artist.
+
+**Light up when music starts:** menu → **Light up when music starts → Spotify** (or *Any player*). When Spotify
+starts playing while TAV is closed, a quiet notification (no sound, no pop-up) shows the song and offers to light
+it up; it disappears again when the music stops, and swiping it away keeps it quiet for an hour. It needs the same
+notification access as album colours, plus the notification permission on Android 13+.
+
+**What TAV cannot do with Spotify:** Android's `Visualizer` hands out an 8-bit waveform for the visuals only, and
+Spotify opts out of `AudioPlaybackCapture`, so TAV cannot record Spotify's audio; a shareable clip would be silent
+(that is also what Spotify's licence requires). Spotify's Web API adds nothing here: the audio-features endpoint
+is closed to new apps, and the media session already gives the title, artist and cover without any login.
 
 **Playback controls:** previous, play/pause and next sit at the top of the menu, and the on-screen song title
 works as a remote: swipe it left for the next track, right for the previous one, tap it to pause. They work
@@ -96,6 +107,8 @@ move with the music. Use it if flashing lights bother you or you are sensitive t
   you to pick **Listen to → Microphone**; hold the phone near the speaker.
 * **Album colours missing:** grant notification access (menu → Colours → Album), or switch on
   *Device Broadcast Status* in Spotify's settings for track names.
+* **No "light it up" notification:** it needs notification access (menu → Light up when music starts), the
+  notification permission on Android 13+, and Spotify's own notification to be on; it never shows while TAV is open.
 * **Stutters on an older phone:** menu → Quality → Battery. TAV also lowers its resolution by itself when frames run late, and raises it again once they run fast.
 
 ### Scenes
