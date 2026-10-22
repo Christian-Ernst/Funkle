@@ -3,8 +3,10 @@
 // track's drop and prints how much of each frame is blown out. Frames are stepped on a virtual
 // clock (30 fps), so two runs see exactly the same audio and can be compared number for number.
 //
-//   node web/tools/measure.js [--level 0-3] [--palette N] [--scenes halo,spiro] [--track demo|dense]
-//                             [--sym N] [--root DIR] [--out DIR]
+//   node web/tools/measure.js [--level 0-3] [--palette N] [--colour N] [--scenes halo,spiro]
+//                             [--track demo|dense] [--sym N] [--root DIR] [--out DIR]
+//
+// --colour picks the colour motion mode (0 Still, 1 Drift, 2 Beat, 3 Bands); --palette 9 is Rainbow.
 //
 // --track dense mixes side-chained pink noise into the demo and limits it hard: a stand-in for a
 // loud mastered song, which fills the whole spectrum the way the synthetic demo doesn't.
@@ -33,7 +35,7 @@ const args = {};
 for (let i = 2; i < process.argv.length; i += 2) args[process.argv[i].replace(/^--/, '')] = process.argv[i + 1];
 const root = path.resolve(args.root || path.join(__dirname, '../..'));
 const level = args.level === undefined ? -1 : +args.level;
-const palette = +(args.palette || 0), sym = +(args.sym || 0), track = args.track || 'demo';
+const palette = +(args.palette || 0), colour = +(args.colour || 0), sym = +(args.sym || 0), track = args.track || 'demo';
 const only = args.scenes ? args.scenes.split(',') : null;
 const W = 405, H = 900, FPS = 30, START = 9.0;
 const SHOTS = [15.2, 15.5, 16.0, 17.0, 18.5, 20.0, 22.5, 25.0];   // the drop starts at 15.0 s
@@ -124,18 +126,19 @@ function measureFrame(wantPng) {
       useDemo();
     });
   }
-  const scenes = await page.evaluate(({ level, palette, sym }) => {
+  const scenes = await page.evaluate(({ level, palette, colour, sym }) => {
     slow = -1e9;   // keep the adaptive resolution out of it
     document.getElementById('start').hidden = true;
-    targetPalette = PALETTES[palette][1];
+    if (typeof setPalette === 'function') setPalette(palette); else targetPalette = PALETTES[palette][1];
     eng.palette = PALETTES[palette][1].map((c) => c.slice());
+    if (typeof setColourMode === 'function') setColourMode(colour);   // 0 = Still, whatever the page's default
     if (level >= 0 && eng.setBrightness) eng.setBrightness(level);
     if (sym) eng.sym = sym;
     return SCENES.map((s) => s.id);
-  }, { level, palette, sym });
+  }, { level, palette, colour, sym });
   if (args.out) fs.mkdirSync(args.out, { recursive: true });
 
-  console.log(`${root}  track=${track} palette=${palette} level=${level < 0 ? 'default' : level}${sym ? ' sym=' + sym : ''}`);
+  console.log(`${root}  track=${track} palette=${palette} colour=${colour} level=${level < 0 ? 'default' : level}${sym ? ' sym=' + sym : ''}`);
   console.log('scene      clip%   max%   sat5  white%   hot%   luma');
   for (let si = 0; si < scenes.length; si++) {
     if (only && !only.includes(scenes[si])) continue;
