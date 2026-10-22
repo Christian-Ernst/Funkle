@@ -177,4 +177,52 @@ final class Palettes {
         }
         return out;
     }
+    // ------------------------------------------------------------------ harmonious shuffle
+
+    /**
+     * Three colours that go together, at random: the hues sit a golden angle (137.5°) apart with a
+     * little jitter, so every roll is spread over the wheel without ever being the same, and
+     * saturation and brightness stay in the neon range the scenes are tuned for. Pure arithmetic
+     * (no android.graphics), so LookCheck can test it on the JVM. The same recipe is in
+     * {@code web/looks.js}.
+     */
+    static int[] shuffle(java.util.Random r) {
+        int[] out = new int[3];
+        float h = r.nextFloat();
+        // one in three rolls is analogous (close hues, calmer); the rest are spread by the golden angle
+        float step = r.nextInt(3) == 0 ? 0.08f + 0.06f * r.nextFloat() : 0.382f;
+        for (int k = 0; k < 3; k++) {
+            float hue = (h + k * step + (r.nextFloat() - 0.5f) * 0.03f + 1f) % 1f;
+            float sat = 0.72f + 0.28f * r.nextFloat();
+            float val = 0.88f + 0.12f * r.nextFloat();
+            out[k] = hsvToArgb(hue, sat, val);
+        }
+        return out;
+    }
+
+    /** HSV (hue 0..1) to opaque ARGB; what android.graphics.Color.HSVToColor does, on any JVM. */
+    static int hsvToArgb(float h, float s, float v) {
+        float hh = (h % 1f + 1f) % 1f * 6f;
+        int i = (int) hh;
+        float f = hh - i, p = v * (1 - s), q = v * (1 - s * f), t = v * (1 - s * (1 - f));
+        float r, g, b;
+        switch (i % 6) {
+            case 0: r = v; g = t; b = p; break;
+            case 1: r = q; g = v; b = p; break;
+            case 2: r = p; g = v; b = t; break;
+            case 3: r = p; g = q; b = v; break;
+            case 4: r = t; g = p; b = v; break;
+            default: r = v; g = p; b = q; break;
+        }
+        return 0xFF000000 | Math.round(r * 255) << 16 | Math.round(g * 255) << 8 | Math.round(b * 255);
+    }
+
+    /** Hue (0..1) of an ARGB colour, for tests and labels. */
+    static float hueOf(int argb) {
+        float r = (argb >> 16 & 255) / 255f, g = (argb >> 8 & 255) / 255f, b = (argb & 255) / 255f;
+        float mx = Math.max(r, Math.max(g, b)), mn = Math.min(r, Math.min(g, b)), d = mx - mn;
+        if (d < 1e-6f) return 0f;
+        float h = mx == r ? (g - b) / d % 6f : mx == g ? (b - r) / d + 2f : (r - g) / d + 4f;
+        return (h / 6f + 1f) % 1f;
+    }
 }

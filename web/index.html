@@ -117,6 +117,17 @@
   .sheet .stats span { font: 600 10px/1.3 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--mute); }
   .sheet label.check { display: flex; gap: 8px; align-items: center; color: var(--mute); font-size: 13px; }
   .sheet .close { position: absolute; top: 10px; right: 12px; padding: 6px 10px; }
+  .sheet input[type=text] { flex: 1 1 160px; min-width: 0; font: 500 14px/1 var(--ui); color: var(--text); padding: 10px 14px; border-radius: 999px; background: rgba(0,0,0,.25); border: 1px solid var(--edge); }
+  .sheet h3 { margin: 6px 0 0; font: 600 10.5px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--mute); }
+  .looks { display: grid; gap: 6px; max-height: 40vh; overflow-y: auto; }
+  .looks .look { display: flex; align-items: center; gap: 8px; }
+  .looks .dots { display: inline-flex; gap: 3px; flex: none; }
+  .looks .dots i { width: 12px; height: 12px; border-radius: 50%; display: block; }
+  .looks .name { flex: 1; min-width: 0; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .looks .name small { color: var(--mute); font: 500 11px/1 var(--mono); margin-left: 8px; }
+  .looks .icon { padding: 7px 10px; }
+  .start .shared { display: inline-flex; gap: 4px; margin-right: 6px; vertical-align: middle; }
+  .start .shared i { width: 10px; height: 10px; border-radius: 50%; display: block; }
 
   @media (max-width: 520px) {
     .meters { grid-template-columns: auto 40px; }
@@ -145,11 +156,15 @@
 <div class="toast" id="toast" role="status"></div>
 
 <section class="start" id="start">
-  <h2>Music, turned into light</h2>
+  <h2 id="startTitle">Music, turned into light</h2>
   <p id="startText">The demo is already driving the visuals in silence. Press play to hear it, or open a song of your own.</p>
   <div class="row">
     <button class="primary" id="playDemo" type="button">Play the demo beat</button>
     <label class="file">Open a song…<input type="file" id="fileStart" accept="audio/*"></label>
+  </div>
+  <div class="row" id="sharedRow" hidden>
+    <button id="keepLook" type="button">Keep this look</button>
+    <a id="openApp" hidden><button type="button">Open in the TAV app</button></a>
   </div>
   <p>Tap to make ripples · drag to draw with sound · swipe or ← → for scenes</p>
 </section>
@@ -172,13 +187,34 @@
     <button id="tuneToggle" type="button" aria-pressed="false">Tune</button>
     <button id="mirror" type="button">Mirror off</button>
     <button id="colours" type="button">Colours: Neon</button>
+    <button id="shuffle" type="button" title="Three random colours that go together">⚄ Shuffle</button>
     <button id="motion" type="button">Colour motion: Beat</button>
     <button id="bright" type="button">Brightness: Normal</button>
     <button id="auto" type="button" aria-pressed="true">Autopilot</button>
     <button id="full" type="button">Fullscreen</button>
+    <button id="looks" type="button">Looks</button>
     <button id="account" type="button" hidden>Account</button>
   </div>
 </footer>
+
+<section class="sheet" id="looksSheet" hidden role="dialog" aria-labelledby="looksTitle">
+  <button class="close" id="looksClose" type="button" aria-label="Close">✕</button>
+  <h2 id="looksTitle">Looks</h2>
+  <p>A look is the scene, colours and their motion, mirror and brightness together. Save the one on screen, bring it back later, or share it as a link.</p>
+  <h3>Save this look</h3>
+  <div class="row">
+    <input type="text" id="lookName" maxlength="40" placeholder="Name" autocomplete="off">
+    <button id="lookSave" type="button" class="primary">Save</button>
+    <button id="lookShare" type="button">Save and share</button>
+  </div>
+  <h3>My looks</h3>
+  <div class="looks" id="lookList"></div>
+  <h3>Open a code or link</h3>
+  <div class="row">
+    <input type="text" id="lookCode" placeholder="Six letters, or the whole link" autocomplete="off" spellcheck="false">
+    <button id="lookOpen" type="button">Open</button>
+  </div>
+</section>
 
 <section class="sheet" id="sheet" hidden role="dialog" aria-labelledby="sheetTitle">
   <button class="close" id="sheetClose" type="button" aria-label="Close">✕</button>
@@ -204,6 +240,7 @@
 <script src="analyzer.js"></script>
 <script src="engine.js"></script>
 <script src="demo.js"></script>
+<script src="looks.js"></script>
 <script src="cloud-config.js"></script>
 <script src="cloud.js"></script>
 <script>
@@ -410,7 +447,10 @@ function tuneSettings() {
 const SETTINGS_KEY = 'tav.settings';
 let settingsAt = 0;   // when the local settings last changed (ms); the cloud copy wins if it is newer
 function currentSettings() {
-  return { scene: eng ? eng.scene : 0, palette: PALETTES[palIdx][0], mirror: MIRRORS[mirrorIdx], brightness: eng ? eng.brightness : DEFAULT_BRIGHTNESS, autopilot, tune: tuneSettings() };
+  const s = { scene: eng ? eng.scene : 0, palette: paletteName(), mirror: MIRRORS[mirrorIdx], brightness: eng ? eng.brightness : DEFAULT_BRIGHTNESS, autopilot,
+    colourMotion: COLOUR_MODES[motionIdx].name, tune: tuneSettings() };
+  if (customPalette) s.colours = customPalette.map(TavLooks.hex);
+  return s;
 }
 function saveSettings() {
   settingsAt = Date.now();
@@ -421,7 +461,10 @@ function saveSettings() {
 function applySettings(d) {
   if (!d || !eng) return;
   const p = PALETTES.findIndex((x) => x[0] === d.palette);
-  if (p >= 0) { palIdx = p; targetPalette = PALETTES[p][1]; eng.rainbow = !!PALETTES[p][2]; $('colours').textContent = 'Colours: ' + PALETTES[p][0]; }
+  if (p >= 0) setPalette(p, true);
+  else if (Array.isArray(d.colours)) { const c = d.colours.map(TavLooks.unhex); if (c.every(Boolean)) setCustomPalette(c, d.palette, true); }
+  const cm = COLOUR_MODES.findIndex((x) => x.name === d.colourMotion);
+  if (cm >= 0) setColourMode(cm, true);
   const m = MIRRORS.indexOf(d.mirror);
   if (m >= 0) { mirrorIdx = m; eng.sym = MIRRORS[m]; $('mirror').textContent = MIRRORS[m] === 1 ? 'Mirror off' : 'Mirror ×' + MIRRORS[m]; }
   if (Number.isInteger(d.brightness) && BRIGHTNESS[d.brightness]) { eng.setBrightness(d.brightness); $('bright').textContent = 'Brightness: ' + BRIGHTNESS[d.brightness].name; }
@@ -449,20 +492,42 @@ $('mirror').addEventListener('click', () => {
   TavCloud.track('setting_changed', { key: 'mirror', to: MIRRORS[mirrorIdx] });
   saveSettings(); poke();
 });
-$('colours').addEventListener('click', () => { setPalette(palIdx + 1); poke(); });
-function setPalette(i) {
+// colours: a preset from PALETTES, or custom colours (a shuffle, or a look) with a name of their own
+let customPalette = null, customName = 'Custom';
+const paletteName = () => (customPalette ? customName : PALETTES[palIdx][0]);
+$('colours').addEventListener('click', () => { setPalette(customPalette ? 0 : palIdx + 1); poke(); });
+function setPalette(i, quiet) {
   palIdx = ((i % PALETTES.length) + PALETTES.length) % PALETTES.length;
+  customPalette = null;
   targetPalette = PALETTES[palIdx][1];
   if (eng) eng.rainbow = !!PALETTES[palIdx][2];
   $('colours').textContent = 'Colours: ' + PALETTES[palIdx][0];
+  if (quiet) return;
   TavCloud.track('palette', { palette: PALETTES[palIdx][0] });
   saveSettings();
 }
+function setCustomPalette(colours, name, quiet) {
+  customPalette = colours.map((c) => c.slice());
+  customName = name || 'Custom';
+  targetPalette = customPalette;
+  if (eng) eng.rainbow = false;
+  $('colours').textContent = 'Colours: ' + customName;
+  if (quiet) return;
+  TavCloud.track('palette', { palette: customName });
+  saveSettings();
+}
+$('shuffle').addEventListener('click', () => {
+  setCustomPalette(TavLooks.shuffle(), 'Shuffle');
+  if (eng) eng.palette = customPalette.map((c) => c.slice());   // snap, so the roll is seen at once
+  TavCloud.track('setting_changed', { key: 'colours_shuffle', to: customPalette.map(TavLooks.hex).join(' ') });
+  poke();
+});
 $('motion').addEventListener('click', () => { setColourMode(motionIdx + 1); poke(); });
-function setColourMode(i) {
+function setColourMode(i, quiet) {
   motionIdx = ((i % COLOUR_MODES.length) + COLOUR_MODES.length) % COLOUR_MODES.length;
   if (eng) eng.colour.set(COLOUR_MODES[motionIdx]);
   $('motion').textContent = 'Colour motion: ' + COLOUR_MODES[motionIdx].name;
+  if (quiet) return;
   TavCloud.track('setting_changed', { key: 'colour_motion', to: COLOUR_MODES[motionIdx].name });
   saveSettings();
 }
@@ -484,7 +549,7 @@ $('auto').addEventListener('click', () => {
 const sheet = $('sheet');
 function showSheet(show) {
   sheet.hidden = !show;
-  if (show) refreshSheet();
+  if (show) { looksSheet.hidden = true; refreshSheet(); }
 }
 async function refreshSheet() {
   const st = TavCloud.auth.state();
@@ -526,22 +591,193 @@ $('forget').addEventListener('click', async () => {
   try { await TavCloud.auth.forgetMyEvents(); toast('History deleted'); refreshSheet(); } catch (e) { toast('Failed'); }
 });
 
-// A shared look opens from its code in the URL (#l=abc123), signed in or not.
-async function openSharedLook() {
-  const m = /[#&]l=([a-z0-9]{6})/i.exec(location.hash);
-  if (!m) return;
+// ---------------------------------------------------------------- looks: save, bring back, share (see looks.js)
+function captureLook(name) {
+  const custom = COLOUR_MODES.length - 1;
+  return TavLooks.make({ name, palette: customPalette || PALETTES[palIdx][1], paletteName: customPalette ? 'Custom' : PALETTES[palIdx][0],
+    rainbow: !!(eng && eng.rainbow), motion: eng ? eng.colour : COLOUR_MODES[motionIdx], scene: SCENES[eng ? eng.scene : 0].id,
+    sym: MIRRORS[mirrorIdx], brightness: eng ? eng.brightness : DEFAULT_BRIGHTNESS, tune: lookTune() });
+}
+// the current scene's sliders by id, only the ones moved off the scene's own look
+function lookTune() {
+  const out = {};
+  if (eng) eng.tune[eng.scene].forEach((v, k) => { if (v !== 0.5) out[tuneId(eng.scene, k)] = v; });
+  return out;
+}
+// Puts a Look on screen. st is TavLooks.parse's state; calm and eq belong to the Android app and are kept for it.
+function applyLook(st, origin, presetId) {
+  const p = PALETTES.findIndex((x) => x[0].toLowerCase() === String(st.paletteName).toLowerCase());
+  if (p >= 0) setPalette(p, true); else setCustomPalette(st.palette, st.name, true);
+  if (eng) { eng.rainbow = !!st.rainbow; eng.palette = targetPalette.map((c) => c.slice()); }
+  let mode = COLOUR_MODES.findIndex((m) => Object.keys(COLOUR_MAX).every((k) => Math.abs((+m[k] || 0) - st.motion[k]) < 1e-4));
+  if (mode < 0) mode = COLOUR_MODES.length - 1;   // Custom
+  motionIdx = mode;
+  if (eng) eng.colour.set(st.motion);
+  $('motion').textContent = 'Colour motion: ' + COLOUR_MODES[mode].name;
+  const m = MIRRORS.indexOf(st.sym);
+  if (m >= 0) { mirrorIdx = m; if (eng) eng.sym = MIRRORS[m]; $('mirror').textContent = MIRRORS[m] === 1 ? 'Mirror off' : 'Mirror ×' + MIRRORS[m]; }
+  if (st.brightness !== undefined && eng) { eng.setBrightness(st.brightness); $('bright').textContent = 'Brightness: ' + BRIGHTNESS[st.brightness].name; }
+  const sc = SCENES.findIndex((x) => x.id === st.scene);
+  if (sc >= 0 && st.tune && eng) {   // the Look's scene back to its own look, then the sliders it carries
+    for (let k = 0; k < TUNE; k++) eng.setTune(sc, k, st.tune[tuneId(sc, k)] === undefined ? 0.5 : st.tune[tuneId(sc, k)]);
+  }
+  if (sc >= 0) setScene(sc, 'look');
+  showTune();
+  toast(st.name);
+  saveSettings();
+  TavCloud.track('look_applied', { preset_id: presetId || null, origin });
+}
+const looksSheet = $('looksSheet');
+function showLooks(show) {
+  looksSheet.hidden = !show;
+  if (!show) return;
+  showSheet(false);
+  $('lookName').value = TavLooks.suggestName(SCENES[eng ? eng.scene : 0].name + ' · ' + paletteName());
+  renderLooks();
+}
+function renderLooks() {
+  const list = $('lookList');
+  list.textContent = '';
+  const looks = TavLooks.list();
+  if (!looks.length) { const p = document.createElement('p'); p.textContent = 'Nothing saved yet.'; list.appendChild(p); return; }
+  for (const e of looks) {
+    const st = TavLooks.parse(e.doc);
+    if (!st) continue;
+    const row = document.createElement('div');
+    row.className = 'look';
+    const dots = document.createElement('span');
+    dots.className = 'dots';
+    for (const c of st.palette) { const i = document.createElement('i'); i.style.background = TavLooks.hex(c); dots.appendChild(i); }
+    row.appendChild(dots);
+    const name = chip('', () => { applyLook(st, e.origin || 'own', e.cloudId); showLooks(false); poke(); });
+    name.className = 'name';
+    name.textContent = st.name;
+    if (e.code) { const sm = document.createElement('small'); sm.textContent = e.code; name.appendChild(sm); }
+    row.appendChild(name);
+    row.appendChild(chip('Share', () => shareLook(e)));
+    const del = chip('✕', () => { TavLooks.remove(e.id); if (e.cloudId) TavCloud.presets.remove(e.cloudId).catch(() => {}); renderLooks(); });
+    del.className = 'icon'; del.setAttribute('aria-label', 'Delete ' + st.name);
+    row.appendChild(del);
+    list.appendChild(row);
+  }
+}
+function saveLook(name) {
+  const e = TavLooks.add(captureLook(name), 'own');
+  toast('Saved');
+  pushLook(e);
+  TavCloud.track('look_saved', { preset_id: e.cloudId || null, origin: 'own' });
+  return e;
+}
+// Mirrors a shelf entry to the cloud (insert or update) when signed in. One request per entry at a
+// time: a second call while one is out gets the same promise, so Save followed by Share makes one row.
+const pushing = new Map();
+function pushLook(e) {
+  if (!TavCloud.enabled || !TavCloud.auth.state().signedIn) return Promise.resolve(e);
+  if (pushing.has(e.id)) return pushing.get(e.id);
+  const sent = JSON.stringify(e.doc);
+  const p = (async () => {
+    try {
+      const row = await TavCloud.presets.save(e.doc, e.cloudId);
+      if (row) TavLooks.update(e.id, { cloudId: row.id, code: row.code || e.code, updatedAt: Date.parse(row.updated_at) || Date.now() });
+    } catch (err) { /* offline: stays local */ }
+    pushing.delete(e.id);
+    const now = TavLooks.list().find((x) => x.id === e.id) || e;
+    return JSON.stringify(now.doc) !== sent ? pushLook(now) : now;   // changed meanwhile: send that too
+  })();
+  pushing.set(e.id, p);
+  return p;
+}
+async function shareLook(e) {
+  e = await pushLook(e);
+  if (!e.code && e.cloudId && TavCloud.auth.state().signedIn) {
+    try { const row = await TavCloud.presets.publish(e.cloudId, true); if (row && row.code) { TavLooks.update(e.id, { code: row.code }); e.code = row.code; } } catch (err) { /* no code, the link still works */ }
+  }
+  const url = TavLooks.shareUrl(e.doc, e.code);
+  const text = 'My TAV look “' + e.doc.name + '”' + (e.code ? ' · code ' + e.code : '');
+  TavCloud.track('look_shared', { preset_id: e.cloudId || null, channel: e.code ? 'code' : 'link' });
+  renderLooks();
   try {
-    const look = await TavCloud.presets.byCode(m[1]);
-    if (look && look.data && Array.isArray(look.data.colours)) {
-      const rgb = look.data.colours.slice(0, 3).map((h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255));
-      if (rgb.length === 3 && rgb.flat().every(Number.isFinite)) {
-        targetPalette = rgb;
-        $('colours').textContent = 'Colours: ' + (look.data.name || 'Shared');
-        toast(look.data.name || 'Shared look');
-        TavCloud.track('look_applied', { preset_id: look.id, origin: 'shared' });
+    if (navigator.share) { await navigator.share({ title: 'TAV look: ' + e.doc.name, text, url }); return; }
+  } catch (err) { if (err.name === 'AbortError') return; }
+  try { await navigator.clipboard.writeText(text + '\n' + url); toast('Link copied'); }
+  catch (err) { prompt('Copy this link', url); }
+}
+// A code, a link or a payload, typed or from the page's own URL.
+async function openLookText(s, fromUrl) {
+  const code = TavLooks.codeIn(s), inline = TavLooks.decode(TavLooks.payloadIn(s));
+  if (inline) { receiveLook(inline, code, null, fromUrl); return true; }
+  if (!code) { if (!fromUrl) toast('Not a TAV code or link'); return false; }
+  if (!TavCloud.enabled) { toast('Codes need the cloud; ask for the whole link'); return false; }
+  try {
+    const row = await TavCloud.presets.byCode(code);
+    const st = row && TavLooks.parse(row.data);
+    if (!st) { toast('No look has the code ' + code); return false; }
+    receiveLook(st, code, row.id, fromUrl);
+    return true;
+  } catch (e) { toast('Could not reach the cloud'); return false; }
+}
+// A Look from a link or code: on screen at once, then offered for keeping (on the start card when the page just opened).
+function receiveLook(st, code, presetId, fromUrl) {
+  showLooks(false);
+  applyLook(st, 'shared', presetId);
+  const already = TavLooks.list().some((e) => e.doc.name.toLowerCase() === st.name.toLowerCase() && JSON.stringify(e.doc) === JSON.stringify(TavLooks.make(st)));
+  const keep = () => { const e = TavLooks.add(TavLooks.make(st), 'shared'); if (code) TavLooks.update(e.id, { code }); pushLook(e); toast('Saved'); $('sharedRow').hidden = true; };
+  if (fromUrl && !$('start').hidden) {
+    $('startTitle').textContent = '';
+    const dots = document.createElement('span');
+    dots.className = 'shared';
+    for (const c of st.palette) { const i = document.createElement('i'); i.style.background = TavLooks.hex(c); dots.appendChild(i); }
+    $('startTitle').appendChild(dots);
+    $('startTitle').appendChild(document.createTextNode('“' + st.name + '”'));
+    $('startText').textContent = 'A look someone shared with you, on the demo beat. Press play to hear it, or open a song of your own.';
+    $('sharedRow').hidden = false;
+    $('keepLook').hidden = already;
+    $('keepLook').onclick = keep;
+    if (/android/i.test(navigator.userAgent)) { $('openApp').href = TavLooks.appUrl(TavLooks.make(st), code); $('openApp').hidden = false; }
+  } else if (!already && confirm('Keep “' + st.name + '” in your looks?')) keep();
+}
+$('looks').addEventListener('click', () => { showLooks(looksSheet.hidden); poke(); });
+$('looksClose').addEventListener('click', () => showLooks(false));
+$('lookSave').addEventListener('click', () => { saveLook($('lookName').value); showLooks(false); });
+$('lookShare').addEventListener('click', () => { const e = saveLook($('lookName').value); showLooks(false); shareLook(e); });
+$('lookName').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); $('lookSave').click(); } });
+$('lookOpen').addEventListener('click', () => openLookText($('lookCode').value));
+$('lookCode').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); $('lookOpen').click(); } });
+
+// A shared look opens from the page's URL (#l=abc123, #d=...), signed in or not.
+async function openSharedLook() {
+  if (!TavLooks.codeIn(location.hash) && !TavLooks.payloadIn(location.hash)) return;
+  await openLookText(location.hash, true);
+}
+// Pulls the account's Looks this browser does not have and pushes the ones it has not yet sent.
+async function syncLooks() {
+  if (!TavCloud.enabled || !TavCloud.auth.state().signedIn) return;
+  try {
+    const rows = await TavCloud.presets.list();
+    const seen = new Set();
+    for (const row of rows || []) {
+      if (!TavLooks.parse(row.data)) continue;
+      seen.add(row.id);
+      const at = Date.parse(row.updated_at) || 0;
+      let e = TavLooks.list().find((x) => x.cloudId === row.id);
+      if (e) {
+        // both sides have it: the newer document wins (a second of slack for the clocks)
+        if (JSON.stringify(TavLooks.make(TavLooks.parse(e.doc))) !== JSON.stringify(TavLooks.make(TavLooks.parse(row.data)))) {
+          if (at > e.updatedAt + 1000) TavLooks.update(e.id, { doc: TavLooks.make(TavLooks.parse(row.data)), updatedAt: at });
+          else if (e.updatedAt > at + 1000) pushLook(e);
+        }
+      } else {
+        e = TavLooks.list().find((x) => !x.cloudId && x.doc.name.toLowerCase() === String(row.data.name).toLowerCase());
+        if (!e) { e = TavLooks.add(row.data, 'own'); TavLooks.update(e.id, { updatedAt: at }); }
       }
+      TavLooks.update(e.id, { cloudId: row.id, code: row.code || e.code });
     }
-  } catch (e) { /* bad or expired code */ }
+    for (const e of TavLooks.list()) {
+      if (!e.cloudId && !pushing.has(e.id)) pushLook(e);
+      else if (!seen.has(e.cloudId)) TavLooks.update(e.id, { cloudId: null });   // deleted elsewhere: stays here as a local look
+    }
+    if (!looksSheet.hidden) renderLooks();
+  } catch (e) { /* offline */ }
 }
 
 // Session: starts when sound starts, ends when the tab hides or closes, with the time listened.
@@ -586,6 +822,8 @@ addEventListener('keydown', (e) => {
   else if (k === 'm') $('mirror').click();
   else if (k === 'k') $('colours').click();
   else if (k === 'd') $('motion').click();
+  else if (k === 'x') $('shuffle').click();
+  else if (k === 'l') $('looks').click();
   else if (k === 'b') $('bright').click();
   else if (k === 't') $('tuneToggle').click();
   else if (k === 's') { eng.addStroke(shapePoints(shapeKey++ % SHAPES.length, 0.62)); }
@@ -719,7 +957,7 @@ async function boot() {
   eng = new TavEngine(gl, src);
   eng.palette = PALETTES[0][1].map((c) => c.slice());
   eng.sym = 1;
-  setColourMode(DEFAULT_COLOUR_MODE);
+  setColourMode(DEFAULT_COLOUR_MODE, true);   // boot must not stamp the settings as changed, or the cloud copy never wins
   eng.compileAll();
   useDemo();
   resize();
@@ -732,6 +970,7 @@ async function boot() {
     const remote = await TavCloud.settings.sync(currentSettings(), settingsAt).catch(() => null);
     if (remote && remote.updatedAt > settingsAt) { settingsAt = remote.updatedAt; applySettings(remote.data); }
     await openSharedLook();   // after the settings, so a shared link wins over the saved palette
+    syncLooks();
     if (audio.playing) sessionStart();
   });
 }

@@ -20,6 +20,20 @@ colours (menu → Colours → Custom) are done. What is still open, and what to 
   ones, and boosted bands should not white out the scenes (the brightness measurement is the guardrail).
 - The equalizer is Android only. The web edition and the terminal edition still react with the flat look.
 
+## Spotify integration (branch claude/project-thread-7cbnl1)
+
+- New and not yet on a phone: cover art + progress hairline in the title overlay, "Open Spotify" in the menu,
+  and the opt-in **Light up when music starts** notification (`NowPlayingNudge`). Check on the phone that the
+  notification appears when Spotify starts with TAV closed, vanishes on pause, and never shows while TAV is open.
+- Android 13+ on a sideloaded APK: notification access is a "restricted setting" (the card explains it), and
+  POST_NOTIFICATIONS is asked for after access is granted.
+- Not done, by design: Spotify Web API / App Remote (nothing to gain: audio features are closed to new apps, the
+  media session already has title, artist and cover). Clips cannot carry Spotify audio (Visualizer is 8-bit for
+  visuals only, Spotify opts out of AudioPlaybackCapture, and the licence forbids it): share silent loops.
+- Web edition: browsers cannot see Spotify's playback. A possible path is tab-audio capture (`getDisplayMedia`
+  with audio on the Spotify tab) plus the Web API's currently-playing endpoint for cover and title, which would
+  need a Spotify developer app (client id, redirect URI, PKCE); not started.
+
 ## Scenes composed for portrait, drops that transform (2026-10-22)
 
 Every scene now fills a phone held upright (Halo's outer ring and rays, Ferro's mirror floor, Spiro's stretched
@@ -69,11 +83,25 @@ look the scene had before; the ends were picked so Normal brightness stays at 0 
   `colours`, `rainbow`, `motion`). The app itself still keeps everything in separate prefs; a "save as named
   preset" UI is the next step and would use that document.
 
-## Colour editor follow-ups (ask first)
+## Looks, sharing and the first run (new, not yet on a phone)
 
-- A "Shuffle" chip that rolls a harmonious random palette (golden-ratio hue steps).
-- Several named custom palettes instead of one (`custom0`–`custom2` is a single slot today).
-- The web edition has the Brightness control (button or `b`) but no custom-colour editor.
+- Menu → Looks: Save this look, My looks (tap to apply, Share, ✕), Open a code or link. Sharing uses the
+  system share sheet with a link `https://christian-ernst.github.io/TAV/web/#l=code&d=payload`; the payload
+  is the look itself, so the link works without the cloud, and the code comes only when the cloud is
+  configured and signed in (a shared look is made public in the presets table). **GitHub Pages must be on**
+  (Settings → Pages → deploy from the default branch, root) for the links to open in a browser; without it
+  the app still catches `tav://look` and the https link when chosen as the handler.
+- The https intent filter is not verified (no assetlinks.json), so on Android 12+ a tapped link opens the
+  browser; the web page then shows *Open in the TAV app* (`tav://look?d=...`). Verifying needs the page
+  `/.well-known/assetlinks.json` with the release key's fingerprint, once signing is settled.
+- First run: the visuals start on the built-in beat (DemoTrack, synthesized in a background thread) before
+  the permission card; *Hear the demo* plays it out loud. The `first_visual` event records the seconds from
+  first open. Check on the phone that the beat starts within a couple of seconds and that AudioTrack
+  playback lines up with the visuals.
+- Shuffle: Colours → Shuffle and the chip in the editor (Android), `x` or the button (web).
+- Not done: a QR code for a look, a gallery of other people's public looks (the SQL exists), the daily look.
+- The web edition has the Brightness control (button or `b`) but no custom-colour editor; a look with custom
+  colours shows as *Colours: <name>* there.
 
 ## Cloud (accounts, sync, events)
 
@@ -81,8 +109,7 @@ look the scene had before; the ends were picked so Normal brightness stays at 0 
   (ten minutes); until then both clients run offline and the Account entry is hidden.
 - Open for the next session: the preset gallery UI (list, publish, like, fork; the SQL and the
   client calls exist in `web/cloud.js` and `Cloud.java`, nothing draws them yet), "preset of the
-  day" on the start card, and the Android menu chips refreshing after a newer cloud copy of the
-  settings lands (today they show the new choice after a restart).
+  day" on the start card. The menu chips now follow a newer cloud copy of the settings (`refreshChips`).
 - Android cannot be built in the cloud session without the SDK build tools; CI builds the APK.
   The sign-in deep link `tav://auth` and the Google flow have not run on a phone yet.
 
