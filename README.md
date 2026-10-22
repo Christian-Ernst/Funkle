@@ -53,10 +53,21 @@ exactly what you hear from any app without that app's cooperation. Android puts 
 If a phone's ROM blocks this (some do), TAV falls back to the microphone automatically. You can also pick
 **Listen to → Microphone** yourself.
 
-**What's playing:** Spotify keeps running as its own app. When the song changes, TAV shows the title and artist
-(menu → **Song title → Always on screen** keeps them there) and can switch scenes with it. Choose
-**Colours → Album** and grant notification access, and every scene is recoloured from the cover art.
+**What's playing:** Spotify keeps running as its own app. When the song changes, TAV shows the cover, title and
+artist with a thin progress line (menu → **Song title → Always on screen** keeps them there) and can switch
+scenes with it. Choose **Colours → Album** and grant notification access, and every scene is recoloured from the
+cover art. Tap the cover to jump to Spotify; **Open Spotify** at the top of the menu does the same.
 Without notification access, switch on *Settings → Device Broadcast Status* in Spotify for title and artist.
+
+**Light up when music starts:** menu → **Light up when music starts → Spotify** (or *Any player*). When Spotify
+starts playing while TAV is closed, a quiet notification (no sound, no pop-up) shows the song and offers to light
+it up; it disappears again when the music stops, and swiping it away keeps it quiet for an hour. It needs the same
+notification access as album colours, plus the notification permission on Android 13+.
+
+**What TAV cannot do with Spotify:** Android's `Visualizer` hands out an 8-bit waveform for the visuals only, and
+Spotify opts out of `AudioPlaybackCapture`, so TAV cannot record Spotify's audio; a shareable clip would be silent
+(that is also what Spotify's licence requires). Spotify's Web API adds nothing here: the audio-features endpoint
+is closed to new apps, and the media session already gives the title, artist and cover without any login.
 
 **Playback controls:** previous, play/pause and next sit at the top of the menu, and the on-screen song title
 works as a remote: swipe it left for the next track, right for the previous one, tap it to pause. They work
@@ -80,9 +91,10 @@ the TAV app* button on Android; *Open a code or link* pastes one in. Looks are s
 cloud edition, follow you to every device.
 **Autopilot** (on by default) changes scenes when the track changes, when a drop hits, or every 45 s.
 **Mirror** repeats everything you draw 2–12 times around the centre.
-**Colours**: *Album* takes the colours from the cover art, *Neon* to *Candy* are presets, *Rainbow* paints the whole
-spectrum, and *Custom* opens an editor for your own three colours. Tap a swatch, then drag Hue, Saturation and
-Brightness; the visuals change while you drag, and TAV keeps the colours for next time. Tap *Custom* again to edit them.
+**Colours**: *Album* takes the colours from the cover art and keeps its tone (a dusty cover gives a dusty palette,
+a neon cover a neon one), *Neon* to *Candy* are presets, *Rainbow* paints the whole spectrum, and *Custom* opens an
+editor for your own three colours. Tap a swatch, then drag Hue, Saturation and Brightness; the visuals change while
+you drag, and TAV keeps the colours for next time. Tap *Custom* again to edit them.
 *Shuffle* (in the Colours row and in the editor) rolls three random colours that go together: hues a golden angle
 apart, bright and saturated, never the same twice.
 **Colour motion** makes any palette move with the music. *Still* leaves the colours as they are. *Drift* turns the
@@ -97,8 +109,8 @@ equalizer: each band is scaled to its own recent peak, so a quiet verse looks mu
 sliders: **Master** (how much everything moves), the four bands (**Bass**, **Low mids**, **High mids**,
 **Treble**; each one's share of the motion), **Punch** (how much loud-and-quiet survives) and **Beat** (the
 beat pulse and drop flash). The visuals change while you drag.
-**Motion**: Full (the default) or Calm. Calm stops the beat pulses, beat ripples and drop flashes; the scenes still
-move with the music. Use it if flashing lights bother you or you are sensitive to them.
+**Motion**: Full (the default) or Calm. Calm stops the beat pulses, beat ripples, drop flashes and the drop moves
+(nothing re-rolls or lurches on a drop); the scenes still move with the music. Use it if flashing lights bother you or you are sensitive to them.
 
 ### If the visuals don't move
 
@@ -108,17 +120,29 @@ move with the music. Use it if flashing lights bother you or you are sensitive t
   you to pick **Listen to → Microphone**; hold the phone near the speaker.
 * **Album colours missing:** grant notification access (menu → Colours → Album), or switch on
   *Device Broadcast Status* in Spotify's settings for track names.
+* **No "light it up" notification:** it needs notification access (menu → Light up when music starts), the
+  notification permission on Android 13+, and Spotify's own notification to be on; it never shows while TAV is open.
 * **Stutters on an older phone:** menu → Quality → Battery. TAV also lowers its resolution by itself when frames run late, and raises it again once they run fast.
 
 ### Scenes
 
-**Halo** — a plasma core, a waveform ring and spectral rays; every beat launches a ripple.
-**Wormhole** — a neon tunnel flown at the speed of the music.
-**Pulsar** — the spectrogram as receding ridgelines ("Unknown Pleasures").
-**Mandala** — a kaleidoscope that folds over its own previous frame.
-**Ferro** — a raymarched ferrofluid sphere; each spike listens to its own frequency.
-**Nebula** — a 48 000-star galaxy whose rings breathe per band, with a shockwave on every beat.
-**Spiro** — spirograph lace etched with the waveform.
+**Halo** — a plasma core, a waveform ring and spectral rays that run to the corners; every beat launches a
+ripple, and a drop fires the rays and flares the core.
+**Wormhole** — a neon tunnel flown at the speed of the music, its far end lost in fog; a drop twists it and
+re-rolls the panels.
+**Pulsar** — the spectrogram as receding ridgelines ("Unknown Pleasures") under an aurora; a drop lifts the
+whole landscape.
+**Mandala** — a kaleidoscope that folds over its own previous frame; a drop sucks the echoes in and, unless
+Mirror fixes the symmetry, re-rolls the fold count.
+**Ferro** — a raymarched ferrofluid sphere over a floor that mirrors it; each spike listens to its own
+frequency and a drop bursts them.
+**Nebula** — a 48 000-star galaxy laid along the long axis of the screen, whose rings breathe per band, with a
+shockwave on every beat and a bigger one on every drop.
+**Spiro** — spirograph lace etched with the waveform, one hue per strand, over a spectrogram curtain.
+
+Every scene is composed for a phone held upright: the top and bottom carry haze, rings, sky or a floor in the
+palette's own deep tone instead of black. On every drop the music clock surges, so all motion lurches forward
+for a moment.
 
 ---
 

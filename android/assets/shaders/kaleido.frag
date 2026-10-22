@@ -1,6 +1,8 @@
 // MANDALA: an n-fold mirror kaleidoscope folded over its own previous frame.
 // Rings of jewels pulse with the spectrum, the waveform is woven into lace, and
-// the feedback pulls every echo inward so the ornament keeps recursing.
+// the feedback pulls every echo inward so the ornament keeps recursing. A drop
+// sucks the echoes in, swells the jewels and, unless Mirror fixes the symmetry,
+// re-rolls the fold count.
 vec2 fold(vec2 p, float n, out float a) {
     float seg = TAU / n;
     a = angle(p);
@@ -10,7 +12,8 @@ vec2 fold(vec2 p, float n, out float a) {
 }
 void main() {
     vec2 p0 = toP(gl_FragCoord.xy);
-    float n = uSym > 1.5 ? uSym : 8.0;
+    float dp = drop();
+    float n = uSym > 1.5 ? uSym : 6.0 + 2.0 * floor(mod(uSeed, 3.0));
     float seg = TAU / n;
     vec2 p = rot(uFlow * 0.04) * p0;
     float a;
@@ -18,7 +21,7 @@ void main() {
     float r = length(q);
 
     // echoes: previous frame, pulled inward and twisted
-    vec3 col = feedback(p0, 1.025 + 0.03 * beat(), 0.01 + 0.01 * sin(uFlow * 0.2), 0.78);
+    vec3 col = feedback(p0, 1.025 + 0.03 * beat() + 0.05 * dp, 0.01 + 0.01 * sin(uFlow * 0.2), 0.78);
     // echoes converge on the centre and would stack into a solid disc: fade them faster there
     col *= pow(mix(0.75, 1.0, smoothstep(0.05, 0.5, length(p0))), uStep);
 
@@ -29,7 +32,7 @@ void main() {
         float s = spec(0.04 + 0.16 * fk);
         float aa = seg * 0.5 * (0.5 + 0.35 * sin(uFlow * 0.2 + fk * 1.7));   // drifts inside the wedge
         vec2 c = vec2(cos(aa), sin(aa)) * rk;
-        float d = length(q - c) - (0.012 + 0.07 * s * s);
+        float d = length(q - c) - (0.012 + 0.07 * s * s + 0.04 * dp);
         col += pal(fk * 0.17 + uFlow * 0.02 + uSeed * 0.13) * glow(d, 0.006) * (0.25 + 1.2 * s);
         // thin orbit line
         col += pal(fk * 0.17 + 0.5) * glow(r - rk, 0.003) * 0.12 * (0.3 + s);
@@ -41,7 +44,7 @@ void main() {
     // spectral arcs on the fold edges
     float sa = spec(clamp(r * 0.6, 0.0, 1.0) * 0.75 + 0.03);
     col += pal(0.8 + r * 0.2) * glow(a * r, 0.003 + 0.01 * sa) * sa * 0.6;
-    // centre bloom on the beat
-    col += mix(pal(0.9), vec3(1.0), 0.15) * glow(length(p0), 0.015 + 0.05 * beat()) * (0.12 + 0.5 * beat());
+    // centre bloom on the beat and the drop
+    col += mix(pal(0.9), palHi(), 0.2) * glow(length(p0), 0.015 + 0.05 * beat() + 0.08 * dp) * (0.12 + 0.5 * beat() + 0.8 * dp);
     fragColor = vec4(col, 1.0);
 }

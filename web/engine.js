@@ -56,6 +56,8 @@ class ColourDrive {
     this.hueTarget += this.drift * dt * (0.3 + 0.7 * Math.min(level, 1));
     if (onBeat) this.hueTarget += this.beat;
     if (drop) this.hueTarget += this.drop;
+    // no hue motion at all (Still, Bands): ease back to the chosen colours by the shortest way
+    if (!this.drift && !this.beat && !this.drop) this.hueTarget = Math.round(this.hue);
     this.hue += (this.hueTarget - this.hue) * (1 - Math.exp(-dt * COLOUR_EASE));
     const wrap = Math.floor(this.hueTarget);   // keep both small; only the difference matters
     this.hueTarget -= wrap; this.hue -= wrap;
@@ -106,6 +108,7 @@ class TavEngine {
     this.colour = new ColourDrive(COLOUR_MODES[0]);
     this.ripples = []; this.strokes = [];
     this.transStart = -10; this.flash = 0;
+    this.dropAge = 100; this.surge = 0; this.flowExtra = 0;   // drop envelope and music-clock surge, as in TavRenderer
     this.brightness = DEFAULT_BRIGHTNESS;
     this.renderScale = 1; this.w = 0; this.h = 0;
     this.audioTex = this.makeTex(512, 4, gl.R8, gl.RED, gl.UNSIGNED_BYTE, gl.LINEAR, gl.CLAMP_TO_EDGE);
@@ -183,7 +186,8 @@ class TavEngine {
     const set1 = (n, v) => { if (L[n]) gl.uniform1f(L[n], v); };
     if (L.uRes) gl.uniform2f(L.uRes, this.cur ? this.cur.w : this.w, this.cur ? this.cur.h : this.h);
     // fp32 uniforms in the thousands lose the precision fract()/sin() patterns need: wrap the clocks
-    set1('uTime', this.time % 3600); set1('uFlow', an.flow); set1('uStep', this.step || 1); set1('uHistHead', an.histHead);
+    set1('uTime', this.time % 3600); set1('uFlow', an.flow + this.flowExtra); set1('uStep', this.step || 1); set1('uHistHead', an.histHead);
+    set1('uDrop', this.dropAge);
     set1('uSym', this.sym); set1('uSeed', this.seed);
     if (L.uBands) gl.uniform4f(L.uBands, an.bands[0], an.bands[1], an.bands[2], an.bands[3]);
     if (L.uEnergy) gl.uniform4f(L.uEnergy, an.level, an.beat, an.beatCount, an.intensity);
@@ -286,6 +290,11 @@ class TavEngine {
     this.colour.step(dt, an.bands, an.level, an.onBeat, an.drop);
     if (an.drop) { this.seed = (this.seed + 1) % 64; this.flash = 0.6; }
     this.flash *= Math.exp(-dt * 4);
+    this.dropAge += dt;
+    if (an.drop) { this.dropAge = 0; this.surge = 1; }
+    this.flowExtra += this.surge * 2 * dt;
+    this.surge *= Math.exp(-dt * 1.5);
+    if (this.flowExtra > 2000) this.flowExtra -= 2000;
     if (sc.beatRipples && an.onBeat) this.addRipple(0, 0, 0.5 + 0.5 * an.bands[0]);
 
     gl.bindTexture(gl.TEXTURE_2D, this.audioTex);

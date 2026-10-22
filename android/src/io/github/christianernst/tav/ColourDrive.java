@@ -64,6 +64,8 @@ final class ColourDrive {
         s.hueTarget += drift * dt * (0.3f + 0.7f * Math.min(level, 1f));
         if (onBeat) s.hueTarget += beatStep;
         if (drop) s.hueTarget += dropStep;
+        // no hue motion at all (Still, Bands): ease back to the chosen colours by the shortest way
+        if (drift == 0 && beatStep == 0 && dropStep == 0) s.hueTarget = Math.round(s.hue);
         s.hue += (s.hueTarget - s.hue) * (1 - (float) Math.exp(-dt * EASE));
         float wrap = (float) Math.floor(s.hueTarget);   // keep both small; only the difference matters
         s.hueTarget -= wrap;
