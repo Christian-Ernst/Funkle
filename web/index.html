@@ -142,7 +142,7 @@
 </head>
 <body>
 
-<canvas id="stage" aria-label="Audio visualizer. Tap for ripples, drag to draw."></canvas>
+<canvas id="stage" aria-label="Audio visualizer. Tap for a burst, drag to draw, pinch to zoom."></canvas>
 
 <header class="chrome">
   <h1 class="mark">TAV<small>Termux Audio Visualizer</small></h1>
@@ -168,7 +168,7 @@
     <button id="keepLook" type="button">Keep this look</button>
     <a id="openApp" hidden><button type="button">Open in the TAV app</button></a>
   </div>
-  <p>Tap to make ripples · drag to draw with sound · swipe or ← → for scenes</p>
+  <p>Tap for a burst · drag to draw and stir · pinch to zoom · swipe or ← → for scenes</p>
 </section>
 
 <footer class="chrome">
@@ -185,6 +185,7 @@
     <label class="file">Open song<input type="file" id="file" accept="audio/*"></label>
     <span class="label">Draw</span>
     <span id="shapes" style="display:contents"></span>
+    <button id="undo" type="button" title="Undo the last drawing (z)">Undo</button>
     <button id="clear" type="button">Clear</button>
     <button id="tuneToggle" type="button" aria-pressed="false">Tune</button>
     <button id="mirror" type="button">Mirror off</button>
@@ -525,6 +526,7 @@ $('play').addEventListener('click', () => { if (audio.playing) pause(); else pla
 $('file').addEventListener('change', (e) => openFile(e.target.files[0]));
 $('fileStart').addEventListener('change', (e) => openFile(e.target.files[0]));
 $('clear').addEventListener('click', () => { if (eng) eng.clearStrokes(); poke(); });
+$('undo').addEventListener('click', () => { if (eng) eng.undoStroke(); poke(); });
 $('mirror').addEventListener('click', () => {
   mirrorIdx = (mirrorIdx + 1) % MIRRORS.length;
   if (eng) eng.sym = MIRRORS[mirrorIdx];
@@ -862,6 +864,7 @@ addEventListener('keydown', (e) => {
   else if (k === ' ') { e.preventDefault(); if (audio.playing) pause(); else play(false); }
   else if (k >= '1' && k <= String(SCENES.length)) setScene(+k - 1);
   else if (k === 'c') $('clear').click();
+  else if (k === 'z') { eng.undoStroke(); poke(); }
   else if (k === 'm') $('mirror').click();
   else if (k === 'k') $('colours').click();
   else if (k === 'd') $('motion').click();
@@ -905,46 +908,71 @@ function shapePoints(kind, size) {
   return pts;
 }
 
-// ---------------------------------------------------------------- touch: tap = ripple, drag = draw, two-finger swipe = scene
+// ---------------------------------------------------------------- touch: tap = burst, drag = draw (and stir), pinch = zoom,
+// two-finger swipe = scene, three-finger tap = clear. Same rules as TavView.java.
 const pointers = new Map();
-let drawing = false, multi = false, swipeX0 = 0, downX = 0, downY = 0;
+let drawing = false, multi = false, pinching = false, threeTap = false, threeAt = 0, swipeX0 = 0, pinchDist0 = 1, downX = 0, downY = 0;
 function toCentred(x, y) {
   const r = canvas.getBoundingClientRect(), m = Math.min(r.width, r.height);
   return [(x - r.left - r.width / 2) / m * 2, -(y - r.top - r.height / 2) / m * 2];
 }
-const avgX = () => { let s = 0; pointers.forEach((p) => { s += p.x; }); return s / pointers.size; };
+const avg = () => { let x = 0, y = 0; pointers.forEach((p) => { x += p.x; y += p.y; }); return [x / pointers.size, y / pointers.size]; };
+const span = () => { const p = [...pointers.values()]; return p.length < 2 ? 0 : Math.hypot(p[1].x - p[0].x, p[1].y - p[0].y); };
 canvas.addEventListener('pointerdown', (e) => {
-  canvas.setPointerCapture(e.pointerId);
+  try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* synthetic pointers have no capture */ }
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-  if (pointers.size === 1) { downX = e.clientX; downY = e.clientY; drawing = false; multi = false; }
-  else { if (drawing && eng) eng.endStroke(); drawing = false; multi = true; swipeX0 = avgX(); }
+  if (pointers.size === 1) {
+    downX = e.clientX; downY = e.clientY; drawing = false; multi = false; pinching = false; threeTap = false;
+    if (eng) eng.touchDown(...toCentred(e.clientX, e.clientY));
+  } else {
+    if (drawing && eng) eng.endStroke();
+    if (eng) eng.touchUp();
+    drawing = false; multi = true;
+    if (pointers.size === 2) { [swipeX0] = avg(); pinchDist0 = Math.max(1, span()); pinching = false; }
+    else if (pointers.size === 3) { if (pinching && eng) eng.pinchEnd(); pinching = false; threeTap = true; threeAt = performance.now(); }
+  }
   poke();
 });
 canvas.addEventListener('pointermove', (e) => {
   if (!pointers.has(e.pointerId) || !eng) return;
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-  if (multi) return;
+  if (multi) {
+    if (pointers.size === 2) {
+      const scale = span() / pinchDist0, [ax, ay] = avg();
+      if (!pinching && Math.abs(scale - 1) > 0.12 && Math.abs(ax - swipeX0) < 80) { pinching = true; pinchDist0 = Math.max(1, span()); eng.pinchBegin(...toCentred(ax, ay)); }
+      if (pinching) eng.pinchUpdate(span() / pinchDist0, ...toCentred(ax, ay));
+    } else if (threeTap && Math.hypot(e.clientX - downX, e.clientY - downY) > 20) threeTap = false;
+    return;
+  }
   if (!drawing && Math.hypot(e.clientX - downX, e.clientY - downY) > 10) { drawing = true; eng.beginStroke(...toCentred(downX, downY)); }
   if (drawing) {
     const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
-    for (const c of evs) eng.extendStroke(...toCentred(c.clientX, c.clientY));
+    for (const c of evs) { const p = toCentred(c.clientX, c.clientY); eng.extendStroke(...p); eng.touchMove(...p); }
   }
 });
 function release(e, cancelled) {
   if (!pointers.has(e.pointerId)) return;
-  if (multi && pointers.size === 2) {
-    const dx = avgX() - swipeX0;
-    if (Math.abs(dx) > 80 && eng) setScene(eng.scene + (dx < 0 ? 1 : -1));
+  if (eng && pointers.size === 3 && threeTap && performance.now() - threeAt < 350) { eng.clearStrokes(); threeTap = false; swipeX0 = avg()[0]; }
+  else if (multi && pointers.size === 2) {
+    if (pinching) { if (eng) eng.pinchEnd(); pinching = false; }
+    else { const dx = avg()[0] - swipeX0; if (Math.abs(dx) > 80 && eng) setScene(eng.scene + (dx < 0 ? 1 : -1)); }
   }
   pointers.delete(e.pointerId);
   if (pointers.size > 0) return;
   if (!eng) return;
   if (drawing) eng.endStroke();
-  else if (!multi && !cancelled) eng.addRipple(...toCentred(e.clientX, e.clientY), 1);
+  else if (!multi && !cancelled) eng.tap(...toCentred(e.clientX, e.clientY));
+  eng.touchUp();
   drawing = false;
 }
 canvas.addEventListener('pointerup', (e) => release(e, false));
 canvas.addEventListener('pointercancel', (e) => release(e, true));
+// Tilt: the scene leans the way the device does (phones and tablets; a desktop never fires this).
+addEventListener('deviceorientation', (e) => {
+  if (!eng || e.gamma == null || e.beta == null) return;
+  const g = e.gamma * Math.PI / 180, b = e.beta * Math.PI / 180;
+  eng.setTilt(-Math.sin(g), Math.sin(b));   // gamma > 0: right edge down, so the view pans right (as TavView)
+}, { passive: true });
 
 // ---------------------------------------------------------------- render loop
 let targetPalette = PALETTES[0][1], demo;
