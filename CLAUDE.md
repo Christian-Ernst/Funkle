@@ -101,7 +101,9 @@ which loads the Android shaders). README.md is the user-facing description. Open
   Events are batched and only ever written through `ingest_events`; the account card has the opt-out.
 - `setup.sh`: one-shot Termux setup (repair packages, tools, optional signing, build, install).
 - `.github/workflows/build.yml`: CI runs the checks, builds the APK (as an artifact on every push),
-  builds `termux/tav` with gcc and clang `-Werror` and runs the cloud schema test on a Postgres service. The `latest` release is republished only on pushes
+  builds `termux/tav` with gcc and clang `-Werror`, runs the cloud schema test on a Postgres service, and
+  the `smoke` job installs the APK on an x86_64 emulator (API 30, swiftshader) with `android/tools/smoke.sh`:
+  launch, 15 s alive, no FATAL EXCEPTION or "shader build failed" in logcat (the script also works against a phone over adb). The `latest` release is republished only on pushes
   to the default branch `ccr-00429428-wmfa7f`.
 
 ## Rules
