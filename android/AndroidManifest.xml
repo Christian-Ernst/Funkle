@@ -11,6 +11,12 @@
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <!-- Optional cloud (assets/cloud.json): accounts, synced settings, presets. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- The opt-in "music started" nudge (menu -> Light up when music starts). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Lets TAV see whether Spotify is installed, for the "Open Spotify" shortcut. -->
+    <queries>
+        <package android:name="com.spotify.music" />
+    </queries>
 
     <application
         android:label="TAV"
@@ -36,16 +42,34 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="tav" android:host="auth" />
             </intent-filter>
+            <!-- Shared Looks: tav://look?d=... from the web page's "Open in TAV" button. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="tav" android:host="look" />
+            </intent-filter>
+            <!-- The same links as the web edition (Look.SHARE_BASE), so a shared link can open the app. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="christian-ernst.github.io" android:pathPrefix="/TAV/web" />
+            </intent-filter>
         </activity>
 
         <service
             android:name=".MediaListenerService"
             android:exported="true"
-            android:label="TAV album colours"
+            android:label="TAV now playing"
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
             <intent-filter>
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
         </service>
+
+        <receiver
+            android:name=".NowPlayingNudge$Dismissed"
+            android:exported="false" />
     </application>
 </manifest>

@@ -11,7 +11,7 @@ void main() {
         vec2 d = p - rp.xy;
         float r = length(d);
         float u = angle(d) / TAU + 0.5;
-        float life = exp(-age * 0.9) * smoothstep(0.0, 0.06, age) * rp.w;
+        float life = exp(-age * 0.75) * smoothstep(0.0, 0.06, age) * rp.w;
         for (int k = 0; k < 3; k++) {
             float fk = float(k);
             float R = max(age - fk * 0.18, 0.0) * (0.75 + 0.35 * level());

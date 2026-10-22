@@ -6,6 +6,7 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.media.AudioManager;
 import android.media.MediaMetadata;
@@ -39,6 +40,12 @@ final class MediaWatcher {
 
         /** Called on the main thread whenever the known play/pause state flips. */
         void onPlayback(boolean playing);
+
+        /**
+         * Where the track is, once a second while a media session reports it: position and
+         * length in ms (length 0 when unknown) and the playback speed (0 while paused).
+         */
+        void onPosition(long positionMs, long durationMs, float speed);
     }
 
     private static final String TAG = "TAV";
@@ -63,6 +70,7 @@ final class MediaWatcher {
         public void onPlaybackStateChanged(PlaybackState state) {
             if (msm != null) pick(null);
             notifyPlaying();
+            publishPosition();   // a seek or a skip moves the hairline at once
         }
     };
 
@@ -162,9 +170,59 @@ final class MediaWatcher {
         @Override
         public void run() {
             notifyPlaying();
+            publishPosition();
             if (started) main.postDelayed(this, 1000);
         }
     };
+
+    /** The session's position, extrapolated from its last update as Android recommends. */
+    private void publishPosition() {
+        MediaController c = controller;
+        if (c == null) return;
+        PlaybackState st = c.getPlaybackState();
+        MediaMetadata m = c.getMetadata();
+        if (st == null) return;
+        long dur = m == null ? 0 : m.getLong(MediaMetadata.METADATA_KEY_DURATION);
+        float speed = st.getState() == PlaybackState.STATE_PLAYING ? st.getPlaybackSpeed() : 0f;
+        long pos = st.getPosition();
+        if (speed != 0f && st.getLastPositionUpdateTime() > 0)
+            pos += (long) ((SystemClock.elapsedRealtime() - st.getLastPositionUpdateTime()) * speed);
+        if (dur > 0) pos = Math.max(0, Math.min(dur, pos));
+        listener.onPosition(pos, Math.max(0, dur), speed);
+    }
+
+    /** The package of the player we follow, Spotify when we only know it from its broadcasts. */
+    String playerPackage() {
+        MediaController c = controller;
+        if (c != null) return c.getPackageName();
+        return spotifyStateSeen ? NowPlayingNudge.SPOTIFY_PACKAGE : null;
+    }
+
+    static boolean isInstalled(Context ctx, String pkg) {
+        try {
+            ctx.getPackageManager().getPackageInfo(pkg, 0);
+            return true;
+        } catch (PackageManager.NameNotFoundException | RuntimeException e) {
+            return false;
+        }
+    }
+
+    /**
+     * Brings the player to the front: the one we follow, otherwise Spotify. Returns false when
+     * no player app could be opened.
+     */
+    boolean openPlayer(Context from) {
+        String pkg = playerPackage();
+        if (pkg == null || !isInstalled(from, pkg)) pkg = NowPlayingNudge.SPOTIFY_PACKAGE;
+        Intent i = from.getPackageManager().getLaunchIntentForPackage(pkg);
+        if (i == null) return false;
+        try {
+            from.startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            return true;
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
 
     /** After a command: report the real state even if it equals what we last said. */
     private final Runnable recheck = new Runnable() {
@@ -227,6 +285,8 @@ final class MediaWatcher {
         controller = c;
         if (c != null) c.registerCallback(callback, main);
         notifyPlaying();
+        if (c == null) listener.onPosition(0, 0, 0f);   // no session: nothing to show a position for
+        else publishPosition();
     }
 
     private void notifyPlaying() {

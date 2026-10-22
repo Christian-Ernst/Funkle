@@ -30,6 +30,15 @@ which loads the Android shaders). README.md is the user-facing description. Open
     also holds the preset JSON (`toJson`/`fromJson`, `{"v":1,"name","colours":[3 hex],"rainbow","motion":{..}}`)
     that the cloud sync uses; `web/engine.js` has `ColourDrive`, `COLOUR_MODES`, `exportPreset`/`importPreset`
     with the same numbers.
+  - `Look.java`: a saved look (the colour preset JSON from `Palettes.toJson` plus `palette`, `scene`, `sym`,
+    `brightness`, `calm`, `eq`), its share payload (`#d=` base64url JSON, opens without the cloud) and the
+    link parsers; `LookStore.java` is the shelf in prefs `tav_looks`, mirrored to the cloud presets table
+    (a public row gets the six-letter `#l=` code). `web/looks.js` is the same for the browser. The Looks
+    cards, share sheet and the `tav://look` / web-link handling are in `MainActivity` (`showSaveLook`,
+    `showLooks`, `showOpenCode`, `applyLook`, `shareLook`, `handleLink`); `refreshChips()` restyles every
+    menu row from prefs. `Palettes.shuffle()` is the harmonious shuffle (JVM-safe, no android.graphics).
+  - `DemoTrack.java`: the built-in beat (port of `web/demo.js`); `AudioCapture.startDemo` feeds it to the
+    visuals on a clock, or out loud through an AudioTrack, so the first run moves before the permission ask.
   - `Equalizer.java`: how hard the scenes react. A master, a gain per band, punch (blend from the
     auto-gained bands `an.bands` toward the absolute ones `an.bandsAbs`) and the beat strength. The
     renderer hands the scenes `eq.shapeBands`/`shapeLevel`/`shapeBeat`, never the raw analyzer values.
@@ -39,15 +48,24 @@ which loads the Android shaders). README.md is the user-facing description. Open
   - `AdaptiveScale.java`: picks the render resolution from frame times (pure Java; shader builds are
     not counted as slow frames). `TavRenderer` builds the other shaders a frame at a time at start-up.
   - `AudioCapture.java` (Visualizer on session 0, mic fallback), `MediaWatcher.java` (MediaSession and
-    Spotify broadcasts, play/pause/next/previous), `Palettes.java` (presets plus colours from album
+    Spotify broadcasts, play/pause/next/previous, position for the `Hairline` under the title, open the
+    player), `MediaListenerService.java` + `NowPlayingNudge.java` (notification access; watches the media
+    sessions in the background and posts the opt-in, silent "music started" notification, pref `nudge`:
+    0 Off, 1 Spotify, 2 Any player, quiet for an hour after a swipe-away), `Palettes.java` (presets plus colours from album
     art → `uPal[3]`), `Scene.java`, `Shapes.java`, `TavView.java`.
 - `android/assets/shaders/`: `common.glsl` is prepended to every shader. It has the uniforms,
-  `pal()` (with the colour motion and the Rainbow palette), `glow()`, `feedback()` and `angle()`.
+  `pal()` (with the colour motion and the Rainbow palette), `glow()`, `feedback()` and `angle()`, plus
+  `drop()` (an envelope from `uDrop`, seconds since the last drop; every scene has a drop move on it) and
+  the role colours `palBg()` (deep tint for haze, fog, floors and skies) and `palHi()` (tinted light
+  instead of plain white), both derived from `pal()` so colour motion and Rainbow reach them.
+  Scenes are composed for a portrait phone: `toP()` puts the short axis at [-1, 1], so the long axis
+  reaches about ±2.2 and the top and bottom must carry something.
 - `android/build.sh`: Gradle-free build (aapt2, javac `-source 8`, d8, apksigner). It works in Termux
   and with `ANDROID_HOME`.
-- `android/tools/check.sh`: runs glslangValidator on every shader and link pair, plus the analyzer,
+- `android/tools/check.sh`: runs glslangValidator on every shader and link pair, compiles every Java source against a stand-in `R` class, and runs the analyzer,
   adaptive-scale, equalizer and colour-drive self-tests (EqualizerCheck includes a groove with a verse 8 dB under
-  the chorus).
+  the chorus) and LookCheck (needs a real org.json jar, fetched once; android.jar's is a stub).
+- `web/tools/looks-check.js`: the same for `web/looks.js`, in node, including a payload written by Look.java.
 - `web/tools/measure.js`: renders every scene at the demo's drop in headless Chromium on a virtual clock
   and prints clipped, near-white and saturated-flat shares per scene. `--track dense` stands in for a
   loud mastered song; `--root` measures another checkout (a `git worktree`) for before/after; `--colour N`
@@ -71,7 +89,8 @@ which loads the Android shaders). README.md is the user-facing description. Open
   owner's phone. Without them, CI signs each release with a one-off key.
 - Language level is Java 8, with no AndroidX and no libraries. `android.jar` has no
   LambdaMetafactory: a stub in `tools/stubs` covers javac and d8 desugars lambdas. minSdk is 24,
-  targetSdk is 35.
+  targetSdk is 35. The owner said on 2026-10-22 that Termux compatibility is no longer required, so a
+  change may bring in Gradle or a library when it needs one; say so in the PR.
 - Shaders are GLSL ES 3.00. Keep them NaN-free (one NaN texel spreads through bloom) and use
   `angle()` instead of a bare `atan(y, x)`. Feedback scales with `uStep` for frame-rate independence,
   and time uniforms wrap.
