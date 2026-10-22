@@ -49,6 +49,13 @@ for (let round = 0; round < 4; round++) {
 }
 check('the climb wait doubles after each undone climb: ' + waits.map((w) => Math.round(w)).join(', ') + ' s',
   near(waits[0], 15) && near(waits[1], 30) && near(waits[2], 60) && near(waits[3], 120));
+a = new AdaptiveScale(AUTO_START); a.setRefreshRate(120); changed = false;
+for (let f = 0; f < 3600; f++) changed = a.update(1 / 60, false, true) || changed;
+check('120 Hz: 60 fps neither climbs nor drops', !changed && near(a.scale, 0.7));
+for (let f = 0; f < 1600; f++) a.update(1 / 100, false, true);
+check('120 Hz: 100 fps climbs', near(a.scale, 0.7 / 0.85));
+a.setRefreshRate(60);
+check('60 Hz: the fast limit is 1/55 s', near(a.fastLimit, 1 / 55));
 check('quality table: Auto, Low, Medium, High', QUALITY.map((q) => q.name).join() === 'Auto,Low,Medium,High'
   && QUALITY.map((q) => q.scale).join() === '1,0.5,0.7,1');
 

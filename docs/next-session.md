@@ -56,9 +56,9 @@ frames, steps down to about a third when frames run late), Low (50 %), Medium (7
 edition has the same button (`q`) and the same `AdaptiveScale` class, and the setting syncs between devices.
 
 - On the phone: with Auto, watch whether the climb to 100 % is visible as a sharpness step (three steps of 15 %);
-  if it bothers, lengthen `RAISE_AFTER` or make the steps smaller. On a 90/120 Hz phone every frame counts as
-  fast (`FAST` is 1/55 s), so Auto reaches full resolution even when the GPU is close to its budget; if that
-  stutters, derive the thresholds from the display's refresh rate.
+  if it bothers, lengthen `RAISE_AFTER` or make the steps smaller. "Fast" follows the panel's refresh rate
+  (`Display.getRefreshRate()`, re-read when the panel switches): 55 fps on 60 Hz, 83 fps on 90/120 Hz, so a
+  Samsung at 120 Hz climbs only with real headroom and sits still at a steady 60 fps. Not yet seen on a phone.
 - A phone on the edge gets a doubling back-off (15, 30, 60, 120 s) before each new climb; the self-tests cover it.
 
 ## Two new scenes and per-scene sliders (2026-10-22, not yet on a phone)

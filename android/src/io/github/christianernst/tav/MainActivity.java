@@ -3,6 +3,7 @@ package io.github.christianernst.tav;
 import android.Manifest;
 import android.app.Activity;
 import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
@@ -10,6 +11,7 @@ import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.hardware.display.DisplayManager;
 import android.graphics.Outline;
 import android.view.ViewOutlineProvider;
 import android.net.Uri;
@@ -20,6 +22,7 @@ import android.os.Looper;
 import android.provider.Settings;
 import android.text.TextUtils;
 import android.util.TypedValue;
+import android.view.Display;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
@@ -242,11 +245,37 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         if (silentNow) ui.postDelayed(showHint, 1000);   // still silent when we come back: explain again
     }
 
+    /** Tells the renderer the panel's refresh rate, now and whenever it changes (adaptive 60/120 Hz panels). */
+    private final DisplayManager.DisplayListener displayListener = new DisplayManager.DisplayListener() {
+        @Override
+        public void onDisplayAdded(int id) {
+        }
+
+        @Override
+        public void onDisplayRemoved(int id) {
+        }
+
+        @Override
+        public void onDisplayChanged(int id) {
+            if (id == Display.DEFAULT_DISPLAY) pushRefreshRate();
+        }
+    };
+
+    private void pushRefreshRate() {
+        Display d = getWindowManager().getDefaultDisplay();
+        if (d == null) return;
+        final float hz = d.getRefreshRate();
+        view.queueEvent(() -> renderer.setRefreshRate(hz));
+    }
+
     @Override
     protected void onResume() {
         super.onResume();
         immersive();
         pokeMenu();
+        pushRefreshRate();
+        DisplayManager dm = (DisplayManager) getSystemService(Context.DISPLAY_SERVICE);
+        if (dm != null) dm.registerDisplayListener(displayListener, ui);
         if (askedNotificationAccess) {
             askedNotificationAccess = false;
             if (MediaWatcher.hasNotificationAccess(this)) {
@@ -263,6 +292,8 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     @Override
     protected void onStop() {
         visible = false;
+        DisplayManager dm = (DisplayManager) getSystemService(Context.DISPLAY_SERVICE);
+        if (dm != null) dm.unregisterDisplayListener(displayListener);
         NowPlayingNudge.tavVisible = false;
         ui.removeCallbacks(showHint);   // otherwise the hint loop keeps waking the CPU in the background
         view.onPause();

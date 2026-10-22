@@ -162,6 +162,11 @@ final class TavRenderer implements GLSurfaceView.Renderer {
         applyScale();
     }
 
+    /** The display's refresh rate, so "fast enough to climb" means the same headroom on a 120 Hz panel. */
+    void setRefreshRate(float hz) {
+        adaptive.setRefreshRate(hz);
+    }
+
     void setBrightness(int level) {
         brightness = Math.max(0, Math.min(EXPOSURE.length - 1, level));
     }

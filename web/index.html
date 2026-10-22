@@ -997,9 +997,20 @@ async function boot() {
 
 let last = 0;
 const meters = [0, 1, 2, 3].map((i) => $('m' + i)), beatDot = $('beat');
+// The display's refresh rate, from the animation frames' cadence: the 10th-percentile frame time of the
+// last 120 frames is a vsync period or close to it, whatever the GPU is doing the rest of the time.
+const cadence = [];
+function noteCadence(dt) {
+  cadence.push(dt);
+  if (cadence.length < 120) return;
+  const sorted = cadence.slice().sort((a, b) => a - b);
+  cadence.length = 0;
+  adaptive.setRefreshRate(1 / sorted[12]);
+}
 function frame(now) {
   const dt = last ? Math.min(0.1, (now - last) / 1000) : 1 / 60;
   last = now;
+  noteCadence(dt);
   // adaptive resolution: sustained slow frames lower the render scale, sustained fast ones raise it
   const stalled = eng.compiledThisFrame; eng.compiledThisFrame = false;
   if (adaptOn && document.visibilityState !== 'hidden'

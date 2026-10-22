@@ -53,8 +53,10 @@ which loads the Android shaders). README.md is the user-facing description. Open
     the feedback buffer by a curl-noise current) and Horizon (`landscape.frag`, a raymarched terrain whose
     height is the spectrogram) are the two scenes that aren't built around a circle.
   - `AdaptiveScale.java`: picks the render resolution from frame times (pure Java; shader builds are
-    not counted as slow frames): down 15 % after 2.5 s under 42 fps, up again after 15 s over 55 fps, and a
-    climb that gets undone within 30 s doubles the next wait. Quality Auto starts it at `AUTO_START` (0.7) so
+    not counted as slow frames): down 15 % after 2.5 s under 42 fps, up again after 15 s of fast frames (at most
+    1.09 vsync periods of a 60..90 Hz panel: 55 fps on 60 Hz, 83 fps on 90/120 Hz; `setRefreshRate`, fed from
+    `Display.getRefreshRate()` and on the web from the animation-frame cadence), and a climb that gets undone
+    within 30 s doubles the next wait. Quality Auto starts it at `AUTO_START` (0.7) so
     it climbs to the sharpest the phone holds; Low, Medium and High start at their ceiling. `web/engine.js`
     has the same class and `web/tools/adaptive-check.js` runs the same cases as `AdaptiveScaleCheck`.
     `TavRenderer` builds the other shaders a frame at a time at start-up. Quality is a device setting: it is

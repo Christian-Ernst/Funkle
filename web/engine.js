@@ -42,11 +42,15 @@ const QUALITY = [
 ];
 const DEFAULT_QUALITY = 0, QUALITY_AUTO = 0, AUTO_START = 0.7, MIN_RENDER_SCALE = 0.36;
 
-// Twin of AdaptiveScale.java, same numbers: sustained slow frames (under ~42 fps for 2.5 s) step the
-// scale down by 0.85; sustained fast frames (over 55 fps for 15 s) step it back up. A step up that is
-// undone within 30 s doubles the next wait (to 120 s at most), so a device on the edge settles.
+// Twin of AdaptiveScale.java, same numbers: sustained slow frames (under 42 fps for 2.5 s) step the
+// scale down by 0.85; sustained fast frames (15 s of them) step it back up. Fast means at most 1.09 vsync
+// periods of a 60..90 Hz display: 55 fps on a 60 Hz panel, 83 fps on a 90 or 120 Hz one, so a steady
+// 60 fps on a 120 Hz panel neither climbs nor drops. A step up that is undone within 30 s doubles the
+// next wait (to 120 s at most), so a device on the edge settles.
 class AdaptiveScale {
-  constructor(start = 1) { this.reset(start); }
+  constructor(start = 1) { this.fastLimit = 1.09 / 60; this.reset(start); }
+  /** The display's refresh rate in Hz (estimated from requestAnimationFrame on the web). */
+  setRefreshRate(hz) { if (hz > 0) this.fastLimit = 1.09 / Math.max(60, Math.min(90, hz)); }
   reset(start = 1) {
     this.scale = Math.max(0.1, Math.min(1, start));
     this.slow = 0; this.fast = 0;
@@ -57,7 +61,7 @@ class AdaptiveScale {
     if (stalled) return false;
     if (this.sinceRaise < Infinity) this.sinceRaise += dt;
     if (dt > 1 / 42) { this.slow += dt; this.fast = 0; }
-    else { this.slow = Math.max(0, this.slow - dt * 0.5); this.fast = dt < 1 / 55 ? this.fast + dt : 0; }
+    else { this.slow = Math.max(0, this.slow - dt * 0.5); this.fast = dt < this.fastLimit ? this.fast + dt : 0; }
     if (this.slow > 2.5 && canDrop) {
       this.slow = 0; this.scale *= 0.85;
       if (this.sinceRaise < 30) this.raiseAfter = Math.min(120, this.raiseAfter * 2);

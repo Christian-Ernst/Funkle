@@ -85,6 +85,21 @@ public final class AdaptiveScaleCheck {
         while (!a.update(1f / 60, false, true)) t += 1f / 60;
         check("a climb that held keeps the short wait", near(t, 15f));
 
+        // 10. a 120 Hz display: a steady 60 fps is smooth but has no known headroom, so Auto stays put;
+        //     frames at 100 fps climb, and 60 Hz keeps its 55 fps limit
+        a = new AdaptiveScale();
+        a.reset(AdaptiveScale.AUTO_START);
+        a.setRefreshRate(120f);
+        changed = false;
+        for (int f = 0; f < 60 * 60; f++) changed |= a.update(1f / 60, false, true);
+        check("120 Hz: 60 fps neither climbs nor drops", !changed && near(a.scale(), 0.7f));
+        for (int f = 0; f < 16 * 100; f++) a.update(1f / 100, false, true);
+        check("120 Hz: 100 fps climbs", near(a.scale(), 0.7f / 0.85f));
+        a.setRefreshRate(60f);
+        check("60 Hz: the fast limit is 1/55 s", near(a.fastLimit(), 1f / 55f));
+        a.setRefreshRate(90f);
+        check("90 Hz: the fast limit is about 1/83 s", Math.abs(1f / a.fastLimit() - 82.6f) < 0.5f);
+
         if (failed) {
             System.out.println("FAIL");
             System.exit(1);
