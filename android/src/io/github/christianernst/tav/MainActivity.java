@@ -82,6 +82,11 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     private int eqMode;   // the chip in the menu: 0 Flat, 1 Punch, 2 Custom
     private static final String[] EQ_NAMES = {"Master", "Bass", "Low mids", "High mids", "Treble", "Punch", "Beat"};
     private static final int EQ_PUNCH = 5;
+    private View colourCard;   // Colour motion → Custom: the sliders
+    private final GradientSlider[] cmSliders = new GradientSlider[ColourDrive.NAMES.length];
+    private final TextView[] cmLabels = new TextView[ColourDrive.NAMES.length];
+    private ColourDrive colourDrive;
+    private int colourMode;   // the chip in the menu, see ColourDrive.MODE_NAMES
 
     private final Runnable hideMenu = () -> {
         if (panel.getVisibility() != View.VISIBLE && colourEditor == null && equalizerCard == null)
@@ -125,6 +130,13 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         titleAlways = prefs.getBoolean("titleAlways", false);
         equalizer = savedEqualizer();
         eqMode = prefs.getInt("eq_mode", 1);
+        colourMode = prefs.getInt("cm_mode", ColourDrive.DEFAULT);
+        colourDrive = colourMode == ColourDrive.CUSTOM ? savedColourDrive() : ColourDrive.preset(colourMode);
+        if (prefs.getInt("prefs_version", 1) < 2) {   // Custom moved when the Ocean, Candy and Rainbow presets came
+            SharedPreferences.Editor e = prefs.edit().putInt("prefs_version", 2);
+            if (prefs.getInt("palette", Palettes.ALBUM) == Palettes.CUSTOM_V1) e.putInt("palette", Palettes.CUSTOM);
+            e.apply();
+        }
         Window w = getWindow();
         w.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         if (Build.VERSION.SDK_INT >= 28) {
@@ -214,6 +226,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     public void onBackPressed() {
         if (colourEditor != null) closeColourEditor(true);   // back to the menu it came from
         else if (equalizerCard != null) closeEqualizer(true);
+        else if (colourCard != null) closeColourMotion(true);
         else if (panel.getVisibility() == View.VISIBLE) togglePanel();
         else super.onBackPressed();
     }
@@ -399,11 +412,16 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         });
         pushPalette();
         pushEqualizer();
+        pushColourDrive();
     }
 
     private void pushPalette() {
-        final float[][] p = paletteFor(prefs.getInt("palette", Palettes.ALBUM));
-        view.queueEvent(() -> renderer.setPalette(p));
+        final int idx = prefs.getInt("palette", Palettes.ALBUM);
+        final float[][] p = paletteFor(idx);
+        view.queueEvent(() -> {
+            renderer.setPalette(p);
+            renderer.setRainbow(idx == Palettes.RAINBOW);
+        });
     }
 
     private float[][] paletteFor(int idx) {
@@ -619,6 +637,11 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
             if (i == Palettes.CUSTOM) showColourEditor();
         });
 
+        addRow("Colour motion (how the colours move with the music)", ColourDrive.MODE_NAMES, colourMode, new ArrayList<>(), i -> {
+            if (i == ColourDrive.CUSTOM) showColourMotion();   // Custom: the sliders
+            else setColourDrive(ColourDrive.preset(i), i);
+        });
+
         addRow("Brightness", new String[]{"Dim", "Soft", "Normal", "Bright"},
                 prefs.getInt("brightness", TavRenderer.DEFAULT_BRIGHTNESS), new ArrayList<>(), i -> {
                     prefs.edit().putInt("brightness", i).apply();
@@ -743,6 +766,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     private void togglePanel() {
         if (colourEditor != null) closeColourEditor(false);   // ✕ or a long-press while editing closes everything
         else if (equalizerCard != null) closeEqualizer(false);
+        else if (colourCard != null) closeColourMotion(false);
         else showPanel(panel.getVisibility() != View.VISIBLE);
     }
 
@@ -809,22 +833,8 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         for (int i = 0; i < rainbow.length; i++) rainbow[i] = Color.HSVToColor(new float[]{i * 60f, 1f, 1f});
         hueSlider.setColors(rainbow);
 
-        ScrollView card = new ScrollView(this);   // scrolls on a short landscape screen
-        card.setBackground(glass(0xE60B0B14));
-        card.setVerticalScrollBarEnabled(false);
-        card.setClickable(true);   // touches on the card don't fall through to the visuals
-        card.addView(box);
-        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM);
-        lp.setMargins(px(12), 0, px(12), px(100));
-        root.addView(card, lp);
-        card.setAlpha(0f);
-        card.setTranslationY(40 * dp);
-        card.animate().alpha(1f).translationY(0).setDuration(250).start();
-        if (panel.getVisibility() == View.VISIBLE) showPanel(false);   // the editor takes its place
-        colourEditor = card;
-        menuButton.setText("✕");
+        colourEditor = openCard(box);
         selectSwatch(0);
-        pokeMenu();
     }
 
     private GradientSlider slider(LinearLayout box, String name) {
@@ -886,6 +896,121 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         if (card == null) return;
         colourEditor = null;
         saveCustom();
+        closeCard(card, backToMenu);
+    }
+
+    // ------------------------------------------------------------------ colour motion
+
+    private ColourDrive savedColourDrive() {
+        ColourDrive d = ColourDrive.preset(ColourDrive.CUSTOM);
+        return new ColourDrive(prefs.getFloat("cm_drift", d.drift), prefs.getFloat("cm_beat", d.beatStep),
+                prefs.getFloat("cm_drop", d.dropStep), prefs.getFloat("cm_tilt", d.tilt), prefs.getFloat("cm_pump", d.pump));
+    }
+
+    /**
+     * Saves a colour drive and makes it live. mode is the menu chip it belongs to; the cm_* values
+     * are the Custom sliders and survive a visit to the other chips.
+     */
+    private void setColourDrive(ColourDrive d, int mode) {
+        colourDrive = d;
+        colourMode = mode;
+        SharedPreferences.Editor e = prefs.edit().putInt("cm_mode", mode);
+        if (mode == ColourDrive.CUSTOM) {
+            e.putFloat("cm_drift", d.drift).putFloat("cm_beat", d.beatStep).putFloat("cm_drop", d.dropStep)
+                    .putFloat("cm_tilt", d.tilt).putFloat("cm_pump", d.pump);
+        }
+        e.apply();
+        pushColourDrive();
+    }
+
+    private void pushColourDrive() {
+        final ColourDrive d = colourDrive;
+        view.queueEvent(() -> renderer.setColourDrive(d));
+    }
+
+    /** Glass card with the five colour-motion sliders; every change shows on the scenes at once. */
+    private void showColourMotion() {
+        if (colourCard != null) return;
+        if (colourMode != ColourDrive.CUSTOM) setColourDrive(savedColourDrive(), ColourDrive.CUSTOM);
+        LinearLayout box = sliderCard("How the colours move", ColourDrive.NAMES, cmSliders, cmLabels,
+                (i, v) -> {
+                    setColourDrive(colourDrive.with(i, v * ColourDrive.MAX[i]), ColourDrive.CUSTOM);
+                    refreshColourLabels();
+                }, () -> closeColourMotion(false));
+        colourCard = openCard(box);
+        for (int i = 0; i < ColourDrive.NAMES.length; i++) cmSliders[i].setValue(colourDrive.amount(i) / ColourDrive.MAX[i]);
+        refreshColourLabels();
+    }
+
+    private void refreshColourLabels() {
+        for (int i = 0; i < ColourDrive.NAMES.length; i++) {
+            int pct = Math.round(colourDrive.amount(i) / ColourDrive.MAX[i] * 100);
+            cmLabels[i].setText((ColourDrive.NAMES[i] + "  \u00B7  " + pct + " %").toUpperCase(Locale.ROOT));
+        }
+    }
+
+    private void closeColourMotion(boolean backToMenu) {
+        final View card = colourCard;
+        if (card == null) return;
+        colourCard = null;
+        closeCard(card, backToMenu);
+    }
+
+    interface Slide {
+        void on(int index, float position);
+    }
+
+    /** The body of a slider card: a title with a Done chip, then a label and a slider per name. */
+    private LinearLayout sliderCard(String title, String[] names, GradientSlider[] sliders, TextView[] labels, Slide slide, Runnable done) {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(px(18), px(4), px(18), px(16));
+        LinearLayout head = new LinearLayout(this);
+        head.setGravity(Gravity.CENTER_VERTICAL);
+        head.addView(label(title), new LinearLayout.LayoutParams(0, -2, 1f));
+        TextView doneChip = text(15, Color.WHITE, true);
+        doneChip.setShadowLayer(0, 0, 0, 0);
+        doneChip.setText("Done");
+        doneChip.setPadding(px(22), px(10), px(22), px(10));
+        styleChip(doneChip, true);
+        doneChip.setOnClickListener(v -> done.run());
+        head.addView(doneChip);
+        box.addView(head);
+        for (int i = 0; i < names.length; i++) {
+            final int k = i;
+            labels[i] = label(names[i]);
+            box.addView(labels[i]);
+            GradientSlider s = new GradientSlider(this, names[i]);
+            s.setColors(0xFF2A2740, 0xFFFF2E8C);
+            s.setKnobColor(0xFFFFFFFF);
+            s.setListener((value, finished) -> slide.on(k, value));
+            box.addView(s, new LinearLayout.LayoutParams(-1, -2));
+            sliders[i] = s;
+        }
+        return box;
+    }
+
+    /** Puts a card over the visuals in the menu's place and returns it. */
+    private View openCard(View box) {
+        ScrollView card = new ScrollView(this);   // scrolls on a short landscape screen
+        card.setBackground(glass(0xE60B0B14));
+        card.setVerticalScrollBarEnabled(false);
+        card.setClickable(true);   // touches on the card don't fall through to the visuals
+        card.addView(box);
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM);
+        lp.setMargins(px(12), 0, px(12), px(100));
+        root.addView(card, lp);
+        card.setAlpha(0f);
+        card.setTranslationY(40 * dp);
+        card.animate().alpha(1f).translationY(0).setDuration(250).start();
+        if (panel.getVisibility() == View.VISIBLE) showPanel(false);   // the card takes its place
+        menuButton.setText("✕");
+        pokeMenu();
+        return card;
+    }
+
+    /** backToMenu: Back returns to the menu the card came from; Done and ✕ close both. */
+    private void closeCard(View card, boolean backToMenu) {
         card.animate().alpha(0f).translationY(40 * dp).setDuration(200).withEndAction(() -> root.removeView(card)).start();
         if (backToMenu) {
             showPanel(true);
@@ -938,48 +1063,10 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
      */
     private void showEqualizer() {
         if (equalizerCard != null) return;
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(px(18), px(4), px(18), px(16));
-        LinearLayout head = new LinearLayout(this);
-        head.setGravity(Gravity.CENTER_VERTICAL);
-        head.addView(label("How hard the scenes react"), new LinearLayout.LayoutParams(0, -2, 1f));
-        TextView doneChip = text(15, Color.WHITE, true);
-        doneChip.setShadowLayer(0, 0, 0, 0);
-        doneChip.setText("Done");
-        doneChip.setPadding(px(22), px(10), px(22), px(10));
-        styleChip(doneChip, true);
-        doneChip.setOnClickListener(v -> closeEqualizer(false));
-        head.addView(doneChip);
-        box.addView(head);
-        for (int i = 0; i < EQ_NAMES.length; i++) {
-            final int k = i;
-            eqLabels[i] = label(EQ_NAMES[i]);
-            box.addView(eqLabels[i]);
-            GradientSlider s = new GradientSlider(this, EQ_NAMES[i]);
-            s.setColors(0xFF2A2740, 0xFFFF2E8C);
-            s.setKnobColor(0xFFFFFFFF);
-            s.setListener((value, finished) -> editEqualizer(k, value));
-            box.addView(s, new LinearLayout.LayoutParams(-1, -2));
-            eqSliders[i] = s;
-        }
-
-        ScrollView card = new ScrollView(this);   // scrolls on a short landscape screen
-        card.setBackground(glass(0xE60B0B14));
-        card.setVerticalScrollBarEnabled(false);
-        card.setClickable(true);   // touches on the card don't fall through to the visuals
-        card.addView(box);
-        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM);
-        lp.setMargins(px(12), 0, px(12), px(100));
-        root.addView(card, lp);
-        card.setAlpha(0f);
-        card.setTranslationY(40 * dp);
-        card.animate().alpha(1f).translationY(0).setDuration(250).start();
-        if (panel.getVisibility() == View.VISIBLE) showPanel(false);
-        equalizerCard = card;
-        menuButton.setText("✕");
+        LinearLayout box = sliderCard("How hard the scenes react", EQ_NAMES, eqSliders, eqLabels,
+                this::editEqualizer, () -> closeEqualizer(false));
+        equalizerCard = openCard(box);
         showEqualizerValues();
-        pokeMenu();
     }
 
     /** Puts every slider and label where the current equalizer is. */
@@ -1010,13 +1097,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         final View card = equalizerCard;
         if (card == null) return;
         equalizerCard = null;
-        card.animate().alpha(0f).translationY(40 * dp).setDuration(200).withEndAction(() -> root.removeView(card)).start();
-        if (backToMenu) {
-            showPanel(true);
-        } else {
-            menuButton.setText("☰");
-            pokeMenu();
-        }
+        closeCard(card, backToMenu);
     }
 
     private void askNotificationAccess() {

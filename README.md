@@ -71,13 +71,19 @@ even without notification access, because TAV then sends ordinary media-button p
 | Two-finger swipe | Next / previous scene |
 | Swipe the song title | Next (left) / previous (right) track |
 | Tap the song title | Play / pause |
-| Long-press or ☰ | Menu: playback controls, scenes, shape stamps, mirror (mandala) mode, colours, brightness, motion, equalizer, audio source, autopilot, song title, quality |
+| Long-press or ☰ | Menu: playback controls, scenes, shape stamps, mirror (mandala) mode, colours, colour motion, brightness, motion, equalizer, audio source, autopilot, song title, quality |
 
 **Autopilot** (on by default) changes scenes when the track changes, when a drop hits, or every 45 s.
 **Mirror** repeats everything you draw 2–12 times around the centre.
 **Colours**: *Album* takes the colours from the cover art and keeps its tone (a dusty cover gives a dusty palette,
-a neon cover a neon one), *Neon* to *Aurora* are presets, and *Custom* opens an editor for your own three colours. Tap a swatch, then drag Hue, Saturation and Brightness; the visuals change while
+a neon cover a neon one), *Neon* to *Candy* are presets, *Rainbow* paints the whole spectrum, and *Custom* opens an
+editor for your own three colours. Tap a swatch, then drag Hue, Saturation and Brightness; the visuals change while
 you drag, and TAV keeps the colours for next time. Tap *Custom* again to edit them.
+**Colour motion** makes any palette move with the music. *Still* leaves the colours as they are. *Drift* turns the
+hues slowly, faster when the music is loud. *Beat* (the default) turns the hue a step on every beat and a big jump on a drop.
+*Bands* lets bass, mids and treble each pull the picture toward their own colour (the first, second and third
+colour of the palette) and light it up. *Custom* opens five sliders: drift, beat step, drop jump, band tilt and
+band pump. Try *Rainbow* with *Beat*, or *Candy* with *Bands*.
 **Brightness**: Dim, Soft, Normal (the default) or Bright. On an OLED screen in a dark room, try Soft or Dim.
 **Equalizer** sets how hard the scenes react to the music, for every scene. *Flat* is the look before the
 equalizer: each band is scaled to its own recent peak, so a quiet verse looks much like the chorus. *Punch*
@@ -161,7 +167,8 @@ python3 -m http.server 8000    # then visit http://localhost:8000/web/
 
 Turn on GitHub Pages for the repository and it works at `https://<user>.github.io/TAV/web/` too.
 Browsers can't hear other apps, so it can't follow Spotify; that's what the Android app is for.
-Keys: arrows or `1`–`7` for scenes, `space` play/pause, `k` colours, `b` brightness, `m` mirror, `s` shape, `c` clear.
+Keys: arrows or `1`–`7` for scenes, `space` play/pause, `k` colours, `d` colour motion, `b` brightness, `m` mirror,
+`s` shape, `c` clear.
 
 ---
 

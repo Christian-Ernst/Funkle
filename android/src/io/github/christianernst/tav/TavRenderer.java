@@ -88,6 +88,9 @@ final class TavRenderer implements GLSurfaceView.Renderer {
     private float sceneTimer;
     private boolean autopilot = true, lastSilent;
     private final float[][] palette = Palettes.preset(1), target = Palettes.preset(1);
+    private boolean rainbow;                                     // Colours: Rainbow (the shader paints the spectrum)
+    private ColourDrive drive = ColourDrive.preset(ColourDrive.STILL);
+    private final ColourDrive.State colour = new ColourDrive.State();
     private final List<double[]> ripples = new ArrayList<>();   // x, y, born, strength
     private final List<Stroke> strokes = new ArrayList<>();
     private Stroke liveStroke;
@@ -168,6 +171,14 @@ final class TavRenderer implements GLSurfaceView.Renderer {
             System.arraycopy(p[k], 0, target[k], 0, 3);
             if (snap) System.arraycopy(p[k], 0, palette[k], 0, 3);
         }
+    }
+
+    void setRainbow(boolean on) {
+        rainbow = on;
+    }
+
+    void setColourDrive(ColourDrive d) {
+        drive = d;
     }
 
     /** Called when the playing track changes: autopilot moves on with the music. */
@@ -319,6 +330,7 @@ final class TavRenderer implements GLSurfaceView.Renderer {
         autopilot(dt);
         for (int k = 0; k < 3; k++)
             for (int c = 0; c < 3; c++) palette[k][c] += (target[k][c] - palette[k][c]) * (1 - (float) Math.exp(-dt * 1.5));
+        drive.step(colour, dt, shaped, shapedLevel, an.onBeat, an.drop);
         if (an.drop) {
             seed = (seed + 1) % 64;
             flash = calm ? 0f : eq.dropFlash();
@@ -553,6 +565,10 @@ final class TavRenderer implements GLSurfaceView.Renderer {
             for (int k = 0; k < 3; k++) System.arraycopy(palette[k], 0, palFlat, k * 3, 3);
             glUniform3fv(l, 3, palFlat, 0);
         }
+        l = p.loc("uColour");
+        if (l >= 0) glUniform4f(l, colour.hue, drive.tilt, drive.pump, rainbow ? 1f : 0f);
+        l = p.loc("uBandMix");
+        if (l >= 0) glUniform3f(l, colour.mix[0], colour.mix[1], colour.mix[2]);
         bindTex(p, "uAudio", audioTex, 0);
         bindTex(p, "uHist", histTex, 1);
         if (prev != null) bindTex(p, "uPrev", prev.tex, 2);

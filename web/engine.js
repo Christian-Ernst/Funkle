@@ -28,6 +28,73 @@ const BRIGHTNESS = [
 ];
 const DEFAULT_BRIGHTNESS = 2;
 
+// Colour motion: how the palette moves with the music. Same model as ColourDrive.java: the hue
+// drifts with the music (turns per second at full level), steps on every beat and jumps on a drop,
+// and the loud bands pull the colours toward their own colour (tilt) and light it up (pump).
+const COLOUR_MODES = [
+  { name: 'Still', drift: 0, beat: 0, drop: 0, tilt: 0, pump: 0 },
+  { name: 'Drift', drift: 0.02, beat: 0, drop: 0.1, tilt: 0.3, pump: 0 },
+  { name: 'Beat', drift: 0, beat: 1 / 16, drop: 1 / 3, tilt: 0.3, pump: 0 },
+  { name: 'Bands', drift: 0, beat: 0, drop: 0, tilt: 0.8, pump: 0.4 },
+];
+const DEFAULT_COLOUR_MODE = 2;   // Beat, same as ColourDrive.DEFAULT
+const COLOUR_MAX = { drift: 0.1, beat: 0.25, drop: 0.5, tilt: 1, pump: 1 };   // the slider ranges
+const COLOUR_EASE = 10;   // 1 - e^-10 per second: a beat step is done in about 0.3 s
+
+class ColourDrive {
+  constructor(settings) {
+    this.set(settings);
+    this.hue = 0; this.hueTarget = 0; this.mix = [0, 0, 0];
+  }
+  set(settings) {
+    const d = Object.assign({}, COLOUR_MODES[0], settings);
+    for (const k of Object.keys(COLOUR_MAX)) this[k] = Math.max(0, Math.min(COLOUR_MAX[k], +d[k] || 0));
+  }
+  get still() { return !(this.drift || this.beat || this.drop || this.tilt || this.pump); }
+  // bands: the four bands, level 0..1, onBeat and drop: the analyzer's flags for this frame
+  step(dt, bands, level, onBeat, drop) {
+    this.hueTarget += this.drift * dt * (0.3 + 0.7 * Math.min(level, 1));
+    if (onBeat) this.hueTarget += this.beat;
+    if (drop) this.hueTarget += this.drop;
+    // no hue motion at all (Still, Bands): ease back to the chosen colours by the shortest way
+    if (!this.drift && !this.beat && !this.drop) this.hueTarget = Math.round(this.hue);
+    this.hue += (this.hueTarget - this.hue) * (1 - Math.exp(-dt * COLOUR_EASE));
+    const wrap = Math.floor(this.hueTarget);   // keep both small; only the difference matters
+    this.hueTarget -= wrap; this.hue -= wrap;
+    if (!this.tilt && !this.pump) { this.mix = [0, 0, 0]; return; }
+    const b0 = Math.max(bands[0], 0), b1 = Math.max(0.5 * (bands[1] + bands[2]), 0), b2 = Math.max(bands[3], 0);
+    const share = 1 / (b0 + b1 + b2 + 0.5);   // silence counts as nothing, a full band as most of it
+    const w = [b0 * share, b1 * share, b2 * share];
+    for (let k = 0; k < 3; k++) {
+      const rate = w[k] > this.mix[k] ? 14 : 5;   // quick to light up, slower to let go
+      this.mix[k] += (w[k] - this.mix[k]) * (1 - Math.exp(-dt * rate));
+    }
+  }
+}
+
+// A colour preset as one JSON document (shared with Palettes.java): the three colours as hex,
+// whether the shader paints the rainbow instead, and the colour motion. v is the schema version.
+const PRESET_VERSION = 1;
+function exportPreset(name, palette, rainbow, drive) {
+  const hex = (c) => '#' + c.map((v) => Math.round(Math.max(0, Math.min(1, v)) * 255).toString(16).padStart(2, '0')).join('');
+  const motion = {};
+  for (const k of Object.keys(COLOUR_MAX)) motion[k] = +(drive[k] || 0);
+  return { v: PRESET_VERSION, name: String(name || ''), colours: palette.map(hex), rainbow: !!rainbow, motion };
+}
+// Returns { name, palette, rainbow, motion } or null when the document is not a preset.
+function importPreset(doc) {
+  if (!doc || typeof doc !== 'object' || !(doc.v >= 1) || !Array.isArray(doc.colours) || doc.colours.length !== 3) return null;
+  const palette = doc.colours.map((h) => {
+    const m = /^#?([0-9a-f]{6})$/i.exec(String(h));
+    if (!m) return null;
+    return [0, 2, 4].map((i) => parseInt(m[1].slice(i, i + 2), 16) / 255);
+  });
+  if (palette.some((c) => !c)) return null;
+  const motion = {};
+  for (const k of Object.keys(COLOUR_MAX)) motion[k] = Math.max(0, Math.min(COLOUR_MAX[k], +(doc.motion && doc.motion[k]) || 0));
+  return { name: String(doc.name || ''), palette, rainbow: !!doc.rainbow, motion };
+}
+
 class TavEngine {
   constructor(gl, sources) {
     this.gl = gl; this.src = sources;
@@ -37,6 +104,8 @@ class TavEngine {
     this.progs = {};
     this.time = 0; this.scene = 0; this.sym = 6; this.seed = 0;
     this.palette = [[1.0, 0.18, 0.55], [0.15, 0.75, 1.0], [0.55, 0.25, 1.0]];
+    this.rainbow = false;   // Colours: Rainbow (the shader paints the spectrum)
+    this.colour = new ColourDrive(COLOUR_MODES[0]);
     this.ripples = []; this.strokes = [];
     this.transStart = -10; this.flash = 0;
     this.dropAge = 100; this.surge = 0; this.flowExtra = 0;   // drop envelope and music-clock surge, as in TavRenderer
@@ -123,6 +192,8 @@ class TavEngine {
     if (L.uBands) gl.uniform4f(L.uBands, an.bands[0], an.bands[1], an.bands[2], an.bands[3]);
     if (L.uEnergy) gl.uniform4f(L.uEnergy, an.level, an.beat, an.beatCount, an.intensity);
     if (L.uPal) gl.uniform3fv(L.uPal, this.palette.flat());
+    if (L.uColour) gl.uniform4f(L.uColour, this.colour.hue, this.colour.tilt, this.colour.pump, this.rainbow ? 1 : 0);
+    if (L.uBandMix) gl.uniform3fv(L.uBandMix, this.colour.mix);
     let unit = 0;
     const bind = (name, tex) => { if (!L[name]) return; gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, tex); gl.uniform1i(L[name], unit++); };
     bind('uAudio', this.audioTex); bind('uHist', this.histTex);
@@ -216,6 +287,7 @@ class TavEngine {
     this.rebaseFlow = false;
     if (an.flow > 2000) an.flow -= 2000;
     this.step = Math.min(4, Math.max(0.25, dt * 60));
+    this.colour.step(dt, an.bands, an.level, an.onBeat, an.drop);
     if (an.drop) { this.seed = (this.seed + 1) % 64; this.flash = 0.6; }
     this.flash *= Math.exp(-dt * 4);
     this.dropAge += dt;
@@ -344,4 +416,6 @@ class TavEngine {
   }
 }
 
-if (typeof module !== 'undefined') module.exports = { TavEngine, SCENES, SHADER_FILES, BRIGHTNESS };
+if (typeof module !== 'undefined') {
+  module.exports = { TavEngine, ColourDrive, SCENES, SHADER_FILES, BRIGHTNESS, COLOUR_MODES, COLOUR_MAX, DEFAULT_COLOUR_MODE, exportPreset, importPreset };
+}

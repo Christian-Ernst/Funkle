@@ -36,6 +36,20 @@ Album colours keep the cover's saturation and brightness above a floor (`Palette
 - Still open from the review: per-scene sliders, saved looks with thumbnails, music-aware autopilot, a
   share sheet, and two new scenes (fluid, landscape).
 
+## Colour motion (new, not yet on a phone)
+
+- Menu → Colour motion: Still (the old look), Drift, Beat (default), Bands, Custom (five sliders). Plus the
+  Ocean, Candy and Rainbow palettes. The web edition has the same (button or `d`). The default is
+  `ColourDrive.DEFAULT` and `DEFAULT_COLOUR_MODE` in `web/engine.js`; if Beat is too busy on the phone,
+  Drift is the calm alternative.
+- The beat step (1/16 turn) and the drop jump (1/3 turn) were picked on the demo beat. On a real song, check
+  that Beat is a pulse and not a strobe, and that Bands reads as "bass is colour 1, treble is colour 3".
+- Band pump (Bands: 40 %) raises one colour by up to that much when its band dominates; the measurement stays
+  at 0 % clipped on the dense track, but check Bright on the phone.
+- The cloud thread stores a preset as the JSON from `Palettes.toJson` / `exportPreset` (`v`, `name`,
+  `colours`, `rainbow`, `motion`). The app itself still keeps everything in separate prefs; a "save as named
+  preset" UI is the next step and would use that document.
+
 ## Colour editor follow-ups (ask first)
 
 - A "Shuffle" chip that rolls a harmonious random palette (golden-ratio hue steps).
