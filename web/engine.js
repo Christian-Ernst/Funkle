@@ -37,6 +37,7 @@ const COLOUR_MODES = [
   { name: 'Beat', drift: 0, beat: 1 / 16, drop: 1 / 3, tilt: 0.3, pump: 0 },
   { name: 'Bands', drift: 0, beat: 0, drop: 0, tilt: 0.8, pump: 0.4 },
 ];
+const DEFAULT_COLOUR_MODE = 2;   // Beat, same as ColourDrive.DEFAULT
 const COLOUR_MAX = { drift: 0.1, beat: 0.25, drop: 0.5, tilt: 1, pump: 1 };   // the slider ranges
 const COLOUR_EASE = 10;   // 1 - e^-10 per second: a beat step is done in about 0.3 s
 
@@ -407,5 +408,5 @@ class TavEngine {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { TavEngine, ColourDrive, SCENES, SHADER_FILES, BRIGHTNESS, COLOUR_MODES, COLOUR_MAX, exportPreset, importPreset };
+  module.exports = { TavEngine, ColourDrive, SCENES, SHADER_FILES, BRIGHTNESS, COLOUR_MODES, COLOUR_MAX, DEFAULT_COLOUR_MODE, exportPreset, importPreset };
 }

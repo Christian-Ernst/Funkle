@@ -131,7 +131,7 @@ function measureFrame(wantPng) {
     document.getElementById('start').hidden = true;
     if (typeof setPalette === 'function') setPalette(palette); else targetPalette = PALETTES[palette][1];
     eng.palette = PALETTES[palette][1].map((c) => c.slice());
-    if (colour && typeof setColourMode === 'function') setColourMode(colour);
+    if (typeof setColourMode === 'function') setColourMode(colour);   // 0 = Still, whatever the page's default
     if (level >= 0 && eng.setBrightness) eng.setBrightness(level);
     if (sym) eng.sym = sym;
     return SCENES.map((s) => s.id);

@@ -145,7 +145,7 @@
     <button id="clear" type="button">Clear</button>
     <button id="mirror" type="button">Mirror off</button>
     <button id="colours" type="button">Colours: Neon</button>
-    <button id="motion" type="button">Colour motion: Still</button>
+    <button id="motion" type="button">Colour motion: Beat</button>
     <button id="bright" type="button">Brightness: Normal</button>
     <button id="auto" type="button" aria-pressed="true">Autopilot</button>
     <button id="full" type="button">Fullscreen</button>
@@ -305,7 +305,7 @@ const sceneButtons = SCENES.map((s, i) => {
 });
 SHAPES.forEach((name, i) => $('shapes').appendChild(chip(name, () => { if (eng) eng.addStroke(shapePoints(i, 0.62), Math.random()); poke(); })));
 
-let sceneTimer = 0, autopilot = true, mirrorIdx = 0, palIdx = 0, motionIdx = 0;
+let sceneTimer = 0, autopilot = true, mirrorIdx = 0, palIdx = 0, motionIdx = DEFAULT_COLOUR_MODE;
 function setScene(i) {
   if (!eng) return;
   eng.setScene(i);
@@ -506,6 +506,7 @@ async function boot() {
   eng = new TavEngine(gl, src);
   eng.palette = PALETTES[0][1].map((c) => c.slice());
   eng.sym = 1;
+  setColourMode(DEFAULT_COLOUR_MODE);
   eng.compileAll();
   useDemo();
   resize();

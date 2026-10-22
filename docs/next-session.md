@@ -22,10 +22,10 @@ colours (menu → Colours → Custom) are done. What is still open, and what to 
 
 ## Colour motion (new, not yet on a phone)
 
-- Menu → Colour motion: Still (default, the old look), Drift, Beat, Bands, Custom (five sliders). Plus the
-  Ocean, Candy and Rainbow palettes. The web edition has the same (button or `d`). Ask the owner which mode
-  should be the default; Still keeps the app looking as before, Beat is the liveliest. The default is
-  `ColourDrive.STILL` in `MainActivity` (`cm_mode`) and `COLOUR_MODES[0]` in `web/index.html`.
+- Menu → Colour motion: Still (the old look), Drift, Beat (default), Bands, Custom (five sliders). Plus the
+  Ocean, Candy and Rainbow palettes. The web edition has the same (button or `d`). The default is
+  `ColourDrive.DEFAULT` and `DEFAULT_COLOUR_MODE` in `web/engine.js`; if Beat is too busy on the phone,
+  Drift is the calm alternative.
 - The beat step (1/16 turn) and the drop jump (1/3 turn) were picked on the demo beat. On a real song, check
   that Beat is a pulse and not a strobe, and that Bands reads as "bass is colour 1, treble is colour 3".
 - Band pump (Bands: 40 %) raises one colour by up to that much when its band dominates; the measurement stays

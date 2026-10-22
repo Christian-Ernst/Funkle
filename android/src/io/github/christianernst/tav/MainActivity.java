@@ -130,7 +130,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         titleAlways = prefs.getBoolean("titleAlways", false);
         equalizer = savedEqualizer();
         eqMode = prefs.getInt("eq_mode", 1);
-        colourMode = prefs.getInt("cm_mode", ColourDrive.STILL);
+        colourMode = prefs.getInt("cm_mode", ColourDrive.DEFAULT);
         colourDrive = colourMode == ColourDrive.CUSTOM ? savedColourDrive() : ColourDrive.preset(colourMode);
         if (prefs.getInt("prefs_version", 1) < 2) {   // Custom moved when the Ocean, Candy and Rainbow presets came
             SharedPreferences.Editor e = prefs.edit().putInt("prefs_version", 2);

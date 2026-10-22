@@ -9,7 +9,9 @@ package io.github.christianernst.tav;
  */
 final class ColourDrive {
     static final String[] MODE_NAMES = {"Still", "Drift", "Beat", "Bands", "Custom"};
-    static final int STILL = 0, CUSTOM = 4;
+    static final int STILL = 0, BEAT = 2, CUSTOM = 4;
+    /** Beat: the colours move with every beat, which is what the feature is for; Still is one tap away. */
+    static final int DEFAULT = BEAT;
     /** The slider ranges in the custom card: turns per second, turns per beat, turns per drop, 0..1, 0..1. */
     static final float[] MAX = {0.1f, 0.25f, 0.5f, 1f, 1f};
     static final String[] NAMES = {"Drift", "Beat step", "Drop jump", "Band tilt", "Band pump"};

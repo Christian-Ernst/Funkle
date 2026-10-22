@@ -79,7 +79,7 @@ even without notification access, because TAV then sends ordinary media-button p
 spectrum, and *Custom* opens an editor for your own three colours. Tap a swatch, then drag Hue, Saturation and
 Brightness; the visuals change while you drag, and TAV keeps the colours for next time. Tap *Custom* again to edit them.
 **Colour motion** makes any palette move with the music. *Still* leaves the colours as they are. *Drift* turns the
-hues slowly, faster when the music is loud. *Beat* turns the hue a step on every beat and a big jump on a drop.
+hues slowly, faster when the music is loud. *Beat* (the default) turns the hue a step on every beat and a big jump on a drop.
 *Bands* lets bass, mids and treble each pull the picture toward their own colour (the first, second and third
 colour of the palette) and light it up. *Custom* opens five sliders: drift, beat step, drop jump, band tilt and
 band pump. Try *Rainbow* with *Beat*, or *Candy* with *Bands*.
