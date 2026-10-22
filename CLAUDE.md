@@ -63,6 +63,10 @@ which loads the Android shaders). README.md is the user-facing description. Open
     `TavRenderer.setTune` and `eng.setTune(scene, k, v)` set them. Ink (`fluid.frag`, dye advected through
     the feedback buffer by a curl-noise current) and Horizon (`landscape.frag`, a raymarched terrain whose
     height is the spectrogram) are the two scenes that aren't built around a circle.
+  - `CrashLog.java`: the default uncaught-exception handler, installed first thing in `onCreate`. It writes the
+    trace to `files/last-crash.txt`; the next launch shows it on a card with a Copy button (`showCrash`), since the
+    owner tests without adb. The `cloud` field is created in `onCreate` before `buildOverlay` (the Account row asks
+    `cloud.enabled()`); `startCloud` only starts it.
   - `AdaptiveScale.java`: picks the render resolution from frame times (pure Java; shader builds are
     not counted as slow frames). `TavRenderer` builds the other shaders a frame at a time at start-up.
   - `AudioCapture.java` (Visualizer on session 0, mic fallback), `MediaWatcher.java` (MediaSession and

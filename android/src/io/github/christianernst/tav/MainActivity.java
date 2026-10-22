@@ -2,6 +2,8 @@ package io.github.christianernst.tav;
 
 import android.Manifest;
 import android.app.Activity;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.ComponentName;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -156,11 +158,13 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
+        CrashLog.install(this);   // first: a crash anywhere below is shown on the next launch
         dp = getResources().getDisplayMetrics().density;
         prefs = getSharedPreferences("tav", MODE_PRIVATE);
         firstRun = getSharedPreferences("tav_state", MODE_PRIVATE);
         if (!firstRun.contains("first_open_at")) firstRun.edit().putLong("first_open_at", System.currentTimeMillis()).apply();
         looks = new LookStore(this);
+        cloud = Cloud.get(this);   // before buildOverlay, which asks cloud.enabled() for the Account row
         titleAlways = prefs.getBoolean("titleAlways", false);
         equalizer = savedEqualizer();
         eqMode = prefs.getInt("eq_mode", 1);
@@ -206,6 +210,26 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         if (!hasAudioPermission()) showIntro();
         startCloud(getIntent());
         handleLink(getIntent().getData());
+        String crash = CrashLog.take(this);
+        if (crash != null) showCrash(crash);
+    }
+
+    /** The previous launch died: show the trace, with a button that copies all of it. */
+    private void showCrash(final String trace) {
+        if (notice != null) return;
+        notice = card("Last time, TAV crashed",
+                "This is what went wrong. Copy it and paste it into the chat, then TAV can be fixed.\n\n"
+                        + CrashLog.summary(trace, 10),
+                "Copy the report", () -> {
+                    ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                    if (cm != null) cm.setPrimaryClip(ClipData.newPlainText("TAV crash", trace));
+                    flash("Copied");
+                    dismissNotice();
+                }, this::dismissNotice);
+        TextView[] parts = (TextView[]) notice.getTag();
+        parts[0].setGravity(Gravity.START);
+        parts[0].setTextSize(12.5f);
+        parts[0].setTypeface(Typeface.MONOSPACE);
     }
 
     @Override
@@ -1616,7 +1640,6 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     };
 
     private void startCloud(Intent intent) {
-        cloud = Cloud.get(this);
         cloud.setListener(() -> {
             if (accountCard != null) refreshAccount();
         });
