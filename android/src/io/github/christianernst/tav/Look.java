@@ -5,6 +5,10 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Iterator;
+import java.util.List;
 import java.util.Locale;
 
 /**
@@ -16,7 +20,8 @@ import java.util.Locale;
  *  "motion":{"drift":0,"beat":0.0625,"drop":0.333,"tilt":0.3,"pump":0},
  *  "palette":"Neon",                                                   // a preset name, or "Custom"
  *  "scene":"halo","sym":6,"brightness":2,"calm":false,
- *  "eq":{"mode":1,"master":1,"punch":0.7,"beat":1.3,"gain":[1,1,1,1]}}
+ *  "eq":{"mode":1,"master":1,"punch":0.7,"beat":1.3,"gain":[1,1,1,1]},
+ *  "tune":{"rays":0.7,"trails":0.5,"rings":0.3}}                      // the scene's sliders, 0..1 (optional)
  * </pre>
  * The colour fields are the presets thread's format, so a bare colour preset is a valid Look that
  * only sets colours; every other key is optional and a reader keeps its current value for a missing
@@ -46,6 +51,8 @@ final class Look {
     int calm = -1;         // 0 full, 1 calm
     int eqMode = -1;
     Equalizer eq;
+    /** The scene's per-scene sliders by id, each 0..1 (the scenes thread's "tune"); null = keep. */
+    JSONObject tune;
 
     /** Trims and clips a name to what the cloud accepts; empty becomes "Look". */
     static String cleanName(String s) {
@@ -74,6 +81,7 @@ final class Look {
                 o.put("eq", new JSONObject().put("mode", Math.max(0, eqMode)).put("master", round(eq.master))
                         .put("punch", round(eq.punch)).put("beat", round(eq.beatGain)).put("gain", g));
             }
+            if (tune != null && tune.length() > 0) o.put("tune", tune);
             return o;
         } catch (JSONException e) {
             throw new IllegalStateException(e);
@@ -121,7 +129,50 @@ final class Look {
                     clamp((float) e.optDouble("punch", 0), 0, 1), clamp((float) e.optDouble("beat", 1), 0, 2));
             l.eqMode = Math.max(0, Math.min(2, e.optInt("mode", 2)));
         }
+        JSONObject t = o.optJSONObject("tune");
+        if (t != null) {
+            JSONObject clean = new JSONObject();
+            Iterator<String> keys = t.keys();
+            while (keys.hasNext()) {
+                String k = keys.next();
+                double v = t.optDouble(k, Double.NaN);
+                if (k.matches("[a-z][a-z0-9_]{0,15}") && !Double.isNaN(v)) {
+                    try {
+                        clean.put(k, round(clamp((float) v, 0, 1)));
+                    } catch (JSONException ignored) {
+                    }
+                }
+            }
+            if (clean.length() > 0) l.tune = clean;
+        }
         return l;
+    }
+
+    /** True when the two documents say the same thing, whatever the key order. */
+    boolean sameAs(Look other) {
+        return other != null && canonical(toJson()).equals(canonical(other.toJson()));
+    }
+
+    /** The JSON with its keys sorted at every level, for comparing documents. */
+    static String canonical(Object v) {
+        if (v instanceof JSONObject) {
+            JSONObject o = (JSONObject) v;
+            List<String> keys = new ArrayList<>();
+            Iterator<String> it = o.keys();
+            while (it.hasNext()) keys.add(it.next());
+            Collections.sort(keys);
+            StringBuilder b = new StringBuilder("{");
+            for (String k : keys) b.append(JSONObject.quote(k)).append(':').append(canonical(o.opt(k))).append(',');
+            return b.append('}').toString();
+        }
+        if (v instanceof JSONArray) {
+            JSONArray a = (JSONArray) v;
+            StringBuilder b = new StringBuilder("[");
+            for (int i = 0; i < a.length(); i++) b.append(canonical(a.opt(i))).append(',');
+            return b.append(']').toString();
+        }
+        if (v instanceof Number) return String.valueOf(((Number) v).doubleValue());
+        return String.valueOf(v);
     }
 
     // ------------------------------------------------------------------ share links

@@ -10,7 +10,7 @@ import java.util.Random;
 public final class LookCheck {
     private static boolean failed;
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
         // a full Look survives JSON and the link payload
         Look l = new Look();
         l.name = "  Night   drive ";
@@ -52,6 +52,16 @@ public final class LookCheck {
         Look odd = Look.fromJson("{\"v\":1,\"name\":\"x\",\"colours\":[\"#000000\",\"#000000\",\"#000000\"],\"scene\":\"nosuch\",\"sym\":99,\"brightness\":7}");
         check("unknown scene and out-of-range values are dropped", odd != null && odd.scene == null && odd.sym == -1 && odd.brightness == -1);
         check("an empty name becomes Look", "Look".equals(Look.cleanName("   ")) && Look.cleanName("a".repeat(60)).length() == 40);
+        Look tuned = Look.fromJson("{\"v\":1,\"name\":\"t\",\"colours\":[\"#000000\",\"#000000\",\"#000000\"],\"scene\":\"halo\","
+                + "\"tune\":{\"rays\":0.7,\"trails\":1.5,\"Bad Key\":0.2,\"nan\":\"x\"}}");
+        check("per-scene sliders are kept, clamped and cleaned", tuned != null && tuned.tune != null && tuned.tune.length() == 2
+                && near((float) tuned.tune.optDouble("rays"), 0.7f) && near((float) tuned.tune.optDouble("trails"), 1f)
+                && Look.fromJson(tuned.toJson()).tune.length() == 2 && bare.tune == null);
+        Look same = Look.fromJson(json), other = Look.fromJson(json);
+        other.sym = 8;
+        check("sameAs compares documents, not key order", same.sameAs(back) && !same.sameAs(other)
+                && Look.canonical(new org.json.JSONObject("{\"b\":1,\"a\":[2,{\"d\":0,\"c\":1}]}"))
+                .equals(Look.canonical(new org.json.JSONObject("{\"a\":[2,{\"c\":1,\"d\":0}],\"b\":1.0}"))));
 
         // harmonious shuffle: spread hues, neon saturation and brightness, never the same twice
         Random r = new Random(42);
