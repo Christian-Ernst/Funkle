@@ -45,7 +45,7 @@ which loads the Android shaders). README.md is the user-facing description. Open
   SQL functions `sync_settings`, `ingest_events`, `trending_presets`, `preset_of_the_day`,
   `recommend_presets`, `me_summary`), `tools/check.sh` applies it to any Postgres and runs
   `tools/scenario.sql` (CI does this). The clients are `web/cloud.js` and `Cloud.java`, plain HTTPS and
-  JSON, no SDK; both are no-ops without `web/cloud-config.js` / `android/assets/cloud.json` (gitignored).
+  JSON, no SDK; both are no-ops without `web/cloud-config.js` / `android/assets/cloud.json` (committed; the publishable key is public).
   Events are batched and only ever written through `ingest_events`; the account card has the opt-out.
 - `setup.sh`: one-shot Termux setup (repair packages, tools, optional signing, build, install).
 - `.github/workflows/build.yml`: CI runs the checks, builds the APK (as an artifact on every push),

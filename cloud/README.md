@@ -21,9 +21,9 @@ repository's "no libraries" rule holds. Without a config file both editions run 
 5. Configure the clients:
    - web: copy `web/cloud-config.example.js` to `web/cloud-config.js` and fill in URL and key.
    - Android: copy `android/assets/cloud.example.json` to `android/assets/cloud.json` and fill it
-     in, then build. Both files are gitignored; the anon key is public by design (row level
-     security decides what it may touch), but keeping it out of the repo keeps forks from
-     writing into your project.
+     in, then build. Both files are committed: the publishable key is meant to ship in clients,
+     and row level security decides what it may touch. A fork that wants its own cloud changes
+     these two files.
 6. Check: open the web page, the *Account* button appears; `cloud/tools/check.sh` runs the schema
    and a scenario test on any Postgres (CI does this on every push).
 

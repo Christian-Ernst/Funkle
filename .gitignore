@@ -3,5 +3,3 @@ termux/tav
 *.idsig
 android/*.keystore
 *.jks
-web/cloud-config.js
-android/assets/cloud.json
