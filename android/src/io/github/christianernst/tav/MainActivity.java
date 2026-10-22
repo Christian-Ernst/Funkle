@@ -326,6 +326,47 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     }
 
     @Override
+    public void onAutopilotLook(Autopilot.Look look) {
+        ui.post(() -> {
+            int pal = look.palette == null ? -1 : indexOf(Palettes.NAMES, look.palette);
+            if (pal >= 0) {   // shown, not saved: the user's own choice comes back when the autopilot stops painting
+                final float[][] p = paletteFor(pal);
+                view.queueEvent(() -> {
+                    renderer.setPalette(p);
+                    renderer.setRainbow(pal == Palettes.RAINBOW);
+                });
+            }
+            if (look.colourMode >= 0) {
+                final ColourDrive d = ColourDrive.preset(look.colourMode);
+                view.queueEvent(() -> renderer.setColourDrive(d));
+            }
+            StringBuilder label = new StringBuilder(Scene.ALL[look.scene >= 0 ? look.scene : Math.max(0, Math.min(Scene.ALL.length - 1, prefs.getInt("scene", 0)))].name);
+            if (pal >= 0) label.append(" \u00b7 ").append(look.palette);
+            if (look.colourMode >= 0) label.append(" \u00b7 ").append(ColourDrive.MODE_NAMES[look.colourMode]);
+            sceneLabel.setText(spaced(label.toString()));
+            sceneLabel.animate().cancel();
+            sceneLabel.setAlpha(1f);
+            ui.removeCallbacks(hideScene);
+            ui.postDelayed(hideScene, 2200);
+            try {
+                cloud.track("autopilot", new JSONObject().put("reason", look.reason)
+                        .put("scene", look.scene >= 0 ? Scene.ALL[look.scene].id : JSONObject.NULL)
+                        .put("palette", look.palette != null ? look.palette : JSONObject.NULL)
+                        .put("colour_motion", look.colourMode >= 0 ? ColourDrive.MODE_NAMES[look.colourMode] : JSONObject.NULL)
+                        .put("energy", Math.round(look.energy * 100) / 100.0).put("bpm", Math.round(look.bpm)));
+            } catch (JSONException ignored) {
+            }
+        });
+    }
+
+    @Override
+    public void onAutopilotWeights(String weights) {
+        ui.post(() -> {
+            if (!weights.equals(prefs.getString("ap_weights", ""))) prefs.edit().putString("ap_weights", weights).apply();
+        });
+    }
+
+    @Override
     public void onSilence(boolean silent) {
         ui.post(() -> {
             silentNow = silent;
@@ -421,13 +462,16 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     private void applyPrefs() {
         final int scene = prefs.getInt("scene", 0), sym = prefs.getInt("sym", 1), q = prefs.getInt("quality", 1);
         final int lit = prefs.getInt("brightness", TavRenderer.DEFAULT_BRIGHTNESS);
-        final boolean auto = prefs.getBoolean("autopilot", true), calm = prefs.getInt("motion", 0) == 1;
+        final int auto = autopilotMode();
+        final boolean calm = prefs.getInt("motion", 0) == 1;
+        final String weights = prefs.getString("ap_weights", "");
         view.queueEvent(() -> {
-            renderer.setScene(scene);
+            renderer.restoreScene(scene);
             renderer.setSymmetry(sym);
             renderer.setQuality(q);
             renderer.setBrightness(lit);
             renderer.setCalm(calm);
+            renderer.setAutopilotWeights(weights);
             renderer.setAutopilot(auto);
         });
         pushPalette();
@@ -441,7 +485,34 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         view.queueEvent(() -> {
             renderer.setPalette(p);
             renderer.setRainbow(idx == Palettes.RAINBOW);
+            // Album colours already change with the track and Custom is the user's own work: the autopilot leaves both alone
+            renderer.setColoursLocked(idx == Palettes.ALBUM || idx == Palettes.CUSTOM);
         });
+    }
+
+    /**
+     * The Autopilot chip (Off, Scenes, Scenes + colours). Installs from before the chip had three
+     * options kept a boolean, which maps to Off or the default; the boolean is kept in step for the
+     * session events.
+     */
+    private int autopilotMode() {
+        if (prefs.contains("autopilot_mode")) return prefs.getInt("autopilot_mode", Autopilot.DEFAULT);
+        return prefs.getBoolean("autopilot", true) ? Autopilot.DEFAULT : Autopilot.OFF;
+    }
+
+    private void setAutopilotMode(int mode) {
+        prefs.edit().putInt("autopilot_mode", mode).putBoolean("autopilot", mode != Autopilot.OFF).apply();
+        view.queueEvent(() -> renderer.setAutopilot(mode));
+        // back to the user's own colours when the autopilot no longer paints them
+        if (mode != Autopilot.FULL) {
+            pushPalette();
+            pushColourDrive();
+        }
+    }
+
+    private static int indexOf(String[] names, String name) {
+        for (int i = 0; i < names.length; i++) if (names[i].equals(name)) return i;
+        return -1;
     }
 
     private float[][] paletteFor(int idx) {
@@ -653,11 +724,13 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
             }
             prefs.edit().putInt("palette", i).apply();
             if (i == Palettes.ALBUM && !MediaWatcher.hasNotificationAccess(this)) askNotificationAccess();
+            view.queueEvent(renderer::autopilotUserColours);   // the user's colours stay for this track
             pushPalette();
             if (i == Palettes.CUSTOM) showColourEditor();
         });
 
         addRow("Colour motion (how the colours move with the music)", ColourDrive.MODE_NAMES, colourMode, new ArrayList<>(), i -> {
+            view.queueEvent(renderer::autopilotUserColours);
             if (i == ColourDrive.CUSTOM) showColourMotion();   // Custom: the sliders
             else setColourDrive(ColourDrive.preset(i), i);
         });
@@ -684,12 +757,8 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
             else requestAudio();
         });
 
-        addRow("Autopilot (switch scenes with the music)", new String[]{"On", "Off"}, prefs.getBoolean("autopilot", true) ? 0 : 1,
-                new ArrayList<>(), i -> {
-                    final boolean on = i == 0;
-                    prefs.edit().putBoolean("autopilot", on).apply();
-                    view.queueEvent(() -> renderer.setAutopilot(on));
-                });
+        addRow("Autopilot (follows the music: scenes by energy, new colours per section)", Autopilot.MODE_NAMES, autopilotMode(),
+                new ArrayList<>(), this::setAutopilotMode);
 
         addRow("Song title", new String[]{"Fades out", "Always on screen"}, titleAlways ? 1 : 0, new ArrayList<>(), i -> {
             titleAlways = i == 1;
@@ -1235,9 +1304,11 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     private final SharedPreferences.OnSharedPreferenceChangeListener cloudPrefs = (p, key) -> {
         if (key == null || key.equals(SETTINGS_AT)) return;
         Object v = p.getAll().get(key);
-        try {   // the value tells which choices stick, not just which were touched
-            cloud.track("setting_changed", new JSONObject().put("key", key).put("to", v == null ? JSONObject.NULL : v));
-        } catch (JSONException ignored) {
+        if (!key.equals("ap_weights")) {   // the autopilot's own bookkeeping is synced but not an event
+            try {   // the value tells which choices stick, not just which were touched
+                cloud.track("setting_changed", new JSONObject().put("key", key).put("to", v == null ? JSONObject.NULL : v));
+            } catch (JSONException ignored) {
+            }
         }
         p.edit().putLong(SETTINGS_AT, System.currentTimeMillis()).apply();
         ui.removeCallbacks(syncSettings);
@@ -1261,7 +1332,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         try {
             cloud.track("session_end", new JSONObject().put("seconds", (System.currentTimeMillis() - sessionStartedAt) / 1000)
                     .put("end_scene", Scene.ALL[Math.max(0, Math.min(Scene.ALL.length - 1, prefs.getInt("scene", 0)))].name)
-                    .put("autopilot", prefs.getBoolean("autopilot", true)).put("mode", "normal"));
+                    .put("autopilot", autopilotMode() != Autopilot.OFF).put("autopilot_mode", Autopilot.MODE_NAMES[autopilotMode()]).put("mode", "normal"));
         } catch (JSONException ignored) {
         }
         sessionStartedAt = 0;

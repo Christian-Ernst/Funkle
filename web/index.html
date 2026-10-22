@@ -163,7 +163,7 @@
     <button id="colours" type="button">Colours: Neon</button>
     <button id="motion" type="button">Colour motion: Beat</button>
     <button id="bright" type="button">Brightness: Normal</button>
-    <button id="auto" type="button" aria-pressed="true">Autopilot</button>
+    <button id="auto" type="button" aria-pressed="true" title="Follows the music: scenes by energy, new colours per section">Autopilot: Scenes + colours</button>
     <button id="full" type="button">Fullscreen</button>
     <button id="account" type="button" hidden>Account</button>
   </div>
@@ -315,6 +315,7 @@ async function openFile(file) {
     audio.name = file.name.replace(/\.[^.]+$/, '');
     $('srcName').textContent = audio.name;
     if (!an || an.sr !== buf.sampleRate) an = new Analyzer(buf.sampleRate, N);
+    director.onTrack();
     play(true);
     toast(audio.name);
   } catch (e) {
@@ -347,22 +348,56 @@ const sceneButtons = SCENES.map((s, i) => {
 });
 SHAPES.forEach((name, i) => $('shapes').appendChild(chip(name, () => { if (eng) eng.addStroke(shapePoints(i, 0.62), Math.random()); poke(); })));
 
-let sceneTimer = 0, autopilot = true, mirrorIdx = 0, palIdx = 0, motionIdx = DEFAULT_COLOUR_MODE;
-function setScene(i, by = 'user') {
+let autopilotMode = DEFAULT_AUTOPILOT, mirrorIdx = 0, palIdx = 0, motionIdx = DEFAULT_COLOUR_MODE;
+// The director: it hears the analyzer every frame and asks for a look now and then (see Autopilot in engine.js).
+const director = new Autopilot(SCENES.map((s) => s.id));
+const WEIGHTS_KEY = 'tav.autopilot.weights';
+try { director.loadWeights(localStorage.getItem(WEIGHTS_KEY)); } catch (e) { /* none */ }
+function setScene(i, by = 'user', fade = 0.9) {
   if (!eng) return;
-  eng.setScene(i);
-  sceneTimer = 0;
+  eng.setScene(i, fade);
+  if (by === 'user') {
+    director.onUserScene(eng.scene);
+    try { localStorage.setItem(WEIGHTS_KEY, director.weights()); } catch (e) { /* private mode */ }
+  } else if (by !== 'autopilot') director.onScene(eng.scene);
   sceneButtons.forEach((b, k) => b.setAttribute('aria-pressed', String(k === eng.scene)));
-  toast(SCENES[eng.scene].name);
+  if (by !== 'autopilot') toast(SCENES[eng.scene].name);
   TavCloud.track('scene', { scene: SCENES[eng.scene].id, by });
   if (by === 'user') saveSettings();
+}
+// Colours the autopilot paints are shown, not saved: the user's own choice comes back when it stops painting.
+function applyLook(look) {
+  if (look.scene >= 0) setScene(look.scene, 'autopilot', look.fade);
+  const p = look.palette ? PALETTES.findIndex((x) => x[0] === look.palette) : -1;
+  if (p >= 0) { targetPalette = PALETTES[p][1]; eng.rainbow = !!PALETTES[p][2]; $('colours').textContent = 'Colours: ' + PALETTES[p][0] + ' (autopilot)'; }
+  if (look.colourMode >= 0 && COLOUR_MODES[look.colourMode]) { eng.colour.set(COLOUR_MODES[look.colourMode]); $('motion').textContent = 'Colour motion: ' + COLOUR_MODES[look.colourMode].name + ' (autopilot)'; }
+  const parts = [SCENES[eng.scene].name];
+  if (p >= 0) parts.push(PALETTES[p][0]);
+  if (look.colourMode >= 0) parts.push(COLOUR_MODES[look.colourMode].name);
+  toast(parts.join(' · '));
+  TavCloud.track('autopilot', { reason: look.reason, scene: look.scene >= 0 ? SCENES[look.scene].id : null, palette: look.palette,
+    colour_motion: look.colourMode >= 0 ? COLOUR_MODES[look.colourMode].name : null, energy: Math.round(look.energy * 100) / 100, bpm: Math.round(look.bpm) });
+}
+function setAutopilotMode(m, by = 'user') {
+  autopilotMode = ((m % AUTOPILOT_MODES.length) + AUTOPILOT_MODES.length) % AUTOPILOT_MODES.length;
+  director.setMode(autopilotMode);
+  $('auto').textContent = 'Autopilot: ' + AUTOPILOT_MODES[autopilotMode];
+  $('auto').setAttribute('aria-pressed', String(autopilotMode !== AUTOPILOT_OFF));
+  if (autopilotMode !== AUTOPILOT_FULL) {   // back to the user's own colours
+    targetPalette = PALETTES[palIdx][1];
+    if (eng) { eng.rainbow = !!PALETTES[palIdx][2]; eng.colour.set(COLOUR_MODES[motionIdx]); }
+    $('colours').textContent = 'Colours: ' + PALETTES[palIdx][0];
+    $('motion').textContent = 'Colour motion: ' + COLOUR_MODES[motionIdx].name;
+  }
+  if (by === 'user') { TavCloud.track('setting_changed', { key: 'autopilot', to: AUTOPILOT_MODES[autopilotMode] }); saveSettings(); }
 }
 
 // ---------------------------------------------------------------- settings: kept in this browser, and in the cloud when signed in
 const SETTINGS_KEY = 'tav.settings';
 let settingsAt = 0;   // when the local settings last changed (ms); the cloud copy wins if it is newer
 function currentSettings() {
-  return { scene: eng ? eng.scene : 0, palette: PALETTES[palIdx][0], mirror: MIRRORS[mirrorIdx], brightness: eng ? eng.brightness : DEFAULT_BRIGHTNESS, autopilot };
+  return { scene: eng ? eng.scene : 0, palette: PALETTES[palIdx][0], mirror: MIRRORS[mirrorIdx], brightness: eng ? eng.brightness : DEFAULT_BRIGHTNESS,
+    autopilot: autopilotMode !== AUTOPILOT_OFF, autopilotMode };
 }
 function saveSettings() {
   settingsAt = Date.now();
@@ -377,7 +412,8 @@ function applySettings(d) {
   const m = MIRRORS.indexOf(d.mirror);
   if (m >= 0) { mirrorIdx = m; eng.sym = MIRRORS[m]; $('mirror').textContent = MIRRORS[m] === 1 ? 'Mirror off' : 'Mirror ×' + MIRRORS[m]; }
   if (Number.isInteger(d.brightness) && BRIGHTNESS[d.brightness]) { eng.setBrightness(d.brightness); $('bright').textContent = 'Brightness: ' + BRIGHTNESS[d.brightness].name; }
-  if (typeof d.autopilot === 'boolean') { autopilot = d.autopilot; $('auto').setAttribute('aria-pressed', String(autopilot)); }
+  if (Number.isInteger(d.autopilotMode) && AUTOPILOT_MODES[d.autopilotMode]) setAutopilotMode(d.autopilotMode, 'restore');
+  else if (typeof d.autopilot === 'boolean') setAutopilotMode(d.autopilot ? DEFAULT_AUTOPILOT : AUTOPILOT_OFF, 'restore');   // settings from before the modes
   if (Number.isInteger(d.scene) && SCENES[d.scene]) setScene(d.scene, 'restore');
 }
 function loadLocalSettings() {
@@ -397,7 +433,7 @@ $('mirror').addEventListener('click', () => {
   TavCloud.track('setting_changed', { key: 'mirror', to: MIRRORS[mirrorIdx] });
   saveSettings(); poke();
 });
-$('colours').addEventListener('click', () => { setPalette(palIdx + 1); poke(); });
+$('colours').addEventListener('click', () => { setPalette(palIdx + 1); director.onUserPalette(); poke(); });   // the user's colours stay for this track
 function setPalette(i) {
   palIdx = ((i % PALETTES.length) + PALETTES.length) % PALETTES.length;
   targetPalette = PALETTES[palIdx][1];
@@ -406,7 +442,7 @@ function setPalette(i) {
   TavCloud.track('palette', { palette: PALETTES[palIdx][0] });
   saveSettings();
 }
-$('motion').addEventListener('click', () => { setColourMode(motionIdx + 1); poke(); });
+$('motion').addEventListener('click', () => { setColourMode(motionIdx + 1); director.onUserPalette(); poke(); });
 function setColourMode(i) {
   motionIdx = ((i % COLOUR_MODES.length) + COLOUR_MODES.length) % COLOUR_MODES.length;
   if (eng) eng.colour.set(COLOUR_MODES[motionIdx]);
@@ -421,12 +457,7 @@ $('bright').addEventListener('click', () => {
   TavCloud.track('setting_changed', { key: 'brightness', to: BRIGHTNESS[eng.brightness].name });
   saveSettings(); poke();
 });
-$('auto').addEventListener('click', () => {
-  autopilot = !autopilot; sceneTimer = 0;
-  $('auto').setAttribute('aria-pressed', String(autopilot));
-  TavCloud.track('setting_changed', { key: 'autopilot', to: autopilot });
-  saveSettings(); poke();
-});
+$('auto').addEventListener('click', () => { setAutopilotMode(autopilotMode + 1); poke(); });
 
 // ---------------------------------------------------------------- account sheet: streak, sign-in, privacy
 const sheet = $('sheet');
@@ -503,7 +534,7 @@ function sessionEnd() {
   if (!sessionStartedAt) return;
   const seconds = Math.round((performance.now() - sessionStartedAt) / 1000);
   sessionStartedAt = 0;
-  TavCloud.track('session_end', { seconds, end_scene: eng ? SCENES[eng.scene].id : null, autopilot, mode: 'normal' });
+  TavCloud.track('session_end', { seconds, end_scene: eng ? SCENES[eng.scene].id : null, autopilot: autopilotMode !== AUTOPILOT_OFF, autopilot_mode: AUTOPILOT_MODES[autopilotMode], mode: 'normal' });
   TavCloud.flush(true);
   TavCloud.newSession();
 }
@@ -535,6 +566,7 @@ addEventListener('keydown', (e) => {
   else if (k === 'k') $('colours').click();
   else if (k === 'd') $('motion').click();
   else if (k === 'b') $('bright').click();
+  else if (k === 'a') $('auto').click();
   else if (k === 's') { eng.addStroke(shapePoints(shapeKey++ % SHAPES.length, 0.62)); }
   else return;
   poke();
@@ -616,6 +648,7 @@ function useDemo() {
   if (!demo) demo = synthDemo(44100);
   stopNode();
   audio.track = demo; audio.loop = true; audio.pausedAt = 0; audio.name = '';
+  if (typeof director !== 'undefined') director.onTrack();
   $('srcName').textContent = 'Demo beat · 128 BPM';
   if (!an || an.sr !== demo.sampleRate) an = new Analyzer(demo.sampleRate, N);
 }
@@ -695,12 +728,8 @@ function frame(now) {
   fillWindow();
   an.process(win, dt);
   for (let k = 0; k < 3; k++) for (let c = 0; c < 3; c++) eng.palette[k][c] += (targetPalette[k][c] - eng.palette[k][c]) * (1 - Math.exp(-dt * 1.5));
-  sceneTimer += dt;
-  if (autopilot && audio.playing && ((an.drop && sceneTimer > 12) || sceneTimer > 40)) {
-    let next = eng.scene;
-    while (next === eng.scene) next = Math.floor(Math.random() * SCENES.length);
-    setScene(next, 'autopilot');
-  }
+  const look = director.step(dt, an.bands, an.intensity, an.onBeat, an.drop, an.silent || !audio.playing, null);
+  if (look) applyLook(look);
   eng.frame(dt, an);
   for (let i = 0; i < 4; i++) meters[i].style.width = Math.round(an.bands[i] * 100) + '%';
   beatDot.style.opacity = (0.25 + 0.75 * an.beat).toFixed(2);

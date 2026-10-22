@@ -41,6 +41,12 @@ final class TavRenderer implements GLSurfaceView.Renderer {
     interface Host {
         void onSceneChanged(int scene);
 
+        /** The autopilot changed the look: the scene has already switched; the colours are the host's to apply. */
+        void onAutopilotLook(Autopilot.Look look);
+
+        /** The user's scene weights changed (see Autopilot.weights()); the host keeps them. */
+        void onAutopilotWeights(String weights);
+
         void onSilence(boolean silent);
 
         void onRenderError(String message);
@@ -80,13 +86,15 @@ final class TavRenderer implements GLSurfaceView.Renderer {
     // Clocks are double on the CPU; the shaders get them wrapped (see use()) because fp32
     // uniforms in the thousands lose the precision that fract()/sin() patterns need.
     private double time, transStart = -10;
+    private float transDur = 0.9f;
     private float stepScale = 1, flash, seed;
     // Drops: seconds since the last one (the scenes' drop() envelope), and a surge that runs the
     // music clock ahead for a moment so every scene lurches forward on the hit.
     private float dropAge = 100, surge, flowExtra;
     private long lastNanos;
-    private float sceneTimer;
-    private boolean autopilot = true, lastSilent;
+    private final Autopilot director = new Autopilot(sceneIds(), System.nanoTime());
+    private final boolean[] usable = new boolean[Scene.ALL.length];
+    private boolean lastSilent;
     private final float[][] palette = Palettes.preset(1), target = Palettes.preset(1);
     private boolean rainbow;                                     // Colours: Rainbow (the shader paints the spectrum)
     private ColourDrive drive = ColourDrive.preset(ColourDrive.STILL);
@@ -102,27 +110,47 @@ final class TavRenderer implements GLSurfaceView.Renderer {
         this.host = host;
     }
 
+    private static String[] sceneIds() {
+        String[] ids = new String[Scene.ALL.length];
+        for (int i = 0; i < ids.length; i++) ids[i] = Scene.ALL[i].id;
+        return ids;
+    }
+
     // ------------------------------------------------------------------ controls (GL thread)
 
+    /** The user picked a scene: the autopilot holds it and remembers the choice. */
     void setScene(int i) {
+        i = applyScene(i, 0.9f);
+        director.onUserScene(i);
+        host.onAutopilotWeights(director.weights());
+    }
+
+    /** The scene from the preferences, or a stand-in for a broken one: not the user's pick. */
+    void restoreScene(int i) {
+        director.onScene(applyScene(i, 0.9f));
+    }
+
+    /** Switches with a crossfade of fade seconds; returns the scene shown (broken ones are skipped). */
+    private int applyScene(int i, float fade) {
         int n = Scene.ALL.length;
         i = ((i % n) + n) % n;
         for (int k = 0; k < n && broken[i]; k++) i = (i + 1) % n;
-        if (i == scene) return;
+        if (i == scene) return i;
         if (sceneB != null) {
             glBindFramebuffer(GL_READ_FRAMEBUFFER, sceneB.fb);
             glBindFramebuffer(GL_DRAW_FRAMEBUFFER, trans.fb);
             glBlitFramebuffer(0, 0, sceneB.w, sceneB.h, 0, 0, trans.w, trans.h, GL_COLOR_BUFFER_BIT, GL_NEAREST);
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
             transStart = time;
+            transDur = fade;
         }
         scene = i;
-        sceneTimer = 0;
         if (an != null && an.flow > 400) {   // rebase the music clock while the crossfade hides the jump
             an.flow = 0;
             flowExtra = 0;
         }
         host.onSceneChanged(i);
+        return i;
     }
 
     int scene() {
@@ -137,9 +165,23 @@ final class TavRenderer implements GLSurfaceView.Renderer {
         sym = Math.max(1, s);
     }
 
-    void setAutopilot(boolean on) {
-        autopilot = on;
-        sceneTimer = 0;
+    /** Autopilot.OFF, SCENES or FULL (scenes and colours). */
+    void setAutopilot(int mode) {
+        director.setMode(mode);
+    }
+
+    void setAutopilotWeights(String weights) {
+        director.loadWeights(weights);
+    }
+
+    /** The user's own palette is Album or Custom: the autopilot leaves the colours alone. */
+    void setColoursLocked(boolean locked) {
+        director.setColoursLocked(locked);
+    }
+
+    /** The user chose colours or a colour motion: the autopilot keeps them for the rest of the track. */
+    void autopilotUserColours() {
+        director.onUserPalette();
     }
 
     void setQuality(int q) {
@@ -181,9 +223,9 @@ final class TavRenderer implements GLSurfaceView.Renderer {
         drive = d;
     }
 
-    /** Called when the playing track changes: autopilot moves on with the music. */
+    /** Called when the playing track changes: the autopilot moves on with the music. */
     void onTrackChanged() {
-        if (autopilot && time > 3) randomScene();
+        if (time > 3) director.onTrack();
         seed = (seed + 1) % 64;
     }
 
@@ -248,12 +290,6 @@ final class TavRenderer implements GLSurfaceView.Renderer {
             if (old == liveStroke) liveStroke = null;
             old.release();
         }
-    }
-
-    private void randomScene() {
-        int n = Scene.ALL.length, next = scene;
-        for (int tries = 0; tries < 10 && (next == scene || broken[next]); tries++) next = rnd.nextInt(n);
-        setScene(next);
     }
 
     // ------------------------------------------------------------------ GLSurfaceView.Renderer
@@ -373,7 +409,7 @@ final class TavRenderer implements GLSurfaceView.Renderer {
         if (sp == null) {
             broken[scene] = true;
             host.onRenderError("Scene " + sc.name + " failed to compile on this GPU");
-            setScene(scene + 1);
+            restoreScene(scene + 1);
             return;
         }
         use(sp);
@@ -393,7 +429,7 @@ final class TavRenderer implements GLSurfaceView.Renderer {
         }
         drawUserLayer();
 
-        float tm = (float) ((time - transStart) / 0.9);
+        float tm = (float) ((time - transStart) / transDur);
         if (tm < 1) {
             glBindVertexArray(vao);
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -439,10 +475,13 @@ final class TavRenderer implements GLSurfaceView.Renderer {
         }
     }
 
+    /** The director hears the shaped bands and the analyzer's flags; a look it asks for is applied here. */
     private void autopilot(float dt) {
-        sceneTimer += dt;
-        if (!autopilot) return;
-        if ((an.drop && sceneTimer > 12) || sceneTimer > 45) randomScene();
+        for (int i = 0; i < usable.length; i++) usable[i] = !broken[i];
+        Autopilot.Look look = director.step(dt, shaped, shapedLevel, an.intensity, an.onBeat, an.drop, an.silent, usable);
+        if (look == null) return;
+        if (look.scene >= 0) applyScene(look.scene, look.fade);
+        host.onAutopilotLook(look);
     }
 
     private void applyScale() {

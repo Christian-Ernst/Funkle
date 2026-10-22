@@ -39,9 +39,19 @@ JAR=${ANDROID_JAR:-${ANDROID_HOME:-}/platforms/android-35/android.jar}
 javac -nowarn -d "$OUT/classes" -cp "$JAR" src/io/github/christianernst/tav/AudioAnalyzer.java \
     src/io/github/christianernst/tav/AudioCapture.java src/io/github/christianernst/tav/AdaptiveScale.java \
     src/io/github/christianernst/tav/Equalizer.java src/io/github/christianernst/tav/ColourDrive.java \
+    src/io/github/christianernst/tav/Autopilot.java \
     test/io/github/christianernst/tav/AnalyzerCheck.java test/io/github/christianernst/tav/AdaptiveScaleCheck.java \
-    test/io/github/christianernst/tav/EqualizerCheck.java test/io/github/christianernst/tav/ColourDriveCheck.java
+    test/io/github/christianernst/tav/EqualizerCheck.java test/io/github/christianernst/tav/ColourDriveCheck.java \
+    test/io/github/christianernst/tav/AutopilotCheck.java
 java -cp "$OUT/classes" io.github.christianernst.tav.AnalyzerCheck
 java -cp "$OUT/classes" io.github.christianernst.tav.AdaptiveScaleCheck
 java -cp "$OUT/classes" io.github.christianernst.tav.EqualizerCheck
 java -cp "$OUT/classes" io.github.christianernst.tav.ColourDriveCheck
+java -cp "$OUT/classes" io.github.christianernst.tav.AutopilotCheck
+
+if command -v node >/dev/null 2>&1; then
+    echo "[web]"
+    node ../web/tools/autopilot-check.js | tail -1
+else
+    echo "[web] skipped: node not installed"
+fi

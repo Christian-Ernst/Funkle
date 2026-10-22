@@ -63,8 +63,9 @@ Common: `session_id`, `ts`, `day` (the client's local day, for streaks), `app`, 
 | kind | props |
 |---|---|
 | `session_start` | `source` (visualizer, mic, file, demo), `install_id` |
-| `session_end` | `seconds`, `end_scene`, `autopilot`, `mode` |
+| `session_end` | `seconds`, `end_scene`, `autopilot`, `autopilot_mode` (Off, Scenes, Scenes + colours), `mode` |
 | `scene` | `scene`, `by` (user, autopilot, restore) |
+| `autopilot` | the autopilot changed the look: `reason` (drop, track, section, energy, time), `scene`, `palette`, `colour_motion` (each null when unchanged), `energy` (0..1), `bpm` |
 | `palette` | `palette` |
 | `setting_changed` | `key`, `to` |
 | `look_saved`, `look_applied`, `look_shared` | `preset_id`, `origin` (own, daily, shared, gallery) |

@@ -95,6 +95,182 @@ function importPreset(doc) {
   return { name: String(doc.name || ''), palette, rainbow: !!doc.rainbow, motion };
 }
 
+// The music-aware autopilot, twin of Autopilot.java with the same numbers: scenes by energy, a hold
+// through a build-up, a switch on the downbeat of the bar after a drop, new colours per section, and
+// the scenes the user keeps weighted up. The scene list is data: a scene without a mood suits everything.
+const AUTOPILOT_MODES = ['Off', 'Scenes', 'Scenes + colours'];
+const AUTOPILOT_OFF = 0, AUTOPILOT_SCENES = 1, AUTOPILOT_FULL = 2, DEFAULT_AUTOPILOT = AUTOPILOT_FULL;
+const SCENE_MOODS = { halo: [0, 0.65], tunnel: [0.35, 1], pulsar: [0.5, 1], kaleido: [0.2, 0.85], orb: [0, 0.5], nebula: [0, 0.6], spiro: [0.3, 0.9] };
+const AUTOPILOT_PALETTES = {
+  low: ['Ice', 'Ocean', 'Aurora', 'Vapor'],
+  mid: ['Neon', 'Sunset', 'Aurora', 'Candy', 'Vapor'],
+  high: ['Inferno', 'Neon', 'Candy', 'Toxic', 'Rainbow'],
+};
+const AUTOPILOT_MOTION = { low: 1, mid: 2, high: 3 };   // Drift, Beat, Bands (COLOUR_MODES indices)
+const AP_LOW_ENERGY = 0.3, AP_HIGH_ENERGY = 0.65, AP_FAST_BPM = 125;
+const TEMPO_BINS = 50, TEMPO_MIN = 0.3, TEMPO_BIN = 0.01;   // 0.30..0.80 s: 200 down to 75 bpm
+
+class Autopilot {
+  constructor(sceneIds, random = Math.random) {
+    this.ids = sceneIds;
+    this.lo = sceneIds.map((id) => (SCENE_MOODS[id] || [0, 1])[0]);
+    this.hi = sceneIds.map((id) => (SCENE_MOODS[id] || [0, 1])[1]);
+    this.weight = sceneIds.map(() => 1);
+    this.random = random;
+    this.mode = DEFAULT_AUTOPILOT; this.coloursLocked = false;
+    this.energy = 0; this.energyFast = 0; this.buildFor = 0; this.building = false;
+    this.sinceBeat = 10; this.beatIv = 0; this.tempo = new Float32Array(TEMPO_BINS);
+    this.fast = [0, 0, 0]; this.slow = [0, 0, 0]; this.diffFor = 0; this.sinceSection = 0; this.sections = 0; this.wasSilent = true;
+    this.dropArmed = false; this.dropBeats = 0; this.dropWait = 0;
+    this.scene = -1; this.lastColourMode = -1; this.lastPalette = null;
+    this.sinceChange = 20; this.misfitFor = 0; this.trackAge = 0;   // at start a misfit may be fixed soon, a fit stays a while
+    this.sceneHeld = false; this.palettePinned = false; this.trackPending = false; this.autoScene = false;
+    this.recent = []; this.pending = null; this.pendingWait = 0;
+  }
+  get bpm() { return this.beatIv > 0 ? 60 / this.beatIv : 0; }
+  // One vote for a beat interval, shared with the neighbouring bins.
+  vote(iv, w) {
+    const x = (iv - TEMPO_MIN) / TEMPO_BIN, b = Math.floor(x), f = x - b;
+    if (b < -1 || b > TEMPO_BINS) return;
+    if (b >= 0 && b < TEMPO_BINS) this.tempo[b] += w * (1 - f);
+    if (b + 1 >= 0 && b + 1 < TEMPO_BINS) this.tempo[b + 1] += w * f;
+  }
+  setMode(m) { this.mode = Math.max(AUTOPILOT_OFF, Math.min(AUTOPILOT_FULL, m | 0)); this.pending = null; if (this.mode === AUTOPILOT_OFF) this.dropArmed = false; }
+  setColoursLocked(locked) { this.coloursLocked = !!locked; }
+  // The user picked a scene: hold it through this section, and remember they like it.
+  onUserScene(i) {
+    if (this.autoScene && this.scene >= 0 && this.scene !== i && this.sinceChange < 8) this.weight[this.scene] = Math.max(0.3, this.weight[this.scene] * 0.7);
+    if (i >= 0 && i < this.weight.length) this.weight[i] = Math.min(3, this.weight[i] * 1.3);
+    this.scene = i; this.autoScene = false; this.sceneHeld = true; this.sinceChange = 0; this.pending = null;
+  }
+  onScene(i) { this.scene = i; this.autoScene = false; }
+  onUserPalette() { this.palettePinned = true; this.lastPalette = null; }
+  onTrack() { this.trackAge = 0; this.palettePinned = false; this.sceneHeld = false; this.dropArmed = false; if (this.mode !== AUTOPILOT_OFF) this.trackPending = true; }
+  fit(i, e) {
+    const d = e < this.lo[i] ? this.lo[i] - e : e > this.hi[i] ? e - this.hi[i] : 0;
+    return Math.max(0.1, 1 - d / 0.35);
+  }
+  // Weighted random pick: the fit cubed times the user's weight, the two latest scenes mostly skipped;
+  // with a good fit on offer, the poor ones sit out.
+  pick(e, usable) {
+    const n = this.ids.length, score = new Array(n).fill(0);
+    let best = 0, total = 0;
+    for (let i = 0; i < n; i++) if (i !== this.scene && (!usable || usable[i] !== false)) best = Math.max(best, this.fit(i, e));
+    const floor = best >= 0.75 ? 0.5 : 0;
+    for (let i = 0; i < n; i++) {
+      if (i === this.scene || (usable && usable[i] === false)) continue;
+      const ft = this.fit(i, e);
+      if (ft < floor) continue;
+      score[i] = ft * ft * ft * this.weight[i] * (this.recent.includes(i) ? 0.25 : 1);
+      total += score[i];
+    }
+    if (total <= 0) return -1;
+    let r = this.random() * total;
+    for (let i = 0; i < n; i++) { r -= score[i]; if (score[i] > 0 && r <= 0) return i; }
+    return -1;
+  }
+  // One frame: the analyzer's bands, 0..1 intensity and flags. Returns a look to apply, or null.
+  step(dt, bands, intensity, onBeat, drop, silent, usable) {
+    this.sinceChange += dt; this.sinceSection += dt; this.sinceBeat += dt; this.trackAge += dt;
+    let sectionNow = false;
+    if (silent) { this.buildFor = 0; this.building = false; this.misfitFor = 0; this.wasSilent = true; return null; }
+    this.energy += (intensity - this.energy) * (1 - Math.exp(-dt / 3));
+    this.energyFast += (intensity - this.energyFast) * (1 - Math.exp(-dt / 0.8));
+    const rising = this.energyFast - this.energy > 0.06 && this.energyFast > 0.25;
+    this.buildFor = rising ? this.buildFor + dt : Math.max(0, this.buildFor - 2 * dt);
+    this.building = this.buildFor > 1.5;
+    // tempo: every beat interval votes, as one, two, three or four beats (or half a beat), in a decaying
+    // histogram over 75..200 bpm; the fullest bin is the tempo, so missed and doubled beats only add votes.
+    if (onBeat) {
+      if (this.sinceBeat > 0.2 && this.sinceBeat < 3) {
+        for (let b = 0; b < TEMPO_BINS; b++) this.tempo[b] *= 0.96;
+        this.vote(this.sinceBeat * 2, 0.5);
+        for (let k = 1; k <= 4; k++) this.vote(this.sinceBeat / k, 1);
+        let top = 0, all = 0;
+        for (let b = 0; b < TEMPO_BINS; b++) { all += this.tempo[b]; if (this.tempo[b] > this.tempo[top]) top = b; }
+        if (this.tempo[top] > 2 && this.tempo[top] > 0.25 * all) {   // a real consensus, not scattered onsets
+          let sum = 0, w = 0;
+          for (let b = Math.max(0, top - 1); b <= Math.min(TEMPO_BINS - 1, top + 1); b++) { sum += this.tempo[b] * (TEMPO_MIN + (b + 0.5) * TEMPO_BIN); w += this.tempo[b]; }
+          this.beatIv = sum / w;
+        }
+      }
+      this.sinceBeat = 0;
+    }
+    const b = bands.map((v) => Math.max(v, 0)), sum = b[0] + b[1] + b[2] + b[3] + 0.3;
+    const f = [intensity, 1.5 * b[3] / sum, 1.5 * b[0] / sum];
+    if (this.wasSilent) { this.fast = f.slice(); this.slow = f.slice(); this.wasSilent = false; this.sinceSection = 0; }
+    let dist = 0;
+    for (let k = 0; k < 3; k++) {
+      this.fast[k] += (f[k] - this.fast[k]) * (1 - Math.exp(-dt / 1.5));
+      this.slow[k] += (f[k] - this.slow[k]) * (1 - Math.exp(-dt / 8));
+      dist += Math.abs(this.fast[k] - this.slow[k]);
+    }
+    this.diffFor = dist > 0.18 ? this.diffFor + dt : 0;
+    if (this.diffFor > 1.5 && this.sinceSection > 12) {
+      sectionNow = true; this.sections++; this.sinceSection = 0; this.diffFor = 0; this.slow = this.fast.slice(); this.sceneHeld = false;
+    }
+    if (this.mode === AUTOPILOT_OFF) return null;
+    if (drop) { this.dropArmed = true; this.dropBeats = 0; this.dropWait = 0; }
+    if (this.dropArmed) {
+      this.dropWait += dt;
+      if (onBeat && this.dropWait > 0.05) this.dropBeats++;
+      if (this.dropBeats >= 4 || this.dropWait > Math.max(1.6, 4 * this.beatIv + 0.3)) {
+        this.dropArmed = false;
+        if (this.sinceChange > 10) this.want('drop');
+      }
+    }
+    if (this.pending) {
+      this.pendingWait += dt;
+      if (onBeat || this.pendingWait > 0.8 || (!this.beatIv && this.pendingWait > 0.3)) return this.make(usable);
+      return null;
+    }
+    const fits = this.scene >= 0 && this.scene < this.ids.length && this.fit(this.scene, this.energy) > 0.25;
+    this.misfitFor = fits ? 0 : this.misfitFor + dt;
+    if (this.trackPending && this.trackAge > 2) this.want('track');
+    else if (sectionNow && this.sinceChange > 15 && !this.building) this.want('section');
+    else if (!this.sceneHeld && !this.building && this.sinceChange > 20 && this.misfitFor > 6) this.want('energy');
+    else if (!this.sceneHeld && !this.building && this.sinceChange > 45 + 45 * (1 - this.energy)) this.want('time');
+    return null;
+  }
+  want(reason) { this.pending = reason; this.pendingWait = 0; }
+  make(usable) {
+    const reason = this.pending;
+    this.pending = null; this.trackPending = false;
+    const look = { scene: -1, palette: null, colourMode: -1, reason, energy: this.energy, bpm: this.bpm,
+      fade: reason === 'drop' ? 0.7 : reason === 'track' ? 1.2 : reason === 'section' ? 1.4 : reason === 'energy' ? 1.6 : 1.8 };
+    // a drop or a new section is judged by what plays now, the rest by the section so far
+    const e = reason === 'drop' ? Math.max(this.energy, this.energyFast) : reason === 'section' || reason === 'track' ? this.energyFast : this.energy;
+    const next = this.pick(e, usable);
+    if (next >= 0 && next !== this.scene) {
+      look.scene = next; this.scene = next; this.autoScene = true; this.sceneHeld = false; this.sinceChange = 0; this.misfitFor = 0;
+      this.recent.push(next); if (this.recent.length > 2) this.recent.shift();
+    }
+    if (this.mode === AUTOPILOT_FULL && reason !== 'energy' && reason !== 'time') {
+      const band = e < AP_LOW_ENERGY ? 'low' : e < AP_HIGH_ENERGY ? 'mid' : 'high';
+      const motion = band === 'high' && look.bpm < AP_FAST_BPM ? AUTOPILOT_MOTION.mid : AUTOPILOT_MOTION[band];
+      if (motion !== this.lastColourMode) { look.colourMode = motion; this.lastColourMode = motion; }
+      if (!this.coloursLocked && !this.palettePinned) {
+        const family = AUTOPILOT_PALETTES[band];
+        let p = family[Math.floor(this.random() * family.length)];
+        if (p === this.lastPalette) p = family[(family.indexOf(p) + 1 + Math.floor(this.random() * (family.length - 1))) % family.length];
+        look.palette = p; this.lastPalette = p;
+      }
+    }
+    return look.scene < 0 && !look.palette && look.colourMode < 0 ? null : look;
+  }
+  // The user's scene weights as "id=weight;...", for storage.
+  weights() { return this.ids.map((id, i) => [id, Math.round(this.weight[i] * 100) / 100]).filter(([, w]) => w !== 1).map(([id, w]) => id + '=' + w).join(';'); }
+  loadWeights(s) {
+    if (!s) return;
+    for (const part of String(s).split(';')) {
+      const eq = part.indexOf('=');
+      if (eq < 0) continue;
+      const i = this.ids.indexOf(part.slice(0, eq)), w = parseFloat(part.slice(eq + 1));
+      if (i >= 0 && Number.isFinite(w)) this.weight[i] = Math.max(0.3, Math.min(3, w));
+    }
+  }
+}
+
 class TavEngine {
   constructor(gl, sources) {
     this.gl = gl; this.src = sources;
@@ -107,7 +283,7 @@ class TavEngine {
     this.rainbow = false;   // Colours: Rainbow (the shader paints the spectrum)
     this.colour = new ColourDrive(COLOUR_MODES[0]);
     this.ripples = []; this.strokes = [];
-    this.transStart = -10; this.flash = 0;
+    this.transStart = -10; this.transDur = 0.9; this.flash = 0;
     this.dropAge = 100; this.surge = 0; this.flowExtra = 0;   // drop envelope and music-clock surge, as in TavRenderer
     this.brightness = DEFAULT_BRIGHTNESS;
     this.renderScale = 1; this.w = 0; this.h = 0;
@@ -215,7 +391,8 @@ class TavEngine {
     }
   }
 
-  setScene(i) {
+  // fade: crossfade seconds (the autopilot takes a short one on a drop, a long one for a quiet section)
+  setScene(i, fade = 0.9) {
     i = ((i % SCENES.length) + SCENES.length) % SCENES.length;
     if (i === this.scene) return;
     const gl = this.gl, src = this.sceneB;   // sceneB always holds the last finished frame
@@ -223,6 +400,7 @@ class TavEngine {
     gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, this.trans.fb);
     gl.blitFramebuffer(0, 0, src.w, src.h, 0, 0, this.trans.w, this.trans.h, gl.COLOR_BUFFER_BIT, gl.NEAREST);
     this.transStart = this.time;
+    this.transDur = fade;
     this.scene = i;
     this.rebaseFlow = true;
   }
@@ -325,7 +503,7 @@ class TavEngine {
     }
     this.drawUserLayer(an);
 
-    const tm = (this.time - this.transStart) / 0.9;
+    const tm = (this.time - this.transStart) / this.transDur;
     if (tm < 1) {
       gl.bindVertexArray(this.vao);
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
@@ -417,5 +595,6 @@ class TavEngine {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { TavEngine, ColourDrive, SCENES, SHADER_FILES, BRIGHTNESS, COLOUR_MODES, COLOUR_MAX, DEFAULT_COLOUR_MODE, exportPreset, importPreset };
+  module.exports = { TavEngine, ColourDrive, Autopilot, SCENES, SHADER_FILES, BRIGHTNESS, COLOUR_MODES, COLOUR_MAX, DEFAULT_COLOUR_MODE,
+    AUTOPILOT_MODES, AUTOPILOT_OFF, AUTOPILOT_SCENES, AUTOPILOT_FULL, DEFAULT_AUTOPILOT, SCENE_MOODS, AUTOPILOT_PALETTES, AUTOPILOT_MOTION, exportPreset, importPreset };
 }

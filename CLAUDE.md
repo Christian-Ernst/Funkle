@@ -14,7 +14,9 @@ which loads the Android shaders). README.md is the user-facing description. Open
     Settings are in SharedPreferences `prefs` (keys `scene`, `sym`, `palette`, `brightness`, `source`,
     `autopilot`, `titleAlways`, `quality`, `motion` (0 Full, 1 Calm), `eq_mode` (0 Flat, 1 Punch, 2 Custom), `eq_master`, `eq_punch`, `eq_beat`,
     `eq_g0`–`eq_g3` (floats), `custom0`–`custom2`, the custom palette as ARGB ints, `cm_mode` (the Colour
-    motion chip, see `ColourDrive.MODE_NAMES`), `cm_drift`/`cm_beat`/`cm_drop`/`cm_tilt`/`cm_pump` (floats) and
+    motion chip, see `ColourDrive.MODE_NAMES`), `cm_drift`/`cm_beat`/`cm_drop`/`cm_tilt`/`cm_pump` (floats),
+    `autopilot_mode` (0 Off, 1 Scenes, 2 Scenes + colours; the old boolean `autopilot` is kept in step),
+    `ap_weights` (the autopilot's per-scene weights, `id=w;...`) and
     `prefs_version` (2: Custom moved from palette index 8 to 11 when Ocean, Candy and Rainbow came)) and
     reach the GL thread through `view.queueEvent(() -> renderer.setX(..))`. Colours → Custom opens the
     colour editor card (`showColourEditor`, sliders are `GradientSlider.java`). The equalizer and the colour
@@ -30,6 +32,15 @@ which loads the Android shaders). README.md is the user-facing description. Open
     also holds the preset JSON (`toJson`/`fromJson`, `{"v":1,"name","colours":[3 hex],"rainbow","motion":{..}}`)
     that the cloud sync uses; `web/engine.js` has `ColourDrive`, `COLOUR_MODES`, `exportPreset`/`importPreset`
     with the same numbers.
+  - `Autopilot.java`: the music-aware autopilot. Pure arithmetic over the analyzer's values: energy (smoothed
+    intensity), tempo from beat intervals, build-up (fast energy above slow), section changes (fast against slow
+    mix features), and a drop that waits for the downbeat of the next bar. `step()` returns a `Look` (scene,
+    palette name, colour mode, reason, crossfade) or null; the renderer applies the scene and hands the look to
+    `Host.onAutopilotLook`, which paints the colours without saving them and logs the `autopilot` event. The
+    scene list is data: `MOODS` maps scene ids to energy ranges and an unknown id suits everything, so a new
+    scene joins without a change here. Palettes are picked by name (`PAL_LOW/MID/HIGH`). `web/engine.js` has the
+    same class (`Autopilot`, `SCENE_MOODS`, `AUTOPILOT_PALETTES`); `AutopilotCheck` and
+    `web/tools/autopilot-check.js` run the same synthetic song on both.
   - `Equalizer.java`: how hard the scenes react. A master, a gain per band, punch (blend from the
     auto-gained bands `an.bands` toward the absolute ones `an.bandsAbs`) and the beat strength. The
     renderer hands the scenes `eq.shapeBands`/`shapeLevel`/`shapeBeat`, never the raw analyzer values.

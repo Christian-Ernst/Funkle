@@ -33,8 +33,22 @@ Album colours keep the cover's saturation and brightness above a floor (`Palette
   on the phone, lower the ambient (`palBg() * 0.8` in `composite.frag`) before touching the scenes.
 - Not judged on a phone: the drop moves' strength (`drop()` terms in each scene), the Ferro floor ripple,
   and whether Mandala's fold-count re-roll on a drop is welcome or jarring.
-- Still open from the review: per-scene sliders, saved looks with thumbnails, music-aware autopilot, a
-  share sheet, and two new scenes (fluid, landscape).
+- Still open from the review: per-scene sliders, saved looks with thumbnails, a share sheet, and two new
+  scenes (fluid, landscape).
+
+## Music-aware autopilot (new, not yet on a phone)
+
+- Menu → Autopilot: Off, Scenes, Scenes + colours (default). The director is `Autopilot.java` / `Autopilot` in
+  `web/engine.js`; the thresholds (energy bands 0.3 and 0.65, 125 bpm for Bands, 12 s minimum section length,
+  the 45–90 s hold) were set on the synthetic song in `AutopilotCheck`. Check on real songs that a verse stays
+  calm, that the build-up hold is noticeable, and that the switch one bar after the drop feels like the music
+  rather than late. If drops switch too late, lower the bar wait (`dropBeats >= 4`); if colours change too
+  often, raise the 12 s section minimum.
+- Each scene's energy range (`Autopilot.MOODS`, `SCENE_MOODS`) is a guess from the look of the scene. A new scene
+  gets the full range until it has an entry.
+- The default is Scenes + colours because a new install has Album colours, which it leaves alone, so the default
+  costs nothing there and shows the feature on presets. If the colour changes read as unwanted, make Scenes the
+  default (`Autopilot.DEFAULT`, `DEFAULT_AUTOPILOT`).
 
 ## Colour motion (new, not yet on a phone)
 
