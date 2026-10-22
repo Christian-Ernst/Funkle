@@ -20,6 +20,22 @@ colours (menu → Colours → Custom) are done. What is still open, and what to 
   ones, and boosted bands should not white out the scenes (the brightness measurement is the guardrail).
 - The equalizer is Android only. The web edition and the terminal edition still react with the flat look.
 
+## Scenes composed for portrait, drops that transform (2026-10-22)
+
+Every scene now fills a phone held upright (Halo's outer ring and rays, Ferro's mirror floor, Spiro's stretched
+rosette and spectrogram curtain, Nebula's disc along the long axis, Pulsar's aurora) and has a drop move on
+the `drop()` envelope; the music clock surges on a drop (`flowExtra` in `TavRenderer` and `engine.js`). The
+composite adds the palette's deep tone (`palBg()`) as ambient, and `palHi()` replaces the plain whites.
+Album colours keep the cover's saturation and brightness above a floor (`Palettes.ALBUM_MIN_SAT/VALUE`).
+
+- Normal measures 0 % clipped and 0 % near-white on the dense track in every scene; mean luma roughly
+  doubled (0.06 to about 0.12) because the screen is no longer half black. If Normal now feels too bright
+  on the phone, lower the ambient (`palBg() * 0.8` in `composite.frag`) before touching the scenes.
+- Not judged on a phone: the drop moves' strength (`drop()` terms in each scene), the Ferro floor ripple,
+  and whether Mandala's fold-count re-roll on a drop is welcome or jarring.
+- Still open from the review: per-scene sliders, saved looks with thumbnails, music-aware autopilot, a
+  share sheet, and two new scenes (fluid, landscape).
+
 ## Colour motion (new, not yet on a phone)
 
 - Menu → Colour motion: Still (the old look), Drift, Beat (default), Bands, Custom (five sliders). Plus the

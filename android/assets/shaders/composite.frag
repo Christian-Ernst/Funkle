@@ -29,11 +29,13 @@ void main() {
     col.b = texture(uScene, uv + c * ca).b;
     vec3 bl = texture(uBloom, uv).rgb;
     col += bl * uBloomStrength * (1.0 + 0.6 * beat());
+    // ambient: the palette's deep tone instead of pure black, so empty screen still belongs to the look
+    col += palBg() * 0.8;
     col *= uExposure * (1.0 + 0.15 * beat() + uFlash);
     col = tonemap(col);
     col = pow(col, vec3(0.92));
     float vig = smoothstep(1.25, 0.35, length(c * vec2(uRes.x / uRes.y, 1.0) * 1.6));
-    col *= mix(0.55, 1.0, vig);
+    col *= mix(0.65, 1.0, vig);
     col += (hash12(gl_FragCoord.xy + fract(uTime * 7.0) * 113.0) - 0.5) * 0.025;
     fragColor = vec4(col, 1.0);
 }
