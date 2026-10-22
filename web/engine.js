@@ -32,6 +32,49 @@ const BRIGHTNESS = [
   { name: 'Bright', exposure: 1.1, bloom: 1.0 },
 ];
 const DEFAULT_BRIGHTNESS = 2;
+// Quality: the most of the canvas the scene buffers may use (TavRenderer.QUALITY_SCALE). Auto starts
+// at AUTO_START and climbs while the frames stay fast; every level steps down when they run slow.
+const QUALITY = [
+  { name: 'Auto', scale: 1.0 },
+  { name: 'Low', scale: 0.5 },
+  { name: 'Medium', scale: 0.7 },
+  { name: 'High', scale: 1.0 },
+];
+const DEFAULT_QUALITY = 0, QUALITY_AUTO = 0, AUTO_START = 0.7, MIN_RENDER_SCALE = 0.36;
+
+// Twin of AdaptiveScale.java, same numbers: sustained slow frames (under 42 fps for 2.5 s) step the
+// scale down by 0.85; sustained fast frames (15 s of them) step it back up. Fast means at most 1.09 vsync
+// periods of a 60..90 Hz display: 55 fps on a 60 Hz panel, 83 fps on a 90 or 120 Hz one, so a steady
+// 60 fps on a 120 Hz panel neither climbs nor drops. A step up that is undone within 30 s doubles the
+// next wait (to 120 s at most), so a device on the edge settles.
+class AdaptiveScale {
+  constructor(start = 1) { this.fastLimit = 1.09 / 60; this.reset(start); }
+  /** The display's refresh rate in Hz (estimated from requestAnimationFrame on the web). */
+  setRefreshRate(hz) { if (hz > 0) this.fastLimit = 1.09 / Math.max(60, Math.min(90, hz)); }
+  reset(start = 1) {
+    this.scale = Math.max(0.1, Math.min(1, start));
+    this.slow = 0; this.fast = 0;
+    this.raiseAfter = 15; this.sinceRaise = Infinity;
+  }
+  /** dt seconds since the last frame; stalled when it compiled a shader; canDrop when a lower scale is allowed. */
+  update(dt, stalled, canDrop) {
+    if (stalled) return false;
+    if (this.sinceRaise < Infinity) this.sinceRaise += dt;
+    if (dt > 1 / 42) { this.slow += dt; this.fast = 0; }
+    else { this.slow = Math.max(0, this.slow - dt * 0.5); this.fast = dt < this.fastLimit ? this.fast + dt : 0; }
+    if (this.slow > 2.5 && canDrop) {
+      this.slow = 0; this.scale *= 0.85;
+      if (this.sinceRaise < 30) this.raiseAfter = Math.min(120, this.raiseAfter * 2);
+      this.sinceRaise = Infinity;
+      return true;
+    }
+    if (this.fast > this.raiseAfter && this.scale < 1) {
+      this.fast = 0; this.scale = Math.min(1, this.scale / 0.85); this.sinceRaise = 0;
+      return true;
+    }
+    return false;
+  }
+}
 
 // Colour motion: how the palette moves with the music. Same model as ColourDrive.java: the hue
 // drifts with the music (turns per second at full level), steps on every beat and jumps on a drop,
@@ -293,6 +336,7 @@ class TavEngine {
     this.dropAge = 100; this.surge = 0; this.flowExtra = 0;   // drop envelope and music-clock surge, as in TavRenderer
     this.brightness = DEFAULT_BRIGHTNESS;
     this.renderScale = 1; this.w = 0; this.h = 0;
+    this.compiledThisFrame = false;   // set when a program was built: that frame's time says nothing about the GPU
     this.audioTex = this.makeTex(512, 4, gl.R8, gl.RED, gl.UNSIGNED_BYTE, gl.LINEAR, gl.CLAMP_TO_EDGE);
     this.histTex = this.makeTex(256, 128, gl.R8, gl.RED, gl.UNSIGNED_BYTE, gl.LINEAR, gl.REPEAT);
     this.strokeBuf = gl.createBuffer();
@@ -346,6 +390,7 @@ class TavEngine {
     gl.linkProgram(p);
     if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(key + ': ' + gl.getProgramInfoLog(p));
     const prog = { p, loc: {} };
+    this.compiledThisFrame = true;
     const n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
     for (let i = 0; i < n; i++) {
       const info = gl.getActiveUniform(p, i), name = info.name.replace(/\[0\]$/, '');
@@ -608,6 +653,7 @@ class TavEngine {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { TavEngine, ColourDrive, Autopilot, SCENES, TUNE, tuneId, SHADER_FILES, BRIGHTNESS, COLOUR_MODES, COLOUR_MAX, DEFAULT_COLOUR_MODE,
+  module.exports = { TavEngine, ColourDrive, AdaptiveScale, Autopilot, SCENES, TUNE, tuneId, SHADER_FILES, BRIGHTNESS, QUALITY, DEFAULT_QUALITY, QUALITY_AUTO,
+    AUTO_START, MIN_RENDER_SCALE, COLOUR_MODES, COLOUR_MAX, DEFAULT_COLOUR_MODE,
     AUTOPILOT_MODES, AUTOPILOT_OFF, AUTOPILOT_SCENES, AUTOPILOT_FULL, DEFAULT_AUTOPILOT, SCENE_MOODS, AUTOPILOT_PALETTES, AUTOPILOT_MOTION, exportPreset, importPreset };
 }

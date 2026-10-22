@@ -50,6 +50,56 @@ public final class AdaptiveScaleCheck {
         for (int f = 0; f < 60 * 60; f++) changed |= a.update(1f / 48, false, true);
         check("medium frames leave the scale alone", !changed && near(a.scale(), 0.85f));
 
+        // 7. Auto starts at 0.7 and climbs to full when the frames stay fast: three steps, 15 s each
+        a = new AdaptiveScale();
+        a.reset(AdaptiveScale.AUTO_START);
+        check("auto starts below full", near(a.scale(), 0.7f));
+        for (int f = 0; f < 16 * 60; f++) a.update(1f / 60, false, true);
+        check("auto climbs one step", near(a.scale(), 0.7f / 0.85f));
+        for (int f = 0; f < 2 * 16 * 60; f++) a.update(1f / 60, false, true);
+        check("and reaches full within 45 s", near(a.scale(), 1f));
+
+        // 8. a phone on the edge: fast until it climbs, then slow at the higher size. Each undone
+        //    climb doubles the wait (15, 30, 60, 120 s), so the flicker dies out instead of repeating.
+        a = new AdaptiveScale();
+        a.reset(AdaptiveScale.AUTO_START);
+        float[] waits = new float[4];
+        for (int round = 0; round < 4; round++) {
+            float t = 0;
+            while (!a.update(1f / 60, false, true)) t += 1f / 60;   // climb
+            waits[round] = t;
+            for (int f = 0; f < 80 && !a.update(1f / 30, false, true); f++) { /* slow at the new size: step back */ }
+        }
+        check("the climb wait doubles after each undone climb: " + Math.round(waits[0]) + ", " + Math.round(waits[1]) + ", "
+                + Math.round(waits[2]) + ", " + Math.round(waits[3]) + " s",
+                near(waits[0], 15f) && near(waits[1], 30f) && near(waits[2], 60f) && near(waits[3], 120f));
+        check("and lands back where it started", near(a.scale(), 0.7f));
+
+        // 9. a climb that held (slow frames only much later) does not lengthen the wait
+        a = new AdaptiveScale();
+        a.reset(AdaptiveScale.AUTO_START);
+        for (int f = 0; f < 16 * 60; f++) a.update(1f / 60, false, true);
+        for (int f = 0; f < 60 * 60; f++) a.update(1f / 50, false, true);   // a minute of medium frames
+        for (int f = 0; f < 80 && !a.update(1f / 30, false, true); f++) { /* drop */ }
+        float t = 0;
+        while (!a.update(1f / 60, false, true)) t += 1f / 60;
+        check("a climb that held keeps the short wait", near(t, 15f));
+
+        // 10. a 120 Hz display: a steady 60 fps is smooth but has no known headroom, so Auto stays put;
+        //     frames at 100 fps climb, and 60 Hz keeps its 55 fps limit
+        a = new AdaptiveScale();
+        a.reset(AdaptiveScale.AUTO_START);
+        a.setRefreshRate(120f);
+        changed = false;
+        for (int f = 0; f < 60 * 60; f++) changed |= a.update(1f / 60, false, true);
+        check("120 Hz: 60 fps neither climbs nor drops", !changed && near(a.scale(), 0.7f));
+        for (int f = 0; f < 16 * 100; f++) a.update(1f / 100, false, true);
+        check("120 Hz: 100 fps climbs", near(a.scale(), 0.7f / 0.85f));
+        a.setRefreshRate(60f);
+        check("60 Hz: the fast limit is 1/55 s", near(a.fastLimit(), 1f / 55f));
+        a.setRefreshRate(90f);
+        check("90 Hz: the fast limit is about 1/83 s", Math.abs(1f / a.fastLimit() - 82.6f) < 0.5f);
+
         if (failed) {
             System.out.println("FAIL");
             System.exit(1);
@@ -58,7 +108,7 @@ public final class AdaptiveScaleCheck {
     }
 
     private static boolean near(float v, float want) {
-        return Math.abs(v - want) < 1e-4f;
+        return Math.abs(v - want) < (want > 2 ? 0.1f : 1e-4f);   // seconds are counted in 1/60 steps
     }
 
     private static void check(String what, boolean ok) {

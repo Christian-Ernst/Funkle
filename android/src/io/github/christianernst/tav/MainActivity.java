@@ -5,6 +5,7 @@ import android.app.Activity;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
@@ -12,6 +13,7 @@ import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.hardware.display.DisplayManager;
 import android.graphics.Outline;
 import android.view.ViewOutlineProvider;
 import android.net.Uri;
@@ -22,6 +24,7 @@ import android.os.Looper;
 import android.provider.Settings;
 import android.text.TextUtils;
 import android.util.TypedValue;
+import android.view.Display;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
@@ -175,6 +178,11 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
             if (prefs.getInt("palette", Palettes.ALBUM) == Palettes.CUSTOM_V1) e.putInt("palette", Palettes.CUSTOM);
             e.apply();
         }
+        if (prefs.getInt("prefs_version", 1) < PREFS_VERSION) {   // Quality: Battery, Balanced, Max became Auto, Low, Medium, High
+            SharedPreferences.Editor e = prefs.edit().putInt("prefs_version", PREFS_VERSION);
+            if (prefs.contains("quality")) e.putInt("quality", qualityV3(prefs.getInt("quality", 1)));
+            e.apply();
+        }
         Window w = getWindow();
         w.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         if (Build.VERSION.SDK_INT >= 28) {
@@ -261,11 +269,37 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         if (silentNow) ui.postDelayed(showHint, 1000);   // still silent when we come back: explain again
     }
 
+    /** Tells the renderer the panel's refresh rate, now and whenever it changes (adaptive 60/120 Hz panels). */
+    private final DisplayManager.DisplayListener displayListener = new DisplayManager.DisplayListener() {
+        @Override
+        public void onDisplayAdded(int id) {
+        }
+
+        @Override
+        public void onDisplayRemoved(int id) {
+        }
+
+        @Override
+        public void onDisplayChanged(int id) {
+            if (id == Display.DEFAULT_DISPLAY) pushRefreshRate();
+        }
+    };
+
+    private void pushRefreshRate() {
+        Display d = getWindowManager().getDefaultDisplay();
+        if (d == null) return;
+        final float hz = d.getRefreshRate();
+        view.queueEvent(() -> renderer.setRefreshRate(hz));
+    }
+
     @Override
     protected void onResume() {
         super.onResume();
         immersive();
         pokeMenu();
+        pushRefreshRate();
+        DisplayManager dm = (DisplayManager) getSystemService(Context.DISPLAY_SERVICE);
+        if (dm != null) dm.registerDisplayListener(displayListener, ui);
         if (askedNotificationAccess) {
             askedNotificationAccess = false;
             if (MediaWatcher.hasNotificationAccess(this)) {
@@ -282,6 +316,8 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     @Override
     protected void onStop() {
         visible = false;
+        DisplayManager dm = (DisplayManager) getSystemService(Context.DISPLAY_SERVICE);
+        if (dm != null) dm.unregisterDisplayListener(displayListener);
         NowPlayingNudge.tavVisible = false;
         ui.removeCallbacks(showHint);   // otherwise the hint loop keeps waking the CPU in the background
         view.onPause();
@@ -583,7 +619,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     // ------------------------------------------------------------------ settings
 
     private void applyPrefs() {
-        final int scene = prefs.getInt("scene", 0), sym = prefs.getInt("sym", 1), q = prefs.getInt("quality", 1);
+        final int scene = prefs.getInt("scene", 0), sym = prefs.getInt("sym", 1), q = prefs.getInt("quality", TavRenderer.DEFAULT_QUALITY);
         final int lit = prefs.getInt("brightness", TavRenderer.DEFAULT_BRIGHTNESS);
         final int auto = autopilotMode();
         final boolean calm = prefs.getInt("motion", 0) == 1;
@@ -1034,7 +1070,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
                         requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, REQ_NOTIFY);
                 });
 
-        addRow("Quality", new String[]{"Battery", "Balanced", "Max"}, prefs.getInt("quality", 1), qualityChips, i -> {
+        addRow("Quality (Auto finds the sharpest your phone keeps smooth)", QUALITY_NAMES, prefs.getInt("quality", TavRenderer.DEFAULT_QUALITY), qualityChips, i -> {
             prefs.edit().putInt("quality", i).apply();
             view.queueEvent(() -> renderer.setQuality(i));
         });
@@ -1619,6 +1655,14 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
 
     /** Settings that follow the user between devices: everything in prefs but the sync bookkeeping. */
     private static final String SETTINGS_AT = "settings_at";
+    /** prefs layout: 2 moved Custom to palette 11; 3 renumbered Quality (0 Auto, 1 Low, 2 Medium, 3 High). */
+    static final int PREFS_VERSION = 3;
+    static final String[] QUALITY_NAMES = {"Auto", "Low", "Medium", "High"};
+
+    /** Quality before prefs version 3 (0 Battery, 1 Balanced, 2 Max) to the current numbering. */
+    static int qualityV3(int old) {
+        return old <= 0 ? 1 : old == 1 ? TavRenderer.QUALITY_AUTO : 3;
+    }
 
     private final Runnable syncSettings = () -> cloud.syncSettings(settingsDocument(), prefs.getLong(SETTINGS_AT, 0), (remote, err) -> {
         if (remote == null) return;   // ours was newer, or offline
@@ -1689,9 +1733,10 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         Map<String, ?> all = prefs.getAll();
         for (java.util.Iterator<String> it = remote.keys(); it.hasNext(); ) {
             String k = it.next();
-            if (k.startsWith("_")) continue;
+            if (k.startsWith("_") || k.equals("prefs_version")) continue;   // the layout version is this app's, not the account's
             Object cur = all.get(k), v = remote.opt(k);
             if (v == null || v == JSONObject.NULL) continue;
+            if (k.equals("quality") && v instanceof Number && remote.optInt("prefs_version", PREFS_VERSION) < PREFS_VERSION) v = qualityV3(((Number) v).intValue());
             if (cur instanceof Boolean || v instanceof Boolean) ed.putBoolean(k, v instanceof Boolean ? (Boolean) v : !v.toString().equals("0"));
             else if (cur instanceof Float || (cur == null && k.startsWith("eq_") && !k.equals("eq_mode")) || (cur == null && k.startsWith("cm_")) || (cur == null && k.startsWith("tune_")))
                 ed.putFloat(k, (float) remote.optDouble(k, 0));
@@ -1950,7 +1995,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         select(motionChips, prefs.getInt("motion", 0));
         select(eqChips, eqMode);
         select(autoChips, autopilotMode());
-        select(qualityChips, prefs.getInt("quality", 1));
+        select(qualityChips, prefs.getInt("quality", TavRenderer.DEFAULT_QUALITY));
     }
 
     private void select(List<TextView> chips, int sel) {

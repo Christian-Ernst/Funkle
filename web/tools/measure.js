@@ -129,7 +129,7 @@ function measureFrame(wantPng) {
     });
   }
   const scenes = await page.evaluate(({ level, palette, colour, sym, tune }) => {
-    slow = -1e9;   // keep the adaptive resolution out of it
+    if (typeof adaptOn !== 'undefined') adaptOn = false; else slow = -1e9;   // keep the adaptive resolution out of it
     document.getElementById('start').hidden = true;
     if (typeof setPalette === 'function') setPalette(palette); else targetPalette = PALETTES[palette][1];
     eng.palette = PALETTES[palette][1].map((c) => c.slice());

@@ -32,7 +32,14 @@ import static android.opengl.GLES30.*;
 final class TavRenderer implements GLSurfaceView.Renderer {
     private static final String TAG = "TAV";
     private static final int MAX_RIPPLES = 8, BLOOM_LEVELS = 4, MAX_STROKES = 12, MAX_STROKE_POINTS = 900;
-    static final float[] QUALITY_SCALE = {0.5f, 0.7f, 1.0f};
+    /**
+     * Quality Auto, Low, Medium, High: the most of the screen's pixels the scene buffers may use.
+     * Auto starts at {@link AdaptiveScale#AUTO_START} and climbs to full while the frames stay fast;
+     * the others start at their ceiling. All of them step down when the GPU can't keep up
+     * (sustained under ~42 fps), to {@link #MIN_RENDER_SCALE} at the lowest. Same table as web/engine.js.
+     */
+    static final float[] QUALITY_SCALE = {1.0f, 0.5f, 0.7f, 1.0f};
+    static final int QUALITY_AUTO = 0, DEFAULT_QUALITY = QUALITY_AUTO;
     private static final float MIN_RENDER_SCALE = 0.36f;
     /** Brightness levels Dim, Soft, Normal, Bright: composite exposure and bloom. Same table as web/engine.js. */
     static final float[] EXPOSURE = {0.45f, 0.65f, 0.85f, 1.1f}, BLOOM = {0.45f, 0.65f, 0.85f, 1.0f};
@@ -74,9 +81,13 @@ final class TavRenderer implements GLSurfaceView.Renderer {
     private Fbo cur, prev;
 
     // state
-    private int scene, sym = 1, quality = 1, brightness = DEFAULT_BRIGHTNESS;
-    private float renderScale = QUALITY_SCALE[1];
+    private int scene, sym = 1, quality = DEFAULT_QUALITY, brightness = DEFAULT_BRIGHTNESS;
+    private float renderScale = AdaptiveScale.AUTO_START;
     private final AdaptiveScale adaptive = new AdaptiveScale();
+
+    {
+        adaptive.reset(AdaptiveScale.AUTO_START);
+    }
     private int compiles, compilesSeen;                          // shader builds so far
     private final List<Runnable> warmUp = new ArrayList<>();     // the other shaders, one per frame
     private boolean calm;                                        // Motion: Calm, no beat pulses or flashes
@@ -188,9 +199,14 @@ final class TavRenderer implements GLSurfaceView.Renderer {
     }
 
     void setQuality(int q) {
-        quality = Math.max(0, Math.min(2, q));
-        adaptive.reset();
+        quality = Math.max(0, Math.min(QUALITY_SCALE.length - 1, q));
+        adaptive.reset(quality == QUALITY_AUTO ? AdaptiveScale.AUTO_START : 1f);
         applyScale();
+    }
+
+    /** The display's refresh rate, so "fast enough to climb" means the same headroom on a 120 Hz panel. */
+    void setRefreshRate(float hz) {
+        adaptive.setRefreshRate(hz);
     }
 
     void setBrightness(int level) {

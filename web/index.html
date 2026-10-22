@@ -192,6 +192,7 @@
     <button id="shuffle" type="button" title="Three random colours that go together">⚄ Shuffle</button>
     <button id="motion" type="button">Colour motion: Beat</button>
     <button id="bright" type="button">Brightness: Normal</button>
+    <button id="quality" type="button" title="How many pixels the scenes render. Auto finds the sharpest this device keeps smooth.">Quality: Auto</button>
     <button id="auto" type="button" aria-pressed="true" title="Follows the music: scenes by energy, new colours per section">Autopilot: Scenes + colours</button>
     <button id="full" type="button">Fullscreen</button>
     <button id="looks" type="button">Looks</button>
@@ -485,7 +486,7 @@ let settingsAt = 0;   // when the local settings last changed (ms); the cloud co
 function currentSettings() {
   const s = { scene: eng ? eng.scene : 0, palette: paletteName(), mirror: MIRRORS[mirrorIdx], brightness: eng ? eng.brightness : DEFAULT_BRIGHTNESS,
     autopilot: autopilotMode !== AUTOPILOT_OFF, autopilotMode,
-    colourMotion: COLOUR_MODES[motionIdx].name, tune: tuneSettings() };
+    colourMotion: COLOUR_MODES[motionIdx].name, quality, tune: tuneSettings() };
   if (customPalette) s.colours = customPalette.map(TavLooks.hex);
   return s;
 }
@@ -507,6 +508,7 @@ function applySettings(d) {
   if (Number.isInteger(d.brightness) && BRIGHTNESS[d.brightness]) { eng.setBrightness(d.brightness); $('bright').textContent = 'Brightness: ' + BRIGHTNESS[d.brightness].name; }
   if (Number.isInteger(d.autopilotMode) && AUTOPILOT_MODES[d.autopilotMode]) setAutopilotMode(d.autopilotMode, 'restore');
   else if (typeof d.autopilot === 'boolean') setAutopilotMode(d.autopilot ? DEFAULT_AUTOPILOT : AUTOPILOT_OFF, 'restore');   // settings from before the modes
+  if (Number.isInteger(d.quality) && QUALITY[d.quality]) setQuality(d.quality, true);
   if (d.tune && typeof d.tune === 'object') {
     SCENES.forEach((s, i) => { const t = d.tune[s.id]; for (let k = 0; k < TUNE; k++) eng.setTune(i, k, Array.isArray(t) ? +t[k] : 0.5); });
     showTune();
@@ -576,6 +578,11 @@ $('bright').addEventListener('click', () => {
   eng.setBrightness((eng.brightness + 1) % BRIGHTNESS.length);
   $('bright').textContent = 'Brightness: ' + BRIGHTNESS[eng.brightness].name;
   TavCloud.track('setting_changed', { key: 'brightness', to: BRIGHTNESS[eng.brightness].name });
+  saveSettings(); poke();
+});
+$('quality').addEventListener('click', () => {
+  setQuality((quality + 1) % QUALITY.length);
+  TavCloud.track('setting_changed', { key: 'quality', to: QUALITY[quality].name });
   saveSettings(); poke();
 });
 $('auto').addEventListener('click', () => { setAutopilotMode(autopilotMode + 1); poke(); });
@@ -861,6 +868,7 @@ addEventListener('keydown', (e) => {
   else if (k === 'x') $('shuffle').click();
   else if (k === 'l') $('looks').click();
   else if (k === 'b') $('bright').click();
+  else if (k === 'q') $('quality').click();
   else if (k === 'a') $('auto').click();
   else if (k === 't') $('tuneToggle').click();
   else if (k === 's') { eng.addStroke(shapePoints(shapeKey++ % SHAPES.length, 0.62)); }
@@ -967,9 +975,21 @@ async function loadShaders() {
   throw new Error('shaders not found');
 }
 
-let scale = Math.min(1, 1.25 / Math.min(devicePixelRatio || 1, 2));
+// Render scale: the device pixel ratio is capped at 2 for the canvas and the scenes use at most 1.25 CSS
+// pixels' worth of it, times the Quality level, times what the frame times allow (AdaptiveScale).
+const dprScale = Math.min(1, 1.25 / Math.min(devicePixelRatio || 1, 2));
+let quality = DEFAULT_QUALITY, adaptOn = true;   // adaptOn: web/tools/measure.js turns the frame-time steps off
+const adaptive = new AdaptiveScale(AUTO_START);
+function renderScale() { return Math.max(0.3, dprScale * QUALITY[quality].scale * adaptive.scale); }
+function setQuality(i, quiet) {
+  quality = Math.max(0, Math.min(QUALITY.length - 1, i));
+  adaptive.reset(quality === QUALITY_AUTO ? AUTO_START : 1);
+  $('quality').textContent = 'Quality: ' + QUALITY[quality].name;
+  if (eng) resize();
+  if (!quiet) saveSettings();
+}
 function resize() {
-  const dpr = Math.min(devicePixelRatio || 1, 2);
+  const dpr = Math.min(devicePixelRatio || 1, 2), scale = renderScale();
   const w = Math.max(1, Math.round(canvas.clientWidth * dpr)), h = Math.max(1, Math.round(canvas.clientHeight * dpr));
   if (canvas.width !== w || canvas.height !== h || eng.renderScale !== scale) {
     canvas.width = w; canvas.height = h;
@@ -1013,14 +1033,26 @@ async function boot() {
   });
 }
 
-let last = 0, slow = 0;
+let last = 0;
 const meters = [0, 1, 2, 3].map((i) => $('m' + i)), beatDot = $('beat');
+// The display's refresh rate, from the animation frames' cadence: the 10th-percentile frame time of the
+// last 120 frames is a vsync period or close to it, whatever the GPU is doing the rest of the time.
+const cadence = [];
+function noteCadence(dt) {
+  cadence.push(dt);
+  if (cadence.length < 120) return;
+  const sorted = cadence.slice().sort((a, b) => a - b);
+  cadence.length = 0;
+  adaptive.setRefreshRate(1 / sorted[12]);
+}
 function frame(now) {
   const dt = last ? Math.min(0.1, (now - last) / 1000) : 1 / 60;
   last = now;
-  // adaptive resolution: sustained slow frames lower the render scale
-  slow = dt > 1 / 40 ? slow + dt : Math.max(0, slow - dt * 0.5);
-  if (slow > 2 && scale > 0.4) { slow = 0; scale *= 0.85; resize(); }
+  noteCadence(dt);
+  // adaptive resolution: sustained slow frames lower the render scale, sustained fast ones raise it
+  const stalled = eng.compiledThisFrame; eng.compiledThisFrame = false;
+  if (adaptOn && document.visibilityState !== 'hidden'
+      && adaptive.update(dt, stalled, QUALITY[quality].scale * adaptive.scale > MIN_RENDER_SCALE)) resize();
 
   fillWindow();
   an.process(win, dt);
