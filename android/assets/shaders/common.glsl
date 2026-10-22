@@ -155,3 +155,11 @@ vec3 palHi() {
     n /= max(max(n.r, max(n.g, n.b)), 1e-3);
     return mix(n, vec3(1.0), 0.5);
 }
+
+// The scene's three sliders (menu → Tune this scene), each 0..1; 0.5 is the look the scene was
+// made with, so a slider at the centre changes nothing. tune() maps one onto [lo, hi] with the
+// default in the middle; tuneExp() does it geometrically, for speeds and counts (the default is
+// sqrt(lo * hi)).
+uniform vec4 uTune;
+float tune(int k, float lo, float hi)    { return mix(lo, hi, uTune[k]); }
+float tuneExp(int k, float lo, float hi) { return lo * pow(hi / lo, uTune[k]); }

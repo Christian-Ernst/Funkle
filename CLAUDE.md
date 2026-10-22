@@ -14,12 +14,13 @@ which loads the Android shaders). README.md is the user-facing description. Open
     Settings are in SharedPreferences `prefs` (keys `scene`, `sym`, `palette`, `brightness`, `source`,
     `autopilot`, `titleAlways`, `quality`, `motion` (0 Full, 1 Calm), `eq_mode` (0 Flat, 1 Punch, 2 Custom), `eq_master`, `eq_punch`, `eq_beat`,
     `eq_g0`–`eq_g3` (floats), `custom0`–`custom2`, the custom palette as ARGB ints, `cm_mode` (the Colour
-    motion chip, see `ColourDrive.MODE_NAMES`), `cm_drift`/`cm_beat`/`cm_drop`/`cm_tilt`/`cm_pump` (floats) and
+    motion chip, see `ColourDrive.MODE_NAMES`), `cm_drift`/`cm_beat`/`cm_drop`/`cm_tilt`/`cm_pump` (floats),
+    `tune_<sceneId>_<k>` (floats 0..1, the scene's three sliders, see `Scene.tune`) and
     `prefs_version` (2: Custom moved from palette index 8 to 11 when Ocean, Candy and Rainbow came)) and
     reach the GL thread through `view.queueEvent(() -> renderer.setX(..))`. Colours → Custom opens the
     colour editor card (`showColourEditor`, sliders are `GradientSlider.java`). The equalizer and the colour
     motion each have a chip row and a slider card (`sliderCard`/`openCard`/`closeCard`, `showEqualizer`,
-    `showColourMotion`).
+    `showColourMotion`), and so does "Tune this scene" (`showTune`: the current scene's three sliders).
   - `TavRenderer.java`: the frame is scene pass (feedback ping-pong FBOs) → points/particles →
     transition blend → dual-Kawase bloom → `composite.frag`. `uExposure` and `uBloomStrength` come from
     the Brightness setting (`EXPOSURE`/`BLOOM`, the same table as `BRIGHTNESS` in `web/engine.js`).
@@ -45,6 +46,12 @@ which loads the Android shaders). README.md is the user-facing description. Open
   - `AudioAnalyzer.java`: FFT, bands, beat, drop and flow; also `bandsAbs`, the bands in dB without
     auto-gain. The same logic lives in `web/analyzer.js` and
     `termux/tav.c`, so keep all three in sync.
+  - `Scene.java`: the scene table (id, name, shaders, particle count, the three slider names `tune`).
+    `web/engine.js` has the same `SCENES`. The sliders reach the shaders as `uTune` (0..1 each, 0.5 = the
+    look the scene was made with) through `tune(k, lo, hi)` and `tuneExp(k, lo, hi)` in `common.glsl`;
+    `TavRenderer.setTune` and `eng.setTune(scene, k, v)` set them. Ink (`fluid.frag`, dye advected through
+    the feedback buffer by a curl-noise current) and Horizon (`landscape.frag`, a raymarched terrain whose
+    height is the spectrogram) are the two scenes that aren't built around a circle.
   - `AdaptiveScale.java`: picks the render resolution from frame times (pure Java; shader builds are
     not counted as slow frames). `TavRenderer` builds the other shaders a frame at a time at start-up.
   - `AudioCapture.java` (Visualizer on session 0, mic fallback), `MediaWatcher.java` (MediaSession and
@@ -69,7 +76,7 @@ which loads the Android shaders). README.md is the user-facing description. Open
 - `web/tools/measure.js`: renders every scene at the demo's drop in headless Chromium on a virtual clock
   and prints clipped, near-white and saturated-flat shares per scene. `--track dense` stands in for a
   loud mastered song; `--root` measures another checkout (a `git worktree`) for before/after; `--colour N`
-  and `--palette 9` (Rainbow) cover the colour motion.
+  and `--palette 9` (Rainbow) cover the colour motion; `--tune 1,1,1` puts every scene's sliders at the end.
 - `cloud/`: the Supabase side (see `cloud/README.md`): `supabase/migrations/0001_init.sql` is the schema
   (profiles, `user_settings`, `presets` as opaque jsonb with `v` and `name`, append-only `events`, and the
   SQL functions `sync_settings`, `ingest_events`, `trending_presets`, `preset_of_the_day`,

@@ -2,6 +2,7 @@
 // surface, the bass inflates it and the light is iridescent like oil on water.
 // It floats over a dark floor that mirrors it, which fills the bottom of a tall
 // screen; dust twinkles with the treble above. A drop bursts the spikes.
+// Sliders: spikes (how far the music pushes them), size, trails.
 float spikeField(vec3 n) {
     // ferrofluid spikes on a cube-sphere lattice; each spike listens to its own frequency
     vec3 q = n;
@@ -23,8 +24,8 @@ float spikeField(vec3 n) {
 float map(vec3 p) {
     float r = length(p);
     vec3 n = p / max(r, 1e-4);
-    float R = 0.62 + 0.10 * bass() + 0.04 * beat() + 0.05 * drop();
-    return (r - R - (0.06 + 0.5 * level() + 0.3 * drop()) * spikeField(n)) * 0.45;
+    float R = tune(1, 0.4, 0.84) + 0.10 * bass() + 0.04 * beat() + 0.05 * drop();
+    return (r - R - (0.06 + tune(0, 0.1, 0.9) * level() + 0.3 * drop()) * spikeField(n)) * 0.45;
 }
 vec3 normalAt(vec3 p) {
     const vec2 e = vec2(0.002, -0.002);
@@ -43,7 +44,7 @@ void main() {
     vec3 rd = normalize(vec3(p * 0.62, -1.0));
 
     // background: trails from feedback, haze in the palette's tone, a halo and twinkling dust
-    vec3 col = feedback(p0, 0.99, 0.004, 0.82) * 0.9;
+    vec3 col = feedback(p0, 0.99, 0.004, tune(2, 0.7, 0.94)) * 0.9;
     float hz = fbm(p0 * 1.1 + vec2(uFlow * 0.03, uFlow * 0.02));
     col += palBg() * (0.3 + 0.5 * hz) * 0.4 * (0.5 + 0.5 * lowmid());
     col += palBg() * smoothstep(floorY + 0.4, floorY - 1.2, p0.y) * 0.8;

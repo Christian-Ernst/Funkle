@@ -4,15 +4,20 @@
 //   -> transition blend -> dual-Kawase bloom -> composite to screen.
 'use strict';
 
+// tune: the scene's three sliders (0..1 each, 0.5 = the look it was made with), uploaded as uTune.
 const SCENES = [
-  { id: 'halo',    name: 'Halo',    frag: 'halo.frag', beatRipples: true },
-  { id: 'tunnel',  name: 'Wormhole', frag: 'tunnel.frag' },
-  { id: 'pulsar',  name: 'Pulsar',  frag: 'pulsar.frag' },
-  { id: 'kaleido', name: 'Mandala', frag: 'kaleido.frag' },
-  { id: 'orb',     name: 'Ferro',   frag: 'orb.frag' },
-  { id: 'nebula',  name: 'Nebula',  frag: 'nebula.frag', points: { vert: 'nebula.vert', count: 48000, instances: 1 } },
-  { id: 'spiro',   name: 'Spiro',   frag: 'scope.frag', points: { vert: 'scope.vert', count: 4096, instances: 'sym' } },
+  { id: 'halo',    name: 'Halo',    frag: 'halo.frag', beatRipples: true, tune: ['Rays', 'Trails', 'Rings'] },
+  { id: 'tunnel',  name: 'Wormhole', frag: 'tunnel.frag', tune: ['Speed', 'Panels', 'Twist'] },
+  { id: 'pulsar',  name: 'Pulsar',  frag: 'pulsar.frag', tune: ['Ridges', 'Height', 'Stars'] },
+  { id: 'kaleido', name: 'Mandala', frag: 'kaleido.frag', tune: ['Jewels', 'Echo', 'Spin'] },
+  { id: 'orb',     name: 'Ferro',   frag: 'orb.frag', tune: ['Spikes', 'Size', 'Trails'] },
+  { id: 'nebula',  name: 'Nebula',  frag: 'nebula.frag', points: { vert: 'nebula.vert', count: 48000, instances: 1 }, tune: ['Spin', 'Glow', 'Spread'] },
+  { id: 'spiro',   name: 'Spiro',   frag: 'scope.frag', points: { vert: 'scope.vert', count: 4096, instances: 'sym' }, tune: ['Pen', 'Thickness', 'Trails'] },
+  { id: 'fluid',   name: 'Ink',     frag: 'fluid.frag', tune: ['Flow', 'Ink', 'Swirl'] },
+  { id: 'landscape', name: 'Horizon', frag: 'landscape.frag', tune: ['Height', 'Haze', 'Glow'] },
 ];
+const TUNE = 3;
+const tuneId = (scene, k) => SCENES[scene].tune[k].toLowerCase();
 
 const SHADER_FILES = ['common.glsl', 'fullscreen.vert', 'bloom_down.frag', 'bloom_up.frag', 'blend.frag',
   'composite.frag', 'ripples.frag', 'stroke.vert', 'stroke.frag', 'particle.frag',
@@ -103,6 +108,7 @@ class TavEngine {
     this.vao = gl.createVertexArray();
     this.progs = {};
     this.time = 0; this.scene = 0; this.sym = 6; this.seed = 0;
+    this.tune = SCENES.map(() => [0.5, 0.5, 0.5]);   // per scene, see SCENES[].tune
     this.palette = [[1.0, 0.18, 0.55], [0.15, 0.75, 1.0], [0.55, 0.25, 1.0]];
     this.rainbow = false;   // Colours: Rainbow (the shader paints the spectrum)
     this.colour = new ColourDrive(COLOUR_MODES[0]);
@@ -189,6 +195,7 @@ class TavEngine {
     set1('uTime', this.time % 3600); set1('uFlow', an.flow + this.flowExtra); set1('uStep', this.step || 1); set1('uHistHead', an.histHead);
     set1('uDrop', this.dropAge);
     set1('uSym', this.sym); set1('uSeed', this.seed);
+    if (L.uTune) gl.uniform4f(L.uTune, this.tune[this.scene][0], this.tune[this.scene][1], this.tune[this.scene][2], 0);
     if (L.uBands) gl.uniform4f(L.uBands, an.bands[0], an.bands[1], an.bands[2], an.bands[3]);
     if (L.uEnergy) gl.uniform4f(L.uEnergy, an.level, an.beat, an.beatCount, an.intensity);
     if (L.uPal) gl.uniform3fv(L.uPal, this.palette.flat());
@@ -228,6 +235,12 @@ class TavEngine {
   }
 
   setBrightness(i) { this.brightness = Math.max(0, Math.min(BRIGHTNESS.length - 1, i)); }
+
+  // Slider k of scene s (0..1, 0.5 is the scene's own look); shows on the next frame.
+  setTune(s, k, v) {
+    if (!this.tune[s] || !(k >= 0 && k < TUNE)) return;
+    this.tune[s][k] = Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 0.5;
+  }
 
   addRipple(x, y, strength = 1) {
     this.ripples.push({ x, y, born: this.time, s: strength });
@@ -417,5 +430,5 @@ class TavEngine {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { TavEngine, ColourDrive, SCENES, SHADER_FILES, BRIGHTNESS, COLOUR_MODES, COLOUR_MAX, DEFAULT_COLOUR_MODE, exportPreset, importPreset };
+  module.exports = { TavEngine, ColourDrive, SCENES, TUNE, tuneId, SHADER_FILES, BRIGHTNESS, COLOUR_MODES, COLOUR_MAX, DEFAULT_COLOUR_MODE, exportPreset, importPreset };
 }

@@ -82,7 +82,7 @@ even without notification access, because TAV then sends ordinary media-button p
 | Two-finger swipe | Next / previous scene |
 | Swipe the song title | Next (left) / previous (right) track |
 | Tap the song title | Play / pause |
-| Long-press or ☰ | Menu: playback controls, looks, scenes, shape stamps, mirror (mandala) mode, colours, colour motion, brightness, motion, equalizer, audio source, autopilot, song title, quality |
+| Long-press or ☰ | Menu: playback controls, looks, scenes, the scene's sliders, shape stamps, mirror (mandala) mode, colours, colour motion, brightness, motion, equalizer, audio source, autopilot, song title, quality |
 
 **Looks**: everything on screen (scene, colours and their motion, mirror, brightness, motion, equalizer) saved
 under a name. *Save this look* keeps the one on screen, *My looks* brings one back with a tap, and *Share* sends it
@@ -139,6 +139,16 @@ frequency and a drop bursts them.
 **Nebula** — a 48 000-star galaxy laid along the long axis of the screen, whose rings breathe per band, with a
 shockwave on every beat and a bigger one on every drop.
 **Spiro** — spirograph lace etched with the waveform, one hue per strand, over a spectrogram curtain.
+**Ink** — dye in water: the bands drip ink that a curl-noise current folds and streaks, the waveform draws a
+thread across it, a beat spins the basin and a drop pours in a ring of ink.
+**Horizon** — a flight over a terrain built from the spectrogram (what just played rises in front of you),
+with a neon grid on the ground, a sun that pulses with the bass, an aurora and stars; a drop lifts the land.
+
+**Tune this scene** (menu, under the scene chips) opens three sliders made for the scene you are looking at,
+with the scene changing as you drag: Halo's rays, trails and rings; Wormhole's speed, panels and twist;
+Pulsar's ridges, height and stars; Mandala's jewels, echo and spin; Ferro's spikes, size and trails; Nebula's
+spin, glow and spread; Spiro's pen, thickness and trails; Ink's flow, ink and swirl; Horizon's height, haze
+and glow. The middle of every slider is the look the scene was made with; *Reset* puts them back.
 
 Every scene is composed for a phone held upright: the top and bottom carry haze, rings, sky or a floor in the
 palette's own deep tone instead of black. On every drop the music clock surges, so all motion lurches forward
@@ -187,8 +197,8 @@ python3 -m http.server 8000    # then visit http://localhost:8000/web/
 
 Turn on GitHub Pages for the repository and it works at `https://<user>.github.io/TAV/web/` too.
 Browsers can't hear other apps, so it can't follow Spotify; that's what the Android app is for.
-Keys: arrows or `1`–`7` for scenes, `space` play/pause, `k` colours, `x` shuffle, `d` colour motion, `b` brightness,
-`m` mirror, `s` shape, `c` clear, `l` looks. **Looks** saves the scene, colours, mirror and brightness under a
+Keys: arrows or `1`–`9` for scenes, `t` the scene's sliders, `space` play/pause, `k` colours, `x` shuffle,
+`d` colour motion, `b` brightness, `m` mirror, `s` shape, `c` clear, `l` looks. **Looks** saves the scene, colours, mirror and brightness under a
 name in this browser (and in the cloud when signed in) and shares them as a link: `#d=` carries the look itself,
 so a link opens anywhere, and `#l=code` is the six-letter cloud code. A link from the Android app opens here too.
 
