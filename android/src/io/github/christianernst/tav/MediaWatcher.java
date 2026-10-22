@@ -209,17 +209,25 @@ final class MediaWatcher {
 
     /**
      * Brings the player to the front: the one we follow, otherwise Spotify. Returns false when
-     * no player app could be opened.
+     * that app could not be opened.
      */
     boolean openPlayer(Context from) {
         String pkg = playerPackage();
-        if (pkg == null || !isInstalled(from, pkg)) pkg = NowPlayingNudge.SPOTIFY_PACKAGE;
+        return launch(from, pkg == null ? NowPlayingNudge.SPOTIFY_PACKAGE : pkg);
+    }
+
+    /**
+     * Starts a package's launcher activity. On Android 11+ the launch-intent lookup only sees
+     * packages the manifest queries for (Spotify and media-browser apps); for any other player
+     * the explicit MAIN/LAUNCHER intent is handed to the system, which resolves it for us.
+     */
+    private static boolean launch(Context from, String pkg) {
         Intent i = from.getPackageManager().getLaunchIntentForPackage(pkg);
-        if (i == null) return false;
+        if (i == null) i = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setPackage(pkg);
         try {
             from.startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
             return true;
-        } catch (RuntimeException e) {
+        } catch (RuntimeException e) {   // ActivityNotFoundException: not installed, or nothing to launch
             return false;
         }
     }

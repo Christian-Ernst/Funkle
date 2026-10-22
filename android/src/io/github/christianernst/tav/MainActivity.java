@@ -432,7 +432,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
 
     private void openPlayer() {
         if (!media.openPlayer(this))
-            Toast.makeText(this, "No music player found. Install Spotify, or play from any app.", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "Couldn't open the player. Install Spotify, or play from any app.", Toast.LENGTH_LONG).show();
     }
 
     /** A square view with rounded corners for album art. */

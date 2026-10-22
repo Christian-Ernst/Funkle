@@ -13,9 +13,13 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- The opt-in "music started" nudge (menu -> Light up when music starts). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <!-- Lets TAV see whether Spotify is installed, for the "Open Spotify" shortcut. -->
+    <!-- Package visibility (Android 11+): Spotify, for the "Open Spotify" shortcut and its label,
+         and any app with a media browser service, so "Open player" finds other music apps too. -->
     <queries>
         <package android:name="com.spotify.music" />
+        <intent>
+            <action android:name="android.media.browse.MediaBrowserService" />
+        </intent>
     </queries>
 
     <application
