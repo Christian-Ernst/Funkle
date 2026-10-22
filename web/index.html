@@ -894,7 +894,7 @@ async function boot() {
   eng = new TavEngine(gl, src);
   eng.palette = PALETTES[0][1].map((c) => c.slice());
   eng.sym = 1;
-  setColourMode(DEFAULT_COLOUR_MODE);
+  setColourMode(DEFAULT_COLOUR_MODE, true);   // quiet: a save here would stamp the local settings newer than the cloud copy
   eng.compileAll();
   useDemo();
   resize();
