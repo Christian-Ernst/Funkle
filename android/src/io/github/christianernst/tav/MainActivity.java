@@ -2,6 +2,8 @@ package io.github.christianernst.tav;
 
 import android.Manifest;
 import android.app.Activity;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -159,11 +161,13 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
+        CrashLog.install(this);   // first: a crash anywhere below is shown on the next launch
         dp = getResources().getDisplayMetrics().density;
         prefs = getSharedPreferences("tav", MODE_PRIVATE);
         firstRun = getSharedPreferences("tav_state", MODE_PRIVATE);
         if (!firstRun.contains("first_open_at")) firstRun.edit().putLong("first_open_at", System.currentTimeMillis()).apply();
         looks = new LookStore(this);
+        cloud = Cloud.get(this);   // before buildOverlay, which asks cloud.enabled() for the Account row
         titleAlways = prefs.getBoolean("titleAlways", false);
         equalizer = savedEqualizer();
         eqMode = prefs.getInt("eq_mode", 1);
@@ -214,6 +218,26 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         if (!hasAudioPermission()) showIntro();
         startCloud(getIntent());
         handleLink(getIntent().getData());
+        String crash = CrashLog.take(this);
+        if (crash != null) showCrash(crash);
+    }
+
+    /** The previous launch died: show the trace, with a button that copies all of it. */
+    private void showCrash(final String trace) {
+        if (notice != null) return;
+        notice = card("Last time, TAV crashed",
+                "This is what went wrong. Copy it and paste it into the chat, then TAV can be fixed.\n\n"
+                        + CrashLog.summary(trace, 10),
+                "Copy the report", () -> {
+                    ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                    if (cm != null) cm.setPrimaryClip(ClipData.newPlainText("TAV crash", trace));
+                    flash("Copied");
+                    dismissNotice();
+                }, this::dismissNotice);
+        TextView[] parts = (TextView[]) notice.getTag();
+        parts[0].setGravity(Gravity.START);
+        parts[0].setTextSize(12.5f);
+        parts[0].setTypeface(Typeface.MONOSPACE);
     }
 
     @Override
@@ -409,6 +433,47 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     }
 
     @Override
+    public void onAutopilotLook(Autopilot.Look look) {
+        ui.post(() -> {
+            int pal = look.palette == null ? -1 : indexOf(Palettes.NAMES, look.palette);
+            if (pal >= 0) {   // shown, not saved: the user's own choice comes back when the autopilot stops painting
+                final float[][] p = paletteFor(pal);
+                view.queueEvent(() -> {
+                    renderer.setPalette(p);
+                    renderer.setRainbow(pal == Palettes.RAINBOW);
+                });
+            }
+            if (look.colourMode >= 0) {
+                final ColourDrive d = ColourDrive.preset(look.colourMode);
+                view.queueEvent(() -> renderer.setColourDrive(d));
+            }
+            StringBuilder label = new StringBuilder(Scene.ALL[look.scene >= 0 ? look.scene : Math.max(0, Math.min(Scene.ALL.length - 1, prefs.getInt("scene", 0)))].name);
+            if (pal >= 0) label.append(" \u00b7 ").append(look.palette);
+            if (look.colourMode >= 0) label.append(" \u00b7 ").append(ColourDrive.MODE_NAMES[look.colourMode]);
+            sceneLabel.setText(spaced(label.toString()));
+            sceneLabel.animate().cancel();
+            sceneLabel.setAlpha(1f);
+            ui.removeCallbacks(hideScene);
+            ui.postDelayed(hideScene, 2200);
+            try {
+                cloud.track("autopilot", new JSONObject().put("reason", look.reason)
+                        .put("scene", look.scene >= 0 ? Scene.ALL[look.scene].id : JSONObject.NULL)
+                        .put("palette", look.palette != null ? look.palette : JSONObject.NULL)
+                        .put("colour_motion", look.colourMode >= 0 ? ColourDrive.MODE_NAMES[look.colourMode] : JSONObject.NULL)
+                        .put("energy", Math.round(look.energy * 100) / 100.0).put("bpm", Math.round(look.bpm)));
+            } catch (JSONException ignored) {
+            }
+        });
+    }
+
+    @Override
+    public void onAutopilotWeights(String weights) {
+        ui.post(() -> {
+            if (!weights.equals(prefs.getString("ap_weights", ""))) prefs.edit().putString("ap_weights", weights).apply();
+        });
+    }
+
+    @Override
     public void onSilence(boolean silent) {
         ui.post(() -> {
             if (!silent && !firstRun.getBoolean("first_visual", false)) {   // the onboarding metric: first launch to first moving frame
@@ -556,13 +621,16 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     private void applyPrefs() {
         final int scene = prefs.getInt("scene", 0), sym = prefs.getInt("sym", 1), q = prefs.getInt("quality", TavRenderer.DEFAULT_QUALITY);
         final int lit = prefs.getInt("brightness", TavRenderer.DEFAULT_BRIGHTNESS);
-        final boolean auto = prefs.getBoolean("autopilot", true), calm = prefs.getInt("motion", 0) == 1;
+        final int auto = autopilotMode();
+        final boolean calm = prefs.getInt("motion", 0) == 1;
+        final String weights = prefs.getString("ap_weights", "");
         view.queueEvent(() -> {
-            renderer.setScene(scene);
+            renderer.restoreScene(scene);
             renderer.setSymmetry(sym);
             renderer.setQuality(q);
             renderer.setBrightness(lit);
             renderer.setCalm(calm);
+            renderer.setAutopilotWeights(weights);
             renderer.setAutopilot(auto);
         });
         pushPalette();
@@ -647,7 +715,34 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         view.queueEvent(() -> {
             renderer.setPalette(p);
             renderer.setRainbow(idx == Palettes.RAINBOW);
+            // Album colours already change with the track and Custom is the user's own work: the autopilot leaves both alone
+            renderer.setColoursLocked(idx == Palettes.ALBUM || idx == Palettes.CUSTOM);
         });
+    }
+
+    /**
+     * The Autopilot chip (Off, Scenes, Scenes + colours). Installs from before the chip had three
+     * options kept a boolean, which maps to Off or the default; the boolean is kept in step for the
+     * session events.
+     */
+    private int autopilotMode() {
+        if (prefs.contains("autopilot_mode")) return prefs.getInt("autopilot_mode", Autopilot.DEFAULT);
+        return prefs.getBoolean("autopilot", true) ? Autopilot.DEFAULT : Autopilot.OFF;
+    }
+
+    private void setAutopilotMode(int mode) {
+        prefs.edit().putInt("autopilot_mode", mode).putBoolean("autopilot", mode != Autopilot.OFF).apply();
+        view.queueEvent(() -> renderer.setAutopilot(mode));
+        // back to the user's own colours when the autopilot no longer paints them
+        if (mode != Autopilot.FULL) {
+            pushPalette();
+            pushColourDrive();
+        }
+    }
+
+    private static int indexOf(String[] names, String name) {
+        for (int i = 0; i < names.length; i++) if (names[i].equals(name)) return i;
+        return -1;
     }
 
     private float[][] paletteFor(int idx) {
@@ -917,11 +1012,13 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
             prefs.edit().putInt("palette", i).apply();
             if (i == Palettes.ALBUM && !MediaWatcher.hasNotificationAccess(this))
                 askNotificationAccess("Allow TAV in the list to colour the visuals from album art");
+            view.queueEvent(renderer::autopilotUserColours);   // the user's colours stay for this track
             pushPalette();
             if (i == Palettes.CUSTOM) showColourEditor();
         });
 
         addRow("Colour motion (how the colours move with the music)", ColourDrive.MODE_NAMES, colourMode, cmChips, i -> {
+            view.queueEvent(renderer::autopilotUserColours);
             if (i == ColourDrive.CUSTOM) showColourMotion();   // Custom: the sliders
             else setColourDrive(ColourDrive.preset(i), i);
         });
@@ -948,12 +1045,8 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
             else requestAudio();
         });
 
-        addRow("Autopilot (switch scenes with the music)", new String[]{"On", "Off"}, prefs.getBoolean("autopilot", true) ? 0 : 1,
-                autoChips, i -> {
-                    final boolean on = i == 0;
-                    prefs.edit().putBoolean("autopilot", on).apply();
-                    view.queueEvent(() -> renderer.setAutopilot(on));
-                });
+        addRow("Autopilot (follows the music: scenes by energy, new colours per section)", Autopilot.MODE_NAMES, autopilotMode(),
+                autoChips, this::setAutopilotMode);
 
         addRow("Song title", new String[]{"Fades out", "Always on screen"}, titleAlways ? 1 : 0, new ArrayList<>(), i -> {
             titleAlways = i == 1;
@@ -1579,9 +1672,11 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     private final SharedPreferences.OnSharedPreferenceChangeListener cloudPrefs = (p, key) -> {
         if (key == null || key.equals(SETTINGS_AT)) return;
         Object v = p.getAll().get(key);
-        try {   // the value tells which choices stick, not just which were touched
-            cloud.track("setting_changed", new JSONObject().put("key", key).put("to", v == null ? JSONObject.NULL : v));
-        } catch (JSONException ignored) {
+        if (!key.equals("ap_weights")) {   // the autopilot's own bookkeeping is synced but not an event
+            try {   // the value tells which choices stick, not just which were touched
+                cloud.track("setting_changed", new JSONObject().put("key", key).put("to", v == null ? JSONObject.NULL : v));
+            } catch (JSONException ignored) {
+            }
         }
         p.edit().putLong(SETTINGS_AT, System.currentTimeMillis()).apply();
         ui.removeCallbacks(syncSettings);
@@ -1589,7 +1684,6 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     };
 
     private void startCloud(Intent intent) {
-        cloud = Cloud.get(this);
         cloud.setListener(() -> {
             if (accountCard != null) refreshAccount();
         });
@@ -1612,7 +1706,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         try {
             cloud.track("session_end", new JSONObject().put("seconds", (System.currentTimeMillis() - sessionStartedAt) / 1000)
                     .put("end_scene", Scene.ALL[Math.max(0, Math.min(Scene.ALL.length - 1, prefs.getInt("scene", 0)))].name)
-                    .put("autopilot", prefs.getBoolean("autopilot", true)).put("mode", "normal"));
+                    .put("autopilot", autopilotMode() != Autopilot.OFF).put("autopilot_mode", Autopilot.MODE_NAMES[autopilotMode()]).put("mode", "normal"));
         } catch (JSONException ignored) {
         }
         sessionStartedAt = 0;
@@ -1872,6 +1966,11 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         }
         if (l.eq != null) setEqualizer(l.eq, l.eqMode >= 0 ? l.eqMode : 2);
         applyPrefs();
+        final int lookScene = prefs.getInt("scene", 0);
+        view.queueEvent(() -> {   // a look is the user's pick: the autopilot holds its scene and keeps its colours for this track
+            renderer.setScene(lookScene);
+            renderer.autopilotUserColours();
+        });
         refreshChips();
         flash(spaced(l.name));
         try {
@@ -1895,7 +1994,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         select(brightChips, prefs.getInt("brightness", TavRenderer.DEFAULT_BRIGHTNESS));
         select(motionChips, prefs.getInt("motion", 0));
         select(eqChips, eqMode);
-        select(autoChips, prefs.getBoolean("autopilot", true) ? 0 : 1);
+        select(autoChips, autopilotMode());
         select(qualityChips, prefs.getInt("quality", TavRenderer.DEFAULT_QUALITY));
     }
 

@@ -13,9 +13,16 @@ repository's "no libraries" rule holds. Without a config file both editions run 
    `psql "$DATABASE_URL" -f supabase/migrations/0001_init.sql` with the connection string from
    *Settings → Database*.) Later migrations go in the same folder, numbered.
 3. *Authentication → Providers*: turn on **Anonymous sign-ins** (the app starts as a guest) and
-   keep **Email** on. For Google, add the provider with an OAuth client from Google Cloud.
-   Under *Authentication → Settings* turn on **manual linking** so a guest keeps their id and data
-   when they add Google.
+   keep **Email** on. Under *Authentication → Settings* turn on **manual linking** so a guest keeps
+   their id and data when they add Google.
+   For Google (done for the TAV project on 2026-10-22): in Google Cloud create a project, set up the
+   *Google Auth Platform* branding (External audience), create an OAuth client of type **Web
+   application** with the authorised redirect URI
+   `https://<project-ref>.supabase.co/auth/v1/callback`, and **publish** the app under *Audience*
+   (name and email are non-sensitive scopes, so no verification). Paste the client ID and secret
+   into the Google provider in Supabase. No Android client or SHA-1 is needed: both editions sign
+   in through the browser and Supabase, never through Google's Android SDK, and the browser comes
+   back through `tav://auth` (Android) or the page's own URL (web).
 4. *Authentication → URL configuration*: add the redirect URLs `tav://auth` (the Android app) and
    the web page's address, for instance `https://christian-ernst.github.io/TAV/web/`.
 5. Configure the clients:
@@ -63,8 +70,9 @@ Common: `session_id`, `ts`, `day` (the client's local day, for streaks), `app`, 
 | kind | props |
 |---|---|
 | `session_start` | `source` (visualizer, mic, file, demo), `install_id` |
-| `session_end` | `seconds`, `end_scene`, `autopilot`, `mode` |
+| `session_end` | `seconds`, `end_scene`, `autopilot`, `autopilot_mode` (Off, Scenes, Scenes + colours), `mode` |
 | `scene` | `scene`, `by` (user, autopilot, restore) |
+| `autopilot` | the autopilot changed the look: `reason` (drop, track, section, energy, time), `scene`, `palette`, `colour_motion` (each null when unchanged), `energy` (0..1), `bpm` |
 | `palette` | `palette` |
 | `setting_changed` | `key`, `to` |
 | `look_saved`, `look_applied`, `look_shared` | `preset_id`, `origin` (own, daily, shared, gallery) |

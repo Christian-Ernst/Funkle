@@ -15,6 +15,8 @@ which loads the Android shaders). README.md is the user-facing description. Open
     `autopilot`, `titleAlways`, `quality` (0 Auto, 1 Low, 2 Medium, 3 High; `TavRenderer.QUALITY_SCALE`, web `QUALITY`), `motion` (0 Full, 1 Calm), `eq_mode` (0 Flat, 1 Punch, 2 Custom), `eq_master`, `eq_punch`, `eq_beat`,
     `eq_g0`–`eq_g3` (floats), `custom0`–`custom2`, the custom palette as ARGB ints, `cm_mode` (the Colour
     motion chip, see `ColourDrive.MODE_NAMES`), `cm_drift`/`cm_beat`/`cm_drop`/`cm_tilt`/`cm_pump` (floats),
+    `autopilot_mode` (0 Off, 1 Scenes, 2 Scenes + colours; the old boolean `autopilot` is kept in step),
+    `ap_weights` (the autopilot's per-scene weights, `id=w;...`),
     `tune_<sceneId>_<k>` (floats 0..1, the scene's three sliders, see `Scene.tune`) and
     `prefs_version` (2: Custom moved from palette index 8 to 11 when Ocean, Candy and Rainbow came; 3: Quality renumbered, `MainActivity.qualityV3`)) and
     reach the GL thread through `view.queueEvent(() -> renderer.setX(..))`. Colours → Custom opens the
@@ -31,6 +33,15 @@ which loads the Android shaders). README.md is the user-facing description. Open
     also holds the preset JSON (`toJson`/`fromJson`, `{"v":1,"name","colours":[3 hex],"rainbow","motion":{..}}`)
     that the cloud sync uses; `web/engine.js` has `ColourDrive`, `COLOUR_MODES`, `exportPreset`/`importPreset`
     with the same numbers.
+  - `Autopilot.java`: the music-aware autopilot. Pure arithmetic over the analyzer's values: energy (smoothed
+    intensity), tempo from beat intervals, build-up (fast energy above slow), section changes (fast against slow
+    mix features), and a drop that waits for the downbeat of the next bar. `step()` returns a `Look` (scene,
+    palette name, colour mode, reason, crossfade) or null; the renderer applies the scene and hands the look to
+    `Host.onAutopilotLook`, which paints the colours without saving them and logs the `autopilot` event. The
+    scene list is data: `MOODS` maps scene ids to energy ranges and an unknown id suits everything, so a new
+    scene joins without a change here. Palettes are picked by name (`PAL_LOW/MID/HIGH`). `web/engine.js` has the
+    same class (`Autopilot`, `SCENE_MOODS`, `AUTOPILOT_PALETTES`); `AutopilotCheck` and
+    `web/tools/autopilot-check.js` run the same synthetic song on both.
   - `Look.java`: a saved look (the colour preset JSON from `Palettes.toJson` plus `palette`, `scene`, `sym`,
     `brightness`, `calm`, `eq`), its share payload (`#d=` base64url JSON, opens without the cloud) and the
     link parsers; `LookStore.java` is the shelf in prefs `tav_looks`, mirrored to the cloud presets table
@@ -52,6 +63,10 @@ which loads the Android shaders). README.md is the user-facing description. Open
     `TavRenderer.setTune` and `eng.setTune(scene, k, v)` set them. Ink (`fluid.frag`, dye advected through
     the feedback buffer by a curl-noise current) and Horizon (`landscape.frag`, a raymarched terrain whose
     height is the spectrogram) are the two scenes that aren't built around a circle.
+  - `CrashLog.java`: the default uncaught-exception handler, installed first thing in `onCreate`. It writes the
+    trace to `files/last-crash.txt`; the next launch shows it on a card with a Copy button (`showCrash`), since the
+    owner tests without adb. The `cloud` field is created in `onCreate` before `buildOverlay` (the Account row asks
+    `cloud.enabled()`); `startCloud` only starts it.
   - `AdaptiveScale.java`: picks the render resolution from frame times (pure Java; shader builds are
     not counted as slow frames): down 15 % after 2.5 s under 42 fps, up again after 15 s of fast frames (at most
     1.09 vsync periods of a 60..90 Hz panel: 55 fps on 60 Hz, 83 fps on 90/120 Hz; `setRefreshRate`, fed from
