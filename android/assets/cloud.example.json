@@ -1,0 +1,5 @@
+{
+  "_": "Copy to android/assets/cloud.json (gitignored) with your Supabase project's URL and anon key, Settings -> API. Without it the app runs offline.",
+  "url": "https://YOUR-PROJECT.supabase.co",
+  "anonKey": "YOUR-ANON-KEY"
+}

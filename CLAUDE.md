@@ -40,9 +40,16 @@ which loads the Android shaders). README.md is the user-facing description. Open
 - `web/tools/measure.js`: renders every scene at the demo's drop in headless Chromium on a virtual clock
   and prints clipped, near-white and saturated-flat shares per scene. `--track dense` stands in for a
   loud mastered song; `--root` measures another checkout (a `git worktree`) for before/after.
+- `cloud/`: the Supabase side (see `cloud/README.md`): `supabase/migrations/0001_init.sql` is the schema
+  (profiles, `user_settings`, `presets` as opaque jsonb with `v` and `name`, append-only `events`, and the
+  SQL functions `sync_settings`, `ingest_events`, `trending_presets`, `preset_of_the_day`,
+  `recommend_presets`, `me_summary`), `tools/check.sh` applies it to any Postgres and runs
+  `tools/scenario.sql` (CI does this). The clients are `web/cloud.js` and `Cloud.java`, plain HTTPS and
+  JSON, no SDK; both are no-ops without `web/cloud-config.js` / `android/assets/cloud.json` (gitignored).
+  Events are batched and only ever written through `ingest_events`; the account card has the opt-out.
 - `setup.sh`: one-shot Termux setup (repair packages, tools, optional signing, build, install).
-- `.github/workflows/build.yml`: CI runs the checks, builds the APK (as an artifact on every push) and
-  builds `termux/tav` with gcc and clang `-Werror`. The `latest` release is republished only on pushes
+- `.github/workflows/build.yml`: CI runs the checks, builds the APK (as an artifact on every push),
+  builds `termux/tav` with gcc and clang `-Werror` and runs the cloud schema test on a Postgres service. The `latest` release is republished only on pushes
   to the default branch `ccr-00429428-wmfa7f`.
 
 ## Rules
