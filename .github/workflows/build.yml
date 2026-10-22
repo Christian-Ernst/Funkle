@@ -28,6 +28,7 @@ jobs:
         run: |
           sudo apt-get install -y -qq glslang-tools > /dev/null
           android/tools/check.sh
+          node web/tools/looks-check.js
 
       - name: Signing key
         env:
