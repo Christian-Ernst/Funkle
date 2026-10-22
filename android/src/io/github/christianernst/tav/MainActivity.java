@@ -72,11 +72,20 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     private View colourEditor;
     private final int[] custom = new int[3];
     private final View[] swatches = new View[3];
-    private ColourSlider hueSlider, satSlider, valSlider;
+    private GradientSlider hueSlider, satSlider, valSlider;
     private int editing;
+    // equalizer (menu → Equalizer → Custom)
+    private View equalizerCard;
+    private final GradientSlider[] eqSliders = new GradientSlider[EQ_NAMES.length];
+    private final TextView[] eqLabels = new TextView[EQ_NAMES.length];
+    private Equalizer equalizer;
+    private int eqMode;   // the chip in the menu: 0 Flat, 1 Punch, 2 Custom
+    private static final String[] EQ_NAMES = {"Master", "Bass", "Low mids", "High mids", "Treble", "Punch", "Beat"};
+    private static final int EQ_PUNCH = 5;
 
     private final Runnable hideMenu = () -> {
-        if (panel.getVisibility() != View.VISIBLE && colourEditor == null) menuButton.animate().alpha(0f).setDuration(600).start();
+        if (panel.getVisibility() != View.VISIBLE && colourEditor == null && equalizerCard == null)
+            menuButton.animate().alpha(0f).setDuration(600).start();
     };
     private final Runnable hideTrack = () -> {
         if (!titleAlways) fadeTrack(0f, 1200);
@@ -114,6 +123,8 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         dp = getResources().getDisplayMetrics().density;
         prefs = getSharedPreferences("tav", MODE_PRIVATE);
         titleAlways = prefs.getBoolean("titleAlways", false);
+        equalizer = savedEqualizer();
+        eqMode = prefs.getInt("eq_mode", 1);
         Window w = getWindow();
         w.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         if (Build.VERSION.SDK_INT >= 28) {
@@ -202,6 +213,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     @Override
     public void onBackPressed() {
         if (colourEditor != null) closeColourEditor(true);   // back to the menu it came from
+        else if (equalizerCard != null) closeEqualizer(true);
         else if (panel.getVisibility() == View.VISIBLE) togglePanel();
         else super.onBackPressed();
     }
@@ -386,6 +398,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
             renderer.setAutopilot(auto);
         });
         pushPalette();
+        pushEqualizer();
     }
 
     private void pushPalette() {
@@ -617,6 +630,11 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
             view.queueEvent(() -> renderer.setCalm(i == 1));
         });
 
+        addRow("Equalizer (how hard the scenes react)", new String[]{"Flat", "Punch", "Custom"}, eqMode, new ArrayList<>(), i -> {
+            if (i == 2) showEqualizer();   // Custom: the sliders
+            else setEqualizer(i == 0 ? Equalizer.flat() : Equalizer.punch(), i);
+        });
+
         addRow("Listen to", new String[]{"Phone audio (Spotify)", "Microphone"}, prefs.getInt("source", 0), sourceChips, i -> {
             prefs.edit().putInt("source", i).apply();
             if (hasAudioPermission()) startAudio();
@@ -724,6 +742,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
 
     private void togglePanel() {
         if (colourEditor != null) closeColourEditor(false);   // ✕ or a long-press while editing closes everything
+        else if (equalizerCard != null) closeEqualizer(false);
         else showPanel(panel.getVisibility() != View.VISIBLE);
     }
 
@@ -808,11 +827,11 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         pokeMenu();
     }
 
-    private ColourSlider slider(LinearLayout box, String name) {
+    private GradientSlider slider(LinearLayout box, String name) {
         TextView l = label(name);
         l.setPadding(0, px(8), 0, 0);
         box.addView(l);
-        ColourSlider s = new ColourSlider(this, name);
+        GradientSlider s = new GradientSlider(this, name);
         s.setListener((v, done) -> editColour(done));
         box.addView(s, new LinearLayout.LayoutParams(-1, -2));
         return s;
@@ -867,6 +886,130 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         if (card == null) return;
         colourEditor = null;
         saveCustom();
+        card.animate().alpha(0f).translationY(40 * dp).setDuration(200).withEndAction(() -> root.removeView(card)).start();
+        if (backToMenu) {
+            showPanel(true);
+        } else {
+            menuButton.setText("☰");
+            pokeMenu();
+        }
+    }
+
+    // ------------------------------------------------------------------ equalizer
+
+    private Equalizer savedEqualizer() {
+        Equalizer d = Equalizer.punch();
+        float[] g = new float[Equalizer.BANDS];
+        for (int b = 0; b < g.length; b++) g[b] = prefs.getFloat("eq_g" + b, d.gain[b]);
+        return new Equalizer(prefs.getFloat("eq_master", d.master), g, prefs.getFloat("eq_punch", d.punch),
+                prefs.getFloat("eq_beat", d.beatGain));
+    }
+
+    /** Saves an equalizer and makes it live. mode is the menu chip it belongs to (2 = Custom). */
+    private void setEqualizer(Equalizer e, int mode) {
+        equalizer = e;
+        eqMode = mode;
+        SharedPreferences.Editor ed = prefs.edit().putInt("eq_mode", mode).putFloat("eq_master", e.master)
+                .putFloat("eq_punch", e.punch).putFloat("eq_beat", e.beatGain);
+        for (int b = 0; b < Equalizer.BANDS; b++) ed.putFloat("eq_g" + b, e.gain[b]);
+        ed.apply();
+        pushEqualizer();
+    }
+
+    private void pushEqualizer() {
+        final Equalizer e = equalizer;
+        view.queueEvent(() -> renderer.setEqualizer(e));
+    }
+
+    /** The amount slider i stands for: master, the four bands, punch (0–100 %) and beat. */
+    private float eqAmount(int i) {
+        Equalizer e = equalizer;
+        return i == 0 ? e.master : i <= Equalizer.BANDS ? e.gain[i - 1] : i == EQ_PUNCH ? e.punch : e.beatGain;
+    }
+
+    /** The slider runs 0–200 % except punch, which runs 0–100 %. */
+    private static float eqRange(int i) {
+        return i == EQ_PUNCH ? 1f : 2f;
+    }
+
+    /**
+     * Glass card with seven sliders over the visuals. Each change makes a new equalizer and shows
+     * on the scenes at once, so you can drag until it hits right.
+     */
+    private void showEqualizer() {
+        if (equalizerCard != null) return;
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(px(18), px(4), px(18), px(16));
+        LinearLayout head = new LinearLayout(this);
+        head.setGravity(Gravity.CENTER_VERTICAL);
+        head.addView(label("How hard the scenes react"), new LinearLayout.LayoutParams(0, -2, 1f));
+        TextView doneChip = text(15, Color.WHITE, true);
+        doneChip.setShadowLayer(0, 0, 0, 0);
+        doneChip.setText("Done");
+        doneChip.setPadding(px(22), px(10), px(22), px(10));
+        styleChip(doneChip, true);
+        doneChip.setOnClickListener(v -> closeEqualizer(false));
+        head.addView(doneChip);
+        box.addView(head);
+        for (int i = 0; i < EQ_NAMES.length; i++) {
+            final int k = i;
+            eqLabels[i] = label(EQ_NAMES[i]);
+            box.addView(eqLabels[i]);
+            GradientSlider s = new GradientSlider(this, EQ_NAMES[i]);
+            s.setColors(0xFF2A2740, 0xFFFF2E8C);
+            s.setKnobColor(0xFFFFFFFF);
+            s.setListener((value, finished) -> editEqualizer(k, value));
+            box.addView(s, new LinearLayout.LayoutParams(-1, -2));
+            eqSliders[i] = s;
+        }
+
+        ScrollView card = new ScrollView(this);   // scrolls on a short landscape screen
+        card.setBackground(glass(0xE60B0B14));
+        card.setVerticalScrollBarEnabled(false);
+        card.setClickable(true);   // touches on the card don't fall through to the visuals
+        card.addView(box);
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM);
+        lp.setMargins(px(12), 0, px(12), px(100));
+        root.addView(card, lp);
+        card.setAlpha(0f);
+        card.setTranslationY(40 * dp);
+        card.animate().alpha(1f).translationY(0).setDuration(250).start();
+        if (panel.getVisibility() == View.VISIBLE) showPanel(false);
+        equalizerCard = card;
+        menuButton.setText("✕");
+        showEqualizerValues();
+        pokeMenu();
+    }
+
+    /** Puts every slider and label where the current equalizer is. */
+    private void showEqualizerValues() {
+        for (int i = 0; i < EQ_NAMES.length; i++) eqSliders[i].setValue(eqAmount(i) / eqRange(i));
+        refreshEqualizerLabels();
+    }
+
+    private void refreshEqualizerLabels() {
+        for (int i = 0; i < EQ_NAMES.length; i++) {
+            eqLabels[i].setText((EQ_NAMES[i] + "  \u00B7  " + Math.round(eqAmount(i) * 100) + " %").toUpperCase(Locale.ROOT));
+        }
+    }
+
+    private void editEqualizer(int i, float position) {
+        Equalizer e = equalizer;
+        float master = e.master, punch = e.punch, beat = e.beatGain, v = position * eqRange(i);
+        float[] g = e.gain.clone();
+        if (i == 0) master = v;
+        else if (i <= Equalizer.BANDS) g[i - 1] = v;
+        else if (i == EQ_PUNCH) punch = v;
+        else beat = v;
+        setEqualizer(new Equalizer(master, g, punch, beat), 2);
+        refreshEqualizerLabels();
+    }
+
+    private void closeEqualizer(boolean backToMenu) {
+        final View card = equalizerCard;
+        if (card == null) return;
+        equalizerCard = null;
         card.animate().alpha(0f).translationY(40 * dp).setDuration(200).withEndAction(() -> root.removeView(card)).start();
         if (backToMenu) {
             showPanel(true);

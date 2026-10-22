@@ -14,6 +14,11 @@ colours (menu → Colours → Custom) are done. What is still open, and what to 
 - Motion → Calm (no beat pulses, beat ripples or drop flashes) is new and not yet on a phone. Check that
   the name and the wording in the menu are clear, and whether it should be the default for some users.
 - The web edition has no Motion setting yet, so Calm applies to the Android app only.
+- The equalizer (menu → Equalizer) is new and not yet on a phone. Its defaults (Punch: punch 70 %, beat
+  130 %) and the absolute level range (−60 to −6 dB, `AudioAnalyzer.ABS_FLOOR_DB`/`ABS_RANGE_DB`) were set
+  on a synthetic groove. Check them on a real song: loud sections should hit clearly harder than quiet
+  ones, and boosted bands should not white out the scenes (the brightness measurement is the guardrail).
+- The equalizer is Android only. The web edition and the terminal edition still react with the flat look.
 
 ## Colour editor follow-ups (ask first)
 

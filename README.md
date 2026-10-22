@@ -71,7 +71,7 @@ even without notification access, because TAV then sends ordinary media-button p
 | Two-finger swipe | Next / previous scene |
 | Swipe the song title | Next (left) / previous (right) track |
 | Tap the song title | Play / pause |
-| Long-press or ☰ | Menu: playback controls, scenes, shape stamps, mirror (mandala) mode, colours, brightness, motion, audio source, autopilot, song title, quality |
+| Long-press or ☰ | Menu: playback controls, scenes, shape stamps, mirror (mandala) mode, colours, brightness, motion, equalizer, audio source, autopilot, song title, quality |
 
 **Autopilot** (on by default) changes scenes when the track changes, when a drop hits, or every 45 s.
 **Mirror** repeats everything you draw 2–12 times around the centre.
@@ -79,6 +79,12 @@ even without notification access, because TAV then sends ordinary media-button p
 editor for your own three colours. Tap a swatch, then drag Hue, Saturation and Brightness; the visuals change while
 you drag, and TAV keeps the colours for next time. Tap *Custom* again to edit them.
 **Brightness**: Dim, Soft, Normal (the default) or Bright. On an OLED screen in a dark room, try Soft or Dim.
+**Equalizer** sets how hard the scenes react to the music, for every scene. *Flat* is the look before the
+equalizer: each band is scaled to its own recent peak, so a quiet verse looks much like the chorus. *Punch*
+(the default) keeps more of the loud-and-quiet difference and hits the beat harder. *Custom* opens seven
+sliders: **Master** (how much everything moves), the four bands (**Bass**, **Low mids**, **High mids**,
+**Treble**; each one's share of the motion), **Punch** (how much loud-and-quiet survives) and **Beat** (the
+beat pulse and drop flash). The visuals change while you drag.
 **Motion**: Full (the default) or Calm. Calm stops the beat pulses, beat ripples and drop flashes; the scenes still
 move with the music. Use it if flashing lights bother you or you are sensitive to them.
 

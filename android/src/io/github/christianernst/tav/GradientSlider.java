@@ -14,11 +14,11 @@ import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.SeekBar;
 
 /**
- * A slider over a colour gradient: hue, saturation or brightness in the colour editor. Drawn
- * rather than a styled SeekBar so the track looks the same on every Android version; screen
- * readers still get it as a seek bar.
+ * A slider over a gradient: hue, saturation or brightness in the colour editor, the gains in the
+ * equalizer. Drawn rather than a styled SeekBar so the track looks the same on every Android
+ * version; screen readers still get it as a seek bar.
  */
-final class ColourSlider extends View {
+final class GradientSlider extends View {
     interface Listener {
         /** done: the finger lifted (or a key or screen-reader step), a good moment to save. */
         void onChange(float value, boolean done);
@@ -31,7 +31,7 @@ final class ColourSlider extends View {
     private float value;
     private Listener listener;
 
-    ColourSlider(Context ctx, String name) {
+    GradientSlider(Context ctx, String name) {
         super(ctx);
         dp = ctx.getResources().getDisplayMetrics().density;
         ring.setStyle(Paint.Style.STROKE);

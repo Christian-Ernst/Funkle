@@ -74,6 +74,9 @@ final class TavRenderer implements GLSurfaceView.Renderer {
     private int compiles, compilesSeen;                          // shader builds so far
     private final List<Runnable> warmUp = new ArrayList<>();     // the other shaders, one per frame
     private boolean calm;                                        // Motion: Calm, no beat pulses or flashes
+    private Equalizer eq = Equalizer.flat();
+    private final float[] shaped = new float[Equalizer.BANDS];   // the bands the scenes see
+    private float shapedLevel, shapedBeat;
     // Clocks are double on the CPU; the shaders get them wrapped (see use()) because fp32
     // uniforms in the thousands lose the precision that fract()/sin() patterns need.
     private double time, transStart = -10;
@@ -143,6 +146,10 @@ final class TavRenderer implements GLSurfaceView.Renderer {
     /** Motion: Calm stops the beat pulses, beat ripples and drop flashes. The music still moves things. */
     void setCalm(boolean on) {
         calm = on;
+    }
+
+    void setEqualizer(Equalizer e) {
+        eq = e;
     }
 
     void setPalette(float[][] p) {
@@ -291,6 +298,9 @@ final class TavRenderer implements GLSurfaceView.Renderer {
         if (an == null || an.sampleRate != capture.sampleRate()) an = new AudioAnalyzer(capture.sampleRate(), AudioCapture.N);
         if (!capture.read(samples)) java.util.Arrays.fill(samples, 0f);
         an.process(samples, dt);
+        eq.shapeBands(an.bands, an.bandsAbs, shaped);
+        shapedLevel = eq.shapeLevel(an.level);
+        shapedBeat = calm ? 0f : eq.shapeBeat(an.beat);
         if (an.silent != lastSilent) {
             lastSilent = an.silent;
             host.onSilence(an.silent);
@@ -305,11 +315,11 @@ final class TavRenderer implements GLSurfaceView.Renderer {
             for (int c = 0; c < 3; c++) palette[k][c] += (target[k][c] - palette[k][c]) * (1 - (float) Math.exp(-dt * 1.5));
         if (an.drop) {
             seed = (seed + 1) % 64;
-            flash = calm ? 0f : 0.6f;
+            flash = calm ? 0f : eq.dropFlash();
         }
         flash *= (float) Math.exp(-dt * 4);
         Scene sc = Scene.ALL[scene];
-        if (sc.beatRipples && an.onBeat && !calm) addRipple(0, 0, 0.5f + 0.5f * an.bands[0]);
+        if (sc.beatRipples && an.onBeat && !calm) addRipple(0, 0, 0.5f + 0.5f * shaped[0]);
 
         // upload audio
         glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
@@ -520,9 +530,9 @@ final class TavRenderer implements GLSurfaceView.Renderer {
         uniform1f(p, "uSym", sym);
         uniform1f(p, "uSeed", seed);
         int l = p.loc("uBands");
-        if (l >= 0) glUniform4f(l, an.bands[0], an.bands[1], an.bands[2], an.bands[3]);
+        if (l >= 0) glUniform4f(l, shaped[0], shaped[1], shaped[2], shaped[3]);
         l = p.loc("uEnergy");
-        if (l >= 0) glUniform4f(l, an.level, calm ? 0f : an.beat, an.beatCount, an.intensity);
+        if (l >= 0) glUniform4f(l, shapedLevel, shapedBeat, an.beatCount, an.intensity);
         l = p.loc("uPal");
         if (l >= 0) {
             for (int k = 0; k < 3; k++) System.arraycopy(palette[k], 0, palFlat, k * 3, 3);

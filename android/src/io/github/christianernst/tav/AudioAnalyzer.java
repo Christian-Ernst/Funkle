@@ -22,6 +22,8 @@ final class AudioAnalyzer {
     private float peakDb = -40f;
     private final float[] bandPeak = {1e-3f, 1e-3f, 1e-3f, 1e-3f};
     final float[] bands = new float[4];
+    /** The same bands without auto-gain (in dB, mapped to 0..1 and squared): loud stays loud. */
+    final float[] bandsAbs = new float[4];
     private float levelPeak = 1e-3f;
     float level;
     private float wavePeak = 0.05f;
@@ -85,6 +87,9 @@ final class AudioAnalyzer {
     private static int bin(double f, double hz, int nb) {
         return (int) Math.max(1, Math.min(nb - 1, Math.round(f / hz)));
     }
+
+    /** Absolute band levels: -60 dB maps to 0, -6 dB to 1. Set on a synthetic groove; check on a phone. */
+    private static final float ABS_FLOOR_DB = -60, ABS_RANGE_DB = 54;
 
     private static float clamp01(float v) {
         return v <= 0 ? 0 : (v >= 1 ? 1 : v);
@@ -164,6 +169,10 @@ final class AudioAnalyzer {
             v = v * v;
             float c = bands[b];
             bands[b] = c + (v - c) * (v > c ? bUp : bDn);
+            float a = clamp01((20 * (float) Math.log10(amp + 1e-9f) - ABS_FLOOR_DB) / ABS_RANGE_DB);
+            a *= a;
+            float ca = bandsAbs[b];
+            bandsAbs[b] = ca + (a - ca) * (a > ca ? bUp : bDn);
         }
         levelPeak = Math.max(Math.max(rms, levelPeak * decay), 2e-3f);
         float lv = rms / levelPeak;
