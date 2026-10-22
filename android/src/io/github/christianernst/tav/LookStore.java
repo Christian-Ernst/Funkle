@@ -25,8 +25,10 @@ final class LookStore {
         final String id;          // local id
         Look look;
         String cloudId, code;     // the presets row, and its share code once published
-        long updatedAt;
+        long updatedAt;           // ms; after a push, the cloud row's updated_at
         String origin = "own";    // own, shared, daily
+        boolean pushing;          // a savePreset call is in flight (not stored)
+        final List<Done<Entry>> waiting = new ArrayList<>();   // callbacks for when it lands
 
         Entry(String id, Look look) {
             this.id = id;
@@ -159,12 +161,25 @@ final class LookStore {
                 Look l = Look.fromJson(row.optJSONObject("data"));
                 if (id == null || l == null) continue;
                 seen.add(id);
+                long at = Cloud.parseIso(row.optString("updated_at", ""));
                 Entry e = null;
                 for (Entry x : entries) if (id.equals(x.cloudId)) e = x;
-                if (e == null) {
+                if (e != null) {
+                    // both sides have it: the newer document wins (a second of slack for the clocks)
+                    if (!e.look.sameAs(l)) {
+                        if (at > e.updatedAt + 1000) {
+                            e.look = l;
+                            e.updatedAt = at;
+                            changed = true;
+                        } else if (e.updatedAt > at + 1000) {
+                            pushEntry(cloud, e, null);
+                        }
+                    }
+                } else {
                     for (Entry x : entries) if (x.cloudId == null && x.look.name.equalsIgnoreCase(l.name)) e = x;   // saved offline, then synced from elsewhere
                     if (e == null) {
                         e = new Entry(UUID.randomUUID().toString(), l);
+                        e.updatedAt = at;
                         entries.add(e);
                         changed = true;
                     }
@@ -177,7 +192,7 @@ final class LookStore {
                 }
             }
             for (Entry e : new ArrayList<>(entries)) {
-                if (e.cloudId == null) pushEntry(cloud, e, null);
+                if (e.cloudId == null && !e.pushing) pushEntry(cloud, e, null);
                 else if (!seen.contains(e.cloudId)) e.cloudId = null;   // deleted on another device: keep it here as a local Look
             }
             if (changed) save();
@@ -185,19 +200,43 @@ final class LookStore {
         });
     }
 
-    /** Saves the entry's Look to the cloud (insert or update). */
+    /**
+     * Saves the entry's Look to the cloud (insert or update). One call per entry is in flight at a
+     * time: a second call while the first is out waits for it (so Save followed by Share makes one
+     * row, not two) and then sends again only if the Look changed meanwhile.
+     */
     void pushEntry(Cloud cloud, Entry e, Done<Entry> done) {
         if (cloud == null || !cloud.signedIn()) {
             if (done != null) done.on(e, null);
             return;
         }
-        cloud.savePreset(e.look.toJson(), e.cloudId, (row, err) -> {
+        if (e.pushing) {
+            if (done != null) e.waiting.add(done);
+            return;
+        }
+        e.pushing = true;
+        final JSONObject sent = e.look.toJson();
+        cloud.savePreset(sent, e.cloudId, (row, err) -> {
+            e.pushing = false;
             if (row != null) {
                 e.cloudId = row.optString("id", e.cloudId);
                 if (!row.isNull("code")) e.code = row.optString("code", e.code);
+                long at = Cloud.parseIso(row.optString("updated_at", ""));
+                if (at > 0) e.updatedAt = at;
                 save();
             }
+            List<Done<Entry>> later = new ArrayList<>(e.waiting);
+            e.waiting.clear();
+            if (row != null && !Look.canonical(sent).equals(Look.canonical(e.look.toJson()))) {
+                // the Look changed while the request was out: send the new one, then tell everyone
+                pushEntry(cloud, e, (x, err2) -> {
+                    if (done != null) done.on(e, err2);
+                    for (Done<Entry> d : later) d.on(e, err2);
+                });
+                return;
+            }
             if (done != null) done.on(e, err);
+            for (Done<Entry> d : later) d.on(e, err);
         });
     }
 

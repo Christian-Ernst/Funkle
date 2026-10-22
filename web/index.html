@@ -606,14 +606,24 @@ function saveLook(name) {
   TavCloud.track('look_saved', { preset_id: e.cloudId || null, origin: 'own' });
   return e;
 }
-// Mirrors a shelf entry to the cloud (insert or update) when signed in.
-async function pushLook(e) {
-  if (!TavCloud.enabled || !TavCloud.auth.state().signedIn) return e;
-  try {
-    const row = await TavCloud.presets.save(e.doc, e.cloudId);
-    if (row) TavLooks.update(e.id, { cloudId: row.id, code: row.code || e.code });
-  } catch (err) { /* offline: stays local */ }
-  return TavLooks.list().find((x) => x.id === e.id) || e;
+// Mirrors a shelf entry to the cloud (insert or update) when signed in. One request per entry at a
+// time: a second call while one is out gets the same promise, so Save followed by Share makes one row.
+const pushing = new Map();
+function pushLook(e) {
+  if (!TavCloud.enabled || !TavCloud.auth.state().signedIn) return Promise.resolve(e);
+  if (pushing.has(e.id)) return pushing.get(e.id);
+  const sent = JSON.stringify(e.doc);
+  const p = (async () => {
+    try {
+      const row = await TavCloud.presets.save(e.doc, e.cloudId);
+      if (row) TavLooks.update(e.id, { cloudId: row.id, code: row.code || e.code, updatedAt: Date.parse(row.updated_at) || Date.now() });
+    } catch (err) { /* offline: stays local */ }
+    pushing.delete(e.id);
+    const now = TavLooks.list().find((x) => x.id === e.id) || e;
+    return JSON.stringify(now.doc) !== sent ? pushLook(now) : now;   // changed meanwhile: send that too
+  })();
+  pushing.set(e.id, p);
+  return p;
 }
 async function shareLook(e) {
   e = await pushLook(e);
@@ -686,13 +696,22 @@ async function syncLooks() {
     for (const row of rows || []) {
       if (!TavLooks.parse(row.data)) continue;
       seen.add(row.id);
-      let e = TavLooks.list().find((x) => x.cloudId === row.id)
-        || TavLooks.list().find((x) => !x.cloudId && x.doc.name.toLowerCase() === String(row.data.name).toLowerCase());
-      if (!e) e = TavLooks.add(row.data, 'own');
+      const at = Date.parse(row.updated_at) || 0;
+      let e = TavLooks.list().find((x) => x.cloudId === row.id);
+      if (e) {
+        // both sides have it: the newer document wins (a second of slack for the clocks)
+        if (JSON.stringify(TavLooks.make(TavLooks.parse(e.doc))) !== JSON.stringify(TavLooks.make(TavLooks.parse(row.data)))) {
+          if (at > e.updatedAt + 1000) TavLooks.update(e.id, { doc: TavLooks.make(TavLooks.parse(row.data)), updatedAt: at });
+          else if (e.updatedAt > at + 1000) pushLook(e);
+        }
+      } else {
+        e = TavLooks.list().find((x) => !x.cloudId && x.doc.name.toLowerCase() === String(row.data.name).toLowerCase());
+        if (!e) { e = TavLooks.add(row.data, 'own'); TavLooks.update(e.id, { updatedAt: at }); }
+      }
       TavLooks.update(e.id, { cloudId: row.id, code: row.code || e.code });
     }
     for (const e of TavLooks.list()) {
-      if (!e.cloudId) pushLook(e);
+      if (!e.cloudId && !pushing.has(e.id)) pushLook(e);
       else if (!seen.has(e.cloudId)) TavLooks.update(e.id, { cloudId: null });   // deleted elsewhere: stays here as a local look
     }
     if (!looksSheet.hidden) renderLooks();

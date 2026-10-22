@@ -3,7 +3,8 @@
 // Palettes.toJson / exportPreset is a valid Look that only sets colours):
 //
 //   { v: 1, name, colours: ['#rrggbb' x3], rainbow, motion: {drift, beat, drop, tilt, pump},
-//     palette: 'Neon' | 'Custom', scene: 'halo', sym: 6, brightness: 2, calm: false, eq: {...} }
+//     palette: 'Neon' | 'Custom', scene: 'halo', sym: 6, brightness: 2, calm: false, eq: {...},
+//     tune: { rays: 0.7, trails: 0.5, rings: 0.3 } }   // the scene's sliders, 0..1 (optional)
 //
 // Share links carry the Look itself (#d=<base64url JSON>), so they open without the cloud and
 // without an account; a six-character cloud code rides along as #l=code when there is one.
@@ -32,7 +33,7 @@ const TavLooks = (() => {
   }
 
   // state: { name, palette: [[r,g,b] x3] (0..1), paletteName, rainbow, motion: {drift,...}, scene: id,
-  //          sym, brightness, calm (bool), eq: {mode, master, punch, beat, gain[4]} }; missing parts are left out
+  //          sym, brightness, calm (bool), eq: {mode, master, punch, beat, gain[4]}, tune: {id: 0..1} }; missing parts are left out
   function make(st) {
     const doc = { v: VERSION, name: cleanName(st.name), colours: st.palette.map(hex), rainbow: !!st.rainbow };
     const motion = {};
@@ -47,6 +48,8 @@ const TavLooks = (() => {
       doc.eq = { mode: st.eq.mode | 0, master: round3(st.eq.master), punch: round3(st.eq.punch), beat: round3(st.eq.beat),
         gain: (st.eq.gain || [1, 1, 1, 1]).map(round3) };
     }
+    const tune = cleanTune(st.tune);
+    if (tune) doc.tune = tune;
     return doc;
   }
 
@@ -69,7 +72,19 @@ const TavLooks = (() => {
       if (!Number.isFinite(+doc.eq.master)) st.eq.master = 1;
       if (!Number.isFinite(+doc.eq.beat)) st.eq.beat = 1;
     }
+    const tune = cleanTune(doc.tune);
+    if (tune) st.tune = tune;
     return st;
+  }
+
+  // The per-scene sliders by id, clamped to 0..1; null when there are none worth keeping.
+  function cleanTune(t) {
+    if (!t || typeof t !== 'object' || Array.isArray(t)) return null;
+    const out = {};
+    for (const k of Object.keys(t).sort()) {
+      if (/^[a-z][a-z0-9_]{0,15}$/.test(k) && Number.isFinite(+t[k])) out[k] = round3(clamp(+t[k], 0, 1));
+    }
+    return Object.keys(out).length ? out : null;
   }
 
   // ---------- share links

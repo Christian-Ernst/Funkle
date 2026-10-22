@@ -525,7 +525,7 @@ final class Cloud {
         return f.format(new Date(epochSeconds * 1000));
     }
 
-    private static long parseIso(String s) {
+    static long parseIso(String s) {
         // PostgREST sends 2026-01-01T10:00:00.123456+00:00; seconds are plenty here.
         try {
             SimpleDateFormat f = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.ROOT);

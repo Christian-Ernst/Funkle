@@ -45,6 +45,12 @@ check('out-of-range values are dropped', (() => {
   return p && p.sym === undefined && p.brightness === undefined;
 })());
 
+check('per-scene sliders are kept, clamped and cleaned', (() => {
+  const p = L.parse({ v: 1, name: 't', colours: ['#000000', '#000000', '#000000'], scene: 'halo', tune: { rays: 0.7, trails: 1.5, 'Bad Key': 0.2, nan: 'x' } });
+  const d = L.make(p);
+  return p && Object.keys(p.tune).join() === 'rays,trails' && p.tune.trails === 1 && d.tune.rays === 0.7 && L.make(L.parse(doc)).tune === undefined;
+})());
+
 // shelf
 const e1 = L.add(L.make({ ...st, name: 'A' })), e2 = L.add(L.make({ ...st, name: 'B' }));
 check('shelf keeps the newest first', L.list().map((x) => x.doc.name).join() === 'B,A');
