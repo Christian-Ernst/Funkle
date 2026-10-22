@@ -10,6 +10,8 @@ import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.Outline;
+import android.view.ViewOutlineProvider;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -29,6 +31,7 @@ import android.view.WindowManager;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -46,7 +49,7 @@ import java.util.Map;
 
 /** Full-screen visualizer with a glassy pop-up control panel. */
 public final class MainActivity extends Activity implements TavRenderer.Host, AudioCapture.Listener, MediaWatcher.Listener {
-    private static final int REQ_AUDIO = 7;
+    private static final int REQ_AUDIO = 7, REQ_NOTIFY = 8;
     private static final int[] SYMMETRY = {1, 2, 3, 4, 6, 8, 12};
     private static final String HINT_IDLE = "Play something on Spotify \u266A\nTap to make ripples \u00B7 drag to draw with sound";
     private static final String HINT_BLOCKED = "Music is playing, but TAV hears silence.\nTurn the volume up, or open \u2630 \u2192 Listen to \u2192 Microphone.";
@@ -70,7 +73,10 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     private String lastTitle = "", lastArtist = "";
     private boolean playing, titleAlways;
     private boolean visible, silentNow;   // started (not stopped), and the visuals currently see silence
-    private TextView nowPlaying;
+    private TextView nowPlaying, openPlayer;
+    private ImageView trackArt, panelArt;
+    private Hairline hairline;
+    private Bitmap lastArt;
     private TransportButton playButton;
     private float[][] albumPalette;
     private float dp;
@@ -194,6 +200,8 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     protected void onStart() {
         super.onStart();
         visible = true;
+        NowPlayingNudge.tavVisible = true;
+        NowPlayingNudge.cancel(this);   // TAV is on screen: the offer to open it is moot
         view.onResume();
         if (hasAudioPermission()) {
             removeIntro();   // also covers access granted from the system settings
@@ -213,14 +221,21 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         pokeMenu();
         if (askedNotificationAccess) {
             askedNotificationAccess = false;
-            if (MediaWatcher.hasNotificationAccess(this)) pushPalette();
-            else if (Build.VERSION.SDK_INT >= 33) explainRestrictedSettings();
+            if (MediaWatcher.hasNotificationAccess(this)) {
+                pushPalette();
+                media.stop();   // reconnect so the sessions are read with the new access
+                media.start();
+                if (prefs.getInt(NowPlayingNudge.PREF, NowPlayingNudge.OFF) != NowPlayingNudge.OFF
+                        && Build.VERSION.SDK_INT >= 33 && !NowPlayingNudge.allowed(this))
+                    requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, REQ_NOTIFY);
+            } else if (Build.VERSION.SDK_INT >= 33) explainRestrictedSettings();
         }
     }
 
     @Override
     protected void onStop() {
         visible = false;
+        NowPlayingNudge.tavVisible = false;
         ui.removeCallbacks(showHint);   // otherwise the hint loop keeps waking the CPU in the background
         view.onPause();
         capture.stop();
@@ -264,6 +279,11 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
 
     @Override
     public void onRequestPermissionsResult(int code, String[] perms, int[] results) {
+        if (code == REQ_NOTIFY) {
+            if (results.length > 0 && !NowPlayingNudge.allowed(this))
+                Toast.makeText(this, "Without notifications TAV can't offer to light up when music starts", Toast.LENGTH_LONG).show();
+            return;
+        }
         if (code != REQ_AUDIO) return;
         permissionPending = false;
         if (results.length == 0) return;   // the request was interrupted, nothing was decided
@@ -346,10 +366,12 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         lastTitle = t;
         lastArtist = a;
         nowPlaying.setText(a.isEmpty() ? t : t + "  \u00B7  " + a);
+        openPlayer.setText(playerLabel(true));
         if (art != null) {
             float[][] p = Palettes.fromBitmap(art);
             if (p != null) albumPalette = p;
         }
+        if (art != null || newTrack) showArt(art);
         if (prefs.getInt("palette", Palettes.ALBUM) == Palettes.ALBUM) pushPalette();
         if (!newTrack) return;
         view.queueEvent(renderer::onTrackChanged);
@@ -357,6 +379,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         artist.setText(a);
         trackBox.setContentDescription("Now playing: " + t + (a.isEmpty() ? "" : " by " + a)
                 + ". Double-tap to play or pause.");
+        hairline.clear();   // the new track's position arrives with the next update
         trackBox.animate().cancel();
         trackBox.setVisibility(View.VISIBLE);
         trackBox.setAlpha(0f);
@@ -381,6 +404,51 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     /** The on-screen title dims while playback is paused. */
     private float trackAlpha() {
         return playing || !titleAlways ? 1f : 0.55f;
+    }
+
+    @Override
+    public void onPosition(long positionMs, long durationMs, float speed) {
+        hairline.set(positionMs, durationMs, speed);
+    }
+
+    /** Album art in the title overlay and the menu; both fall back to a soft placeholder. */
+    private void showArt(Bitmap art) {
+        if (art == lastArt) return;
+        lastArt = art;
+        for (ImageView v : new ImageView[]{trackArt, panelArt}) {
+            if (art != null) v.setImageBitmap(art);
+            else v.setImageDrawable(null);
+            v.setVisibility(art != null ? View.VISIBLE : View.GONE);
+        }
+    }
+
+    /** "Open Spotify" when Spotify is what plays or is installed, else the generic wording. */
+    private String playerLabel(boolean playing) {
+        String pkg = media.playerPackage();
+        boolean spotify = NowPlayingNudge.SPOTIFY_PACKAGE.equals(pkg)
+                || (pkg == null && MediaWatcher.isInstalled(this, NowPlayingNudge.SPOTIFY_PACKAGE));
+        return (spotify ? "Open Spotify" : playing ? "Open player" : "Open Spotify") + "  \u2197";
+    }
+
+    private void openPlayer() {
+        if (!media.openPlayer(this))
+            Toast.makeText(this, "No music player found. Install Spotify, or play from any app.", Toast.LENGTH_LONG).show();
+    }
+
+    /** A square view with rounded corners for album art. */
+    private ImageView artView(int sizeDp, final float radiusDp) {
+        ImageView v = new ImageView(this);
+        v.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        v.setOutlineProvider(new ViewOutlineProvider() {
+            @Override
+            public void getOutline(View view, Outline outline) {
+                outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), radiusDp * dp);
+            }
+        });
+        v.setClipToOutline(true);
+        v.setElevation(4 * dp);
+        v.setVisibility(View.GONE);
+        return v;
     }
 
     // ------------------------------------------------------------------ playback
@@ -518,14 +586,28 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         root.addView(hint, lp);
 
         trackBox = new LinearLayout(this);
-        trackBox.setOrientation(LinearLayout.VERTICAL);
+        trackBox.setOrientation(LinearLayout.HORIZONTAL);
+        trackBox.setGravity(Gravity.CENTER_VERTICAL);
+        trackArt = artView(56, 10);
+        trackArt.setContentDescription("Album art. Opens the music player.");
+        trackArt.setOnClickListener(v -> openPlayer());
+        LinearLayout.LayoutParams alp = new LinearLayout.LayoutParams(px(56), px(56));
+        alp.rightMargin = px(14);
+        trackBox.addView(trackArt, alp);
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(LinearLayout.VERTICAL);
         title = text(24, Color.WHITE, true);
         title.setMaxLines(2);
         title.setEllipsize(TextUtils.TruncateAt.END);
         artist = text(15, 0xC0FFFFFF, false);
         artist.setLetterSpacing(0.08f);
-        trackBox.addView(title);
-        trackBox.addView(artist);
+        texts.addView(title);
+        texts.addView(artist);
+        hairline = new Hairline(this);
+        LinearLayout.LayoutParams hlp = new LinearLayout.LayoutParams(px(132), px(2));
+        hlp.topMargin = px(8);
+        texts.addView(hairline, hlp);
+        trackBox.addView(texts, new LinearLayout.LayoutParams(-2, -2));
         trackBox.setAlpha(0f);
         trackBox.setVisibility(View.INVISIBLE);
         trackBox.setPadding(0, px(8), px(16), px(8));   // a little more to grab
@@ -590,12 +672,32 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         nowLabel.setLetterSpacing(0.12f);
         nowLabel.setPadding(0, px(14), 0, px(4));
         panelContent.addView(nowLabel);
+        LinearLayout nowRow = new LinearLayout(this);
+        nowRow.setGravity(Gravity.CENTER_VERTICAL);
+        panelArt = artView(48, 8);
+        panelArt.setContentDescription("Album art");
+        LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(px(48), px(48));
+        plp.rightMargin = px(12);
+        nowRow.addView(panelArt, plp);
+        LinearLayout nowTexts = new LinearLayout(this);
+        nowTexts.setOrientation(LinearLayout.VERTICAL);
         nowPlaying = text(15, Color.WHITE, false);
         nowPlaying.setShadowLayer(0, 0, 0, 0);
         nowPlaying.setSingleLine(true);
         nowPlaying.setEllipsize(TextUtils.TruncateAt.END);
         nowPlaying.setText("Nothing yet \u2014 start a song in Spotify");
-        panelContent.addView(nowPlaying);
+        nowTexts.addView(nowPlaying);
+        openPlayer = text(13, 0xFFFF7AB8, false);
+        openPlayer.setShadowLayer(0, 0, 0, 0);
+        openPlayer.setText(playerLabel(false));
+        openPlayer.setPadding(0, px(4), px(12), px(4));
+        openPlayer.setOnClickListener(v -> {
+            openPlayer();
+            pokeMenu();
+        });
+        nowTexts.addView(openPlayer);
+        nowRow.addView(nowTexts, new LinearLayout.LayoutParams(0, -2, 1f));
+        panelContent.addView(nowRow);
         LinearLayout controls = new LinearLayout(this);
         controls.setGravity(Gravity.CENTER_VERTICAL);
         controls.setPadding(0, px(10), 0, 0);
@@ -652,7 +754,8 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
                 saveCustom();
             }
             prefs.edit().putInt("palette", i).apply();
-            if (i == Palettes.ALBUM && !MediaWatcher.hasNotificationAccess(this)) askNotificationAccess();
+            if (i == Palettes.ALBUM && !MediaWatcher.hasNotificationAccess(this))
+                askNotificationAccess("Allow TAV in the list to colour the visuals from album art");
             pushPalette();
             if (i == Palettes.CUSTOM) showColourEditor();
         });
@@ -700,6 +803,19 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
             else ui.postDelayed(hideTrack, 2500);
         });
 
+        addRow("Light up when music starts (a quiet notification)", new String[]{"Off", "Spotify", "Any player"},
+                prefs.getInt(NowPlayingNudge.PREF, NowPlayingNudge.OFF), new ArrayList<>(), i -> {
+                    prefs.edit().putInt(NowPlayingNudge.PREF, i).apply();
+                    if (i == NowPlayingNudge.OFF) {
+                        NowPlayingNudge.cancel(this);
+                        return;
+                    }
+                    if (!MediaWatcher.hasNotificationAccess(this))
+                        askNotificationAccess("Allow TAV in the list so it can see when music starts");
+                    else if (Build.VERSION.SDK_INT >= 33 && !NowPlayingNudge.allowed(this))
+                        requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, REQ_NOTIFY);
+                });
+
         addRow("Quality", new String[]{"Battery", "Balanced", "Max"}, prefs.getInt("quality", 1), new ArrayList<>(), i -> {
             prefs.edit().putInt("quality", i).apply();
             view.queueEvent(() -> renderer.setQuality(i));
@@ -710,7 +826,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         TextView help = text(12.5f, 0x99FFFFFF, false);
         help.setText("Tap: ripple   \u2022   Drag: draw with sound   \u2022   Two-finger swipe: next scene   \u2022   Long-press: this menu\n"
                 + "Song title on screen: swipe it for the next or previous track, tap it to pause.\n"
-                + "Album colours need notification access (only used to read what's playing).");
+                + "Album colours and the music-started nudge need notification access (only used to read what's playing).");
         help.setLineSpacing(0, 1.25f);
         help.setPadding(0, px(14), 0, 0);
         panelContent.addView(help);
@@ -1123,9 +1239,9 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         closeCard(card, backToMenu);
     }
 
-    private void askNotificationAccess() {
+    private void askNotificationAccess(String why) {
         askedNotificationAccess = true;   // checked when we come back in onResume
-        Toast.makeText(this, "Allow TAV in the list to colour the visuals from album art", Toast.LENGTH_LONG).show();
+        Toast.makeText(this, why, Toast.LENGTH_LONG).show();
         Intent i;
         if (Build.VERSION.SDK_INT >= 30) {
             i = new Intent(Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS);
@@ -1209,7 +1325,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         notice = card("One more switch",
                 "Android blocks notification access for apps installed outside an app store. "
                         + "Open App info, tap \u22EE in the top corner, choose \u201CAllow restricted settings\u201D, "
-                        + "then pick Colours \u2192 Album in TAV again.",
+                        + "then pick the setting in TAV again.",
                 "Open App info", () -> {
                     dismissNotice();
                     openAppInfo();

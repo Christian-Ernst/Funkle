@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Status-bar icon for the "music started" nudge: a note inside a soft burst. White only,
+     as Android tints notification icons. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="24" android:viewportHeight="24">
+    <path android:fillColor="#FFFFFFFF"
+        android:pathData="M14,3.5v10.1a3.4,3.4 0 1,1 -2,-3.1V6.2l6,-1.5v6.9a3.4,3.4 0 1,1 -2,-3.1V3L14,3.5z" />
+    <path android:fillColor="#FFFFFFFF" android:fillAlpha="0.55"
+        android:pathData="M4.5,9.5a1,1 0 1,0 0,2a1,1 0 1,0 0,-2z M5.5,4.5a1,1 0 1,0 0,2a1,1 0 1,0 0,-2z M3,15.5a1,1 0 1,0 0,2a1,1 0 1,0 0,-2z" />
+</vector>
