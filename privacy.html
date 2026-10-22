@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TAV privacy policy</title>
+<link rel="icon" href="docs/brand/icon-96.png">
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; background: #07060c; color: #eceaf6; font: 16px/1.55 system-ui, "Segoe UI", sans-serif; }
+  main { max-width: 42rem; margin: 0 auto; padding: 2.5rem 1.25rem 4rem; }
+  h1 { font-size: 1.8rem; margin: 0 0 .25rem; }
+  h2 { font-size: 1.15rem; margin: 2rem 0 .5rem; color: #ff6fb5; }
+  p, li { color: #cfcbe3; }
+  a { color: #2ec8ff; }
+  .meta { color: #a49fbd; font-size: .9rem; }
+  code { font-family: ui-monospace, Menlo, monospace; font-size: .9em; background: #16122a; padding: .05em .3em; border-radius: 4px; }
+  table { border-collapse: collapse; width: 100%; font-size: .95rem; }
+  th, td { text-align: left; vertical-align: top; padding: .4rem .5rem; border-bottom: 1px solid #241f3c; }
+</style>
+</head>
+<body>
+<main>
+<h1>TAV privacy policy</h1>
+<p class="meta">Effective 23 October 2026 · applies to the TAV Android app and the TAV web page</p>
+
+<p>TAV turns the music playing on your device into light. It is built so that the music itself never leaves your device, and so that the app works fully without an account. This page says what the app does see, what it stores, and how you get rid of it.</p>
+
+<h2>The short version</h2>
+<ul>
+  <li>Audio is analysed on your device, in memory, and never recorded, stored or sent anywhere.</li>
+  <li>Song titles, artists and album art come from the player on your device and stay there.</li>
+  <li>The app starts as an anonymous account so that your settings and saved looks can follow you. You can add an email address or a Google account; you never have to.</li>
+  <li>Anonymous usage events (which scene, which setting, how long) help improve the app. One switch turns them off, one link deletes them.</li>
+  <li>Everything the cloud holds lives on Supabase servers in the European Union, under your own account id. No advertising, no tracking across apps or sites, no selling of data.</li>
+</ul>
+
+<h2>Audio</h2>
+<p>On Android, TAV listens to the device's audio output through Android's <code>Visualizer</code> interface, or to the microphone if you choose that, which is why it asks for the <em>record audio</em> permission. The samples are turned into levels, bands and beats on the device and are discarded frame by frame. Nothing is recorded, nothing is sent. In the browser, TAV uses the Web Audio API on a file or stream you pick, again entirely on your device.</p>
+
+<h2>Now playing</h2>
+<p>With your permission (Android's <em>notification access</em>), TAV reads the media session of your music player, such as Spotify, to show the song title and progress, to colour the visuals from the album art, and, if you turn that on, to offer a silent notification when music starts. That data is used on the device and is not sent to our servers or anyone else. TAV does not use the Spotify API and has no access to your Spotify account.</p>
+
+<h2>Accounts</h2>
+<p>When the cloud is enabled, the app signs in anonymously on first start and is given a random account id. If you add an email address (magic link) or sign in with Google, that same account becomes yours. From Google we receive only your email address and basic profile (name, picture), which we use to identify your account. Supabase, our authentication and database provider, processes this on our behalf. We do not read your contacts, calendar, Drive or anything else.</p>
+
+<h2>What the cloud stores</h2>
+<table>
+<tr><th>Data</th><th>Why</th><th>Who can see it</th></tr>
+<tr><td>Your settings (scene, colours, brightness, motion, equalizer)</td><td>So they follow you between devices</td><td>Only you</td></tr>
+<tr><td>Saved looks (a name and the colours and settings of a look)</td><td>Your shelf of looks</td><td>Only you, unless you share a look, which gives it a public six-letter code</td></tr>
+<tr><td>Usage events: scene changed, setting changed, look saved or shared, session started and ended, with timestamps, app version and a session id</td><td>To learn which scenes and settings people use, and to improve the app</td><td>Only the developer, in aggregate. Clients cannot read them back</td></tr>
+</table>
+<p>Usage events never contain audio, song titles, artists, your location or the contents of any other app. Collection can be turned off at any time with the <em>Help improve TAV with anonymous usage stats</em> switch in the account card, and <em>Delete my usage history</em> removes what was collected so far.</p>
+
+<h2>Where it is stored</h2>
+<p>All cloud data is stored by Supabase in the <code>eu-west-1</code> region (Ireland, European Union). Transfers between the app and the servers are encrypted (HTTPS). Row-level security on the database means each account can only read and write its own rows.</p>
+
+<h2>Sharing a look</h2>
+<p>Sharing produces a link or a six-letter code that contains the look's name, colours and settings, and nothing about you. Anyone with the link can open it. A look you make public can be found by other users; you can make it private or delete it again from the Looks card.</p>
+
+<h2>Deleting your data</h2>
+<ul>
+  <li><strong>Usage events:</strong> account card → <em>Delete my usage history</em>. Immediate.</li>
+  <li><strong>Saved looks:</strong> delete them from the Looks card.</li>
+  <li><strong>Your account and everything in it:</strong> send a request from the email address on the account to the support address shown on the Google sign-in screen and on the app's store listing, or open an issue at <a href="https://github.com/Christian-Ernst/TAV/issues">github.com/Christian-Ernst/TAV/issues</a>. The account, its settings, looks and events are removed within 30 days.</li>
+  <li>Uninstalling the app removes everything stored on the device.</li>
+</ul>
+
+<h2>Children</h2>
+<p>TAV is not directed at children under 13 and does not knowingly collect data from them.</p>
+
+<h2>Changes</h2>
+<p>If this policy changes, the new version is published at this address with a new effective date. The source of this page is in the app's public repository, so every change is visible in its history.</p>
+
+<h2>Contact</h2>
+<p>TAV is made by Christian Ernst, Norway. Questions and requests: the support address shown on the sign-in screen, or <a href="https://github.com/Christian-Ernst/TAV/issues">an issue on GitHub</a>.</p>
+</main>
+</body>
+</html>
