@@ -12,7 +12,7 @@ which loads the Android shaders). README.md is the user-facing description. Open
     cards, the long-press menu (`addRow(label, options, selected, chips, pick)`, one chip row per
     setting), the now-playing section with `TransportButton`s, the song-title overlay and gestures.
     Settings are in SharedPreferences `prefs` (keys `scene`, `sym`, `palette`, `brightness`, `source`,
-    `autopilot`, `titleAlways`, `quality`, and `custom0`–`custom2`, the custom palette as ARGB ints) and
+    `autopilot`, `titleAlways`, `quality`, `motion` (0 Full, 1 Calm), and `custom0`–`custom2`, the custom palette as ARGB ints) and
     reach the GL thread through `view.queueEvent(() -> renderer.setX(..))`. Colours → Custom opens the
     colour editor card (`showColourEditor`, sliders are `ColourSlider.java`).
   - `TavRenderer.java`: the frame is scene pass (feedback ping-pong FBOs) → points/particles →
@@ -20,6 +20,8 @@ which loads the Android shaders). README.md is the user-facing description. Open
     the Brightness setting (`EXPOSURE`/`BLOOM`, the same table as `BRIGHTNESS` in `web/engine.js`).
   - `AudioAnalyzer.java`: FFT, bands, beat, drop and flow. The same logic lives in `web/analyzer.js` and
     `termux/tav.c`, so keep all three in sync.
+  - `AdaptiveScale.java`: picks the render resolution from frame times (pure Java; shader builds are
+    not counted as slow frames). `TavRenderer` builds the other shaders a frame at a time at start-up.
   - `AudioCapture.java` (Visualizer on session 0, mic fallback), `MediaWatcher.java` (MediaSession and
     Spotify broadcasts, play/pause/next/previous), `Palettes.java` (presets plus colours from album
     art → `uPal[3]`), `Scene.java`, `Shapes.java`, `TavView.java`.
@@ -27,8 +29,8 @@ which loads the Android shaders). README.md is the user-facing description. Open
   `pal()`, `glow()`, `feedback()` and `angle()`.
 - `android/build.sh`: Gradle-free build (aapt2, javac `-source 8`, d8, apksigner). It works in Termux
   and with `ANDROID_HOME`.
-- `android/tools/check.sh`: runs glslangValidator on every shader and link pair, plus the analyzer
-  self-test.
+- `android/tools/check.sh`: runs glslangValidator on every shader and link pair, plus the analyzer and
+  adaptive-scale self-tests.
 - `web/tools/measure.js`: renders every scene at the demo's drop in headless Chromium on a virtual clock
   and prints clipped, near-white and saturated-flat shares per scene. `--track dense` stands in for a
   loud mastered song; `--root` measures another checkout (a `git worktree`) for before/after.

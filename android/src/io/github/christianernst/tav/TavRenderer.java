@@ -33,6 +33,7 @@ final class TavRenderer implements GLSurfaceView.Renderer {
     private static final String TAG = "TAV";
     private static final int MAX_RIPPLES = 8, BLOOM_LEVELS = 4, MAX_STROKES = 12, MAX_STROKE_POINTS = 900;
     static final float[] QUALITY_SCALE = {0.5f, 0.7f, 1.0f};
+    private static final float MIN_RENDER_SCALE = 0.36f;
     /** Brightness levels Dim, Soft, Normal, Bright: composite exposure and bloom. Same table as web/engine.js. */
     static final float[] EXPOSURE = {0.45f, 0.65f, 0.85f, 1.1f}, BLOOM = {0.45f, 0.65f, 0.85f, 1.0f};
     static final int DEFAULT_BRIGHTNESS = 2;
@@ -68,13 +69,17 @@ final class TavRenderer implements GLSurfaceView.Renderer {
 
     // state
     private int scene, sym = 1, quality = 1, brightness = DEFAULT_BRIGHTNESS;
-    private float renderScale = QUALITY_SCALE[1], adaptScale = 1f;
+    private float renderScale = QUALITY_SCALE[1];
+    private final AdaptiveScale adaptive = new AdaptiveScale();
+    private int compiles, compilesSeen;                          // shader builds so far
+    private final List<Runnable> warmUp = new ArrayList<>();     // the other shaders, one per frame
+    private boolean calm;                                        // Motion: Calm, no beat pulses or flashes
     // Clocks are double on the CPU; the shaders get them wrapped (see use()) because fp32
     // uniforms in the thousands lose the precision that fract()/sin() patterns need.
     private double time, transStart = -10;
     private float stepScale = 1, flash, seed;
     private long lastNanos;
-    private float slowFrames, sceneTimer;
+    private float sceneTimer;
     private boolean autopilot = true, lastSilent;
     private final float[][] palette = Palettes.preset(1), target = Palettes.preset(1);
     private final List<double[]> ripples = new ArrayList<>();   // x, y, born, strength
@@ -127,12 +132,17 @@ final class TavRenderer implements GLSurfaceView.Renderer {
 
     void setQuality(int q) {
         quality = Math.max(0, Math.min(2, q));
-        adaptScale = 1f;
+        adaptive.reset();
         applyScale();
     }
 
     void setBrightness(int level) {
         brightness = Math.max(0, Math.min(EXPOSURE.length - 1, level));
+    }
+
+    /** Motion: Calm stops the beat pulses, beat ripples and drop flashes. The music still moves things. */
+    void setCalm(boolean on) {
+        calm = on;
     }
 
     void setPalette(float[][] p) {
@@ -245,6 +255,17 @@ final class TavRenderer implements GLSurfaceView.Renderer {
         lastNanos = 0;
         // compile the scene we start with right away so a broken driver is detected early
         for (int k = 0; k < Scene.ALL.length && !compileScene(scene); k++) scene = (scene + 1) % Scene.ALL.length;
+        // The rest are built a frame at a time, so a scene change never waits on a compiler.
+        warmUp.clear();
+        for (int i = 0; i < Scene.ALL.length; i++) {
+            final int k = i;
+            if (i != scene) warmUp.add(() -> compileScene(k));
+        }
+        for (String[] p : new String[][]{{"fullscreen.vert", "blend.frag"}, {"fullscreen.vert", "bloom_down.frag"},
+                {"fullscreen.vert", "bloom_up.frag"}, {"fullscreen.vert", "composite.frag"},
+                {"fullscreen.vert", "ripples.frag"}, {"stroke.vert", "stroke.frag"}}) {
+            warmUp.add(() -> program(p[0], p[1]));
+        }
         host.onSceneChanged(scene);
     }
 
@@ -259,8 +280,12 @@ final class TavRenderer implements GLSurfaceView.Renderer {
     public void onDrawFrame(GL10 unused) {
         long now = System.nanoTime();
         float dt = lastNanos == 0 ? 1f / 60 : Math.min(0.1f, (now - lastNanos) / 1e9f);
+        // dt is the time since the previous frame started, so it includes any shader built during it
+        boolean stalled = compiles != compilesSeen;
+        compilesSeen = compiles;
         lastNanos = now;
         if (sceneA == null) return;
+        if (!warmUp.isEmpty()) warmUp.remove(0).run();
 
         // audio
         if (an == null || an.sampleRate != capture.sampleRate()) an = new AudioAnalyzer(capture.sampleRate(), AudioCapture.N);
@@ -274,17 +299,17 @@ final class TavRenderer implements GLSurfaceView.Renderer {
         time += dt;
         if (an.flow > 2000) an.flow -= 2000;   // safety net when autopilot is off and no scene changes
         stepScale = Math.min(4f, Math.max(0.25f, dt * 60f));
-        adapt(dt);
+        adapt(dt, stalled);
         autopilot(dt);
         for (int k = 0; k < 3; k++)
             for (int c = 0; c < 3; c++) palette[k][c] += (target[k][c] - palette[k][c]) * (1 - (float) Math.exp(-dt * 1.5));
         if (an.drop) {
             seed = (seed + 1) % 64;
-            flash = 0.6f;
+            flash = calm ? 0f : 0.6f;
         }
         flash *= (float) Math.exp(-dt * 4);
         Scene sc = Scene.ALL[scene];
-        if (sc.beatRipples && an.onBeat) addRipple(0, 0, 0.5f + 0.5f * an.bands[0]);
+        if (sc.beatRipples && an.onBeat && !calm) addRipple(0, 0, 0.5f + 0.5f * an.bands[0]);
 
         // upload audio
         glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
@@ -370,13 +395,9 @@ final class TavRenderer implements GLSurfaceView.Renderer {
 
     // ------------------------------------------------------------------ frame helpers
 
-    /** Drops resolution when the GPU can't keep up (sustained < ~45 fps). */
-    private void adapt(float dt) {
-        if (dt > 1f / 42) slowFrames += dt;
-        else slowFrames = Math.max(0, slowFrames - dt * 0.5f);
-        if (slowFrames > 2.5f && renderScale > 0.36f) {
-            slowFrames = 0;
-            adaptScale *= 0.85f;
+    /** Lowers the resolution when the GPU can't keep up (sustained < ~42 fps), raises it again when it can. */
+    private void adapt(float dt, boolean stalled) {
+        if (adaptive.update(dt, stalled, QUALITY_SCALE[quality] * adaptive.scale() > MIN_RENDER_SCALE)) {
             applyScale();
             Log.i(TAG, "adaptive resolution -> " + renderScale);
         }
@@ -390,7 +411,7 @@ final class TavRenderer implements GLSurfaceView.Renderer {
 
     private void applyScale() {
         if (width == 0) return;
-        renderScale = Math.max(0.3f, QUALITY_SCALE[quality] * adaptScale);
+        renderScale = Math.max(0.3f, QUALITY_SCALE[quality] * adaptive.scale());
         int sw = Math.max(16, Math.round(width * renderScale)), sh = Math.max(16, Math.round(height * renderScale));
         if (sceneA != null && sceneA.w == sw && sceneA.h == sh) return;
         Fbo.free(sceneA);
@@ -501,7 +522,7 @@ final class TavRenderer implements GLSurfaceView.Renderer {
         int l = p.loc("uBands");
         if (l >= 0) glUniform4f(l, an.bands[0], an.bands[1], an.bands[2], an.bands[3]);
         l = p.loc("uEnergy");
-        if (l >= 0) glUniform4f(l, an.level, an.beat, an.beatCount, an.intensity);
+        if (l >= 0) glUniform4f(l, an.level, calm ? 0f : an.beat, an.beatCount, an.intensity);
         l = p.loc("uPal");
         if (l >= 0) {
             for (int k = 0; k < 3; k++) System.arraycopy(palette[k], 0, palFlat, k * 3, 3);
@@ -537,6 +558,7 @@ final class TavRenderer implements GLSurfaceView.Renderer {
         String key = vert + "|" + frag;
         if (programs.containsKey(key)) return programs.get(key);
         Program p = null;
+        compiles++;
         try {
             int vs = compile(GL_VERTEX_SHADER, vert), fs = compile(GL_FRAGMENT_SHADER, frag);
             int id = glCreateProgram();

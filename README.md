@@ -71,7 +71,7 @@ even without notification access, because TAV then sends ordinary media-button p
 | Two-finger swipe | Next / previous scene |
 | Swipe the song title | Next (left) / previous (right) track |
 | Tap the song title | Play / pause |
-| Long-press or ☰ | Menu: playback controls, scenes, shape stamps, mirror (mandala) mode, colours, brightness, audio source, autopilot, song title, quality |
+| Long-press or ☰ | Menu: playback controls, scenes, shape stamps, mirror (mandala) mode, colours, brightness, motion, audio source, autopilot, song title, quality |
 
 **Autopilot** (on by default) changes scenes when the track changes, when a drop hits, or every 45 s.
 **Mirror** repeats everything you draw 2–12 times around the centre.
@@ -79,6 +79,8 @@ even without notification access, because TAV then sends ordinary media-button p
 editor for your own three colours. Tap a swatch, then drag Hue, Saturation and Brightness; the visuals change while
 you drag, and TAV keeps the colours for next time. Tap *Custom* again to edit them.
 **Brightness**: Dim, Soft, Normal (the default) or Bright. On an OLED screen in a dark room, try Soft or Dim.
+**Motion**: Full (the default) or Calm. Calm stops the beat pulses, beat ripples and drop flashes; the scenes still
+move with the music. Use it if flashing lights bother you or you are sensitive to them.
 
 ### If the visuals don't move
 
@@ -88,7 +90,7 @@ you drag, and TAV keeps the colours for next time. Tap *Custom* again to edit th
   you to pick **Listen to → Microphone**; hold the phone near the speaker.
 * **Album colours missing:** grant notification access (menu → Colours → Album), or switch on
   *Device Broadcast Status* in Spotify's settings for track names.
-* **Stutters on an older phone:** menu → Quality → Battery. TAV also lowers its resolution by itself when frames run late.
+* **Stutters on an older phone:** menu → Quality → Battery. TAV also lowers its resolution by itself when frames run late, and raises it again once they run fast.
 
 ### Scenes
 

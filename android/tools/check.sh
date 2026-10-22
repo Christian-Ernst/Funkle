@@ -37,5 +37,7 @@ echo "[analyzer]"
 JAR=${ANDROID_JAR:-${ANDROID_HOME:-}/platforms/android-35/android.jar}
 [ -f "$JAR" ] || { echo "set ANDROID_HOME (needs platforms;android-35)"; exit 1; }
 javac -nowarn -d "$OUT/classes" -cp "$JAR" src/io/github/christianernst/tav/AudioAnalyzer.java \
-    src/io/github/christianernst/tav/AudioCapture.java test/io/github/christianernst/tav/AnalyzerCheck.java
+    src/io/github/christianernst/tav/AudioCapture.java src/io/github/christianernst/tav/AdaptiveScale.java \
+    test/io/github/christianernst/tav/AnalyzerCheck.java test/io/github/christianernst/tav/AdaptiveScaleCheck.java
 java -cp "$OUT/classes" io.github.christianernst.tav.AnalyzerCheck
+java -cp "$OUT/classes" io.github.christianernst.tav.AdaptiveScaleCheck

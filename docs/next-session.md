@@ -11,6 +11,9 @@ colours (menu → Colours → Custom) are done. What is still open, and what to 
   `TavRenderer.java` and `web/engine.js`).
 - A phone camera exposes for the dark room and clips anything bright, so photos of the screen look
   whiter than the screen itself. Judge by eye, or with a screenshot (power + volume down).
+- Motion → Calm (no beat pulses, beat ripples or drop flashes) is new and not yet on a phone. Check that
+  the name and the wording in the menu are clear, and whether it should be the default for some users.
+- The web edition has no Motion setting yet, so Calm applies to the Android app only.
 
 ## Colour editor follow-ups (ask first)
 

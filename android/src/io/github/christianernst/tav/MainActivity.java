@@ -63,6 +63,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     private final List<TextView> sceneChips = new ArrayList<>(), sourceChips = new ArrayList<>();
     private String lastTitle = "", lastArtist = "";
     private boolean playing, titleAlways;
+    private boolean visible, silentNow;   // started (not stopped), and the visuals currently see silence
     private TextView nowPlaying;
     private TransportButton playButton;
     private float[][] albumPalette;
@@ -97,6 +98,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     }
     private final Runnable hideScene = () -> sceneLabel.animate().alpha(0f).setDuration(900).start();
     private final Runnable showHint = () -> {
+        if (!visible) return;   // stopped (in the background): nothing to explain, don't wake up
         ui.postDelayed(this.showHint, 3000);   // keep re-checking until sound returns (onSilence stops it)
         if (intro != null || notice != null) return;   // a card is explaining things already
         // Music is known to be playing but the output mix reads as silence: the ROM or the
@@ -152,12 +154,15 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     @Override
     protected void onStart() {
         super.onStart();
+        visible = true;
         view.onResume();
         if (hasAudioPermission()) {
             removeIntro();   // also covers access granted from the system settings
             startAudio();
         }
         media.start();
+        ui.removeCallbacks(showHint);   // one hint loop at a time
+        if (silentNow) ui.postDelayed(showHint, 1000);   // still silent when we come back: explain again
     }
 
     @Override
@@ -174,6 +179,8 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
 
     @Override
     protected void onStop() {
+        visible = false;
+        ui.removeCallbacks(showHint);   // otherwise the hint loop keeps waking the CPU in the background
         view.onPause();
         capture.stop();
         media.stop();
@@ -276,8 +283,9 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     @Override
     public void onSilence(boolean silent) {
         ui.post(() -> {
+            silentNow = silent;
             ui.removeCallbacks(showHint);
-            if (silent) ui.postDelayed(showHint, 2500);   // re-posts itself until sound returns
+            if (silent && visible) ui.postDelayed(showHint, 2500);   // re-posts itself until sound returns
             else hint.animate().alpha(0f).setDuration(500).start();
         });
     }
@@ -368,12 +376,13 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     private void applyPrefs() {
         final int scene = prefs.getInt("scene", 0), sym = prefs.getInt("sym", 1), q = prefs.getInt("quality", 1);
         final int lit = prefs.getInt("brightness", TavRenderer.DEFAULT_BRIGHTNESS);
-        final boolean auto = prefs.getBoolean("autopilot", true);
+        final boolean auto = prefs.getBoolean("autopilot", true), calm = prefs.getInt("motion", 0) == 1;
         view.queueEvent(() -> {
             renderer.setScene(scene);
             renderer.setSymmetry(sym);
             renderer.setQuality(q);
             renderer.setBrightness(lit);
+            renderer.setCalm(calm);
             renderer.setAutopilot(auto);
         });
         pushPalette();
@@ -602,6 +611,11 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
                     prefs.edit().putInt("brightness", i).apply();
                     view.queueEvent(() -> renderer.setBrightness(i));
                 });
+
+        addRow("Motion", new String[]{"Full", "Calm (no flashes)"}, prefs.getInt("motion", 0), new ArrayList<>(), i -> {
+            prefs.edit().putInt("motion", i).apply();
+            view.queueEvent(() -> renderer.setCalm(i == 1));
+        });
 
         addRow("Listen to", new String[]{"Phone audio (Spotify)", "Microphone"}, prefs.getInt("source", 0), sourceChips, i -> {
             prefs.edit().putInt("source", i).apply();
