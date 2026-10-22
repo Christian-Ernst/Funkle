@@ -25,7 +25,7 @@ There are two editions sharing one audio engine:
 
 1. On your phone, open the **[latest release](https://github.com/Christian-Ernst/TAV/releases/tag/latest)** and download **TAV.apk**.
 2. Open it and allow installing from your browser when Android asks.
-3. Start TAV, tap **Let it listen**, then play something in Spotify.
+3. Start TAV. It is already running on a built-in beat; tap **Light up my music** and play something in Spotify.
 
 Or build it on the phone itself, in Termux, with one script:
 
@@ -71,13 +71,20 @@ even without notification access, because TAV then sends ordinary media-button p
 | Two-finger swipe | Next / previous scene |
 | Swipe the song title | Next (left) / previous (right) track |
 | Tap the song title | Play / pause |
-| Long-press or ☰ | Menu: playback controls, scenes, shape stamps, mirror (mandala) mode, colours, colour motion, brightness, motion, equalizer, audio source, autopilot, song title, quality |
+| Long-press or ☰ | Menu: playback controls, looks, scenes, shape stamps, mirror (mandala) mode, colours, colour motion, brightness, motion, equalizer, audio source, autopilot, song title, quality |
 
+**Looks**: everything on screen (scene, colours and their motion, mirror, brightness, motion, equalizer) saved
+under a name. *Save this look* keeps the one on screen, *My looks* brings one back with a tap, and *Share* sends it
+as a link with a six-letter code. The link opens the look in a browser, no app or account needed, with an *Open in
+the TAV app* button on Android; *Open a code or link* pastes one in. Looks are stored on the phone and, with the
+cloud edition, follow you to every device.
 **Autopilot** (on by default) changes scenes when the track changes, when a drop hits, or every 45 s.
 **Mirror** repeats everything you draw 2–12 times around the centre.
 **Colours**: *Album* takes the colours from the cover art, *Neon* to *Candy* are presets, *Rainbow* paints the whole
 spectrum, and *Custom* opens an editor for your own three colours. Tap a swatch, then drag Hue, Saturation and
 Brightness; the visuals change while you drag, and TAV keeps the colours for next time. Tap *Custom* again to edit them.
+*Shuffle* (in the Colours row and in the editor) rolls three random colours that go together: hues a golden angle
+apart, bright and saturated, never the same twice.
 **Colour motion** makes any palette move with the music. *Still* leaves the colours as they are. *Drift* turns the
 hues slowly, faster when the music is loud. *Beat* (the default) turns the hue a step on every beat and a big jump on a drop.
 *Bands* lets bass, mids and treble each pull the picture toward their own colour (the first, second and third
@@ -156,8 +163,10 @@ python3 -m http.server 8000    # then visit http://localhost:8000/web/
 
 Turn on GitHub Pages for the repository and it works at `https://<user>.github.io/TAV/web/` too.
 Browsers can't hear other apps, so it can't follow Spotify; that's what the Android app is for.
-Keys: arrows or `1`–`7` for scenes, `space` play/pause, `k` colours, `d` colour motion, `b` brightness, `m` mirror,
-`s` shape, `c` clear.
+Keys: arrows or `1`–`7` for scenes, `space` play/pause, `k` colours, `x` shuffle, `d` colour motion, `b` brightness,
+`m` mirror, `s` shape, `c` clear, `l` looks. **Looks** saves the scene, colours, mirror and brightness under a
+name in this browser (and in the cloud when signed in) and shares them as a link: `#d=` carries the look itself,
+so a link opens anywhere, and `#l=code` is the six-letter cloud code. A link from the Android app opens here too.
 
 ---
 
@@ -208,6 +217,7 @@ Until the secrets exist, each CI release is signed with a one-off key (the relea
 android/tools/check.sh   # every shader through glslangValidator + analyzer self-test (needs ANDROID_HOME)
 android/build.sh         # builds android/build/TAV.apk
 node web/tools/measure.js --track dense   # how blown out each scene is at a drop (headless Chromium + Playwright)
+node web/tools/looks-check.js            # the look document, share payload and shuffle in web/looks.js
 ```
 
 CI runs both, builds the terminal edition with gcc and clang, and publishes the APK as the

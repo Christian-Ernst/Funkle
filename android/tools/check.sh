@@ -36,12 +36,26 @@ fi
 echo "[analyzer]"
 JAR=${ANDROID_JAR:-${ANDROID_HOME:-}/platforms/android-35/android.jar}
 [ -f "$JAR" ] || { echo "set ANDROID_HOME (needs platforms;android-35)"; exit 1; }
-javac -nowarn -d "$OUT/classes" -cp "$JAR" src/io/github/christianernst/tav/AudioAnalyzer.java \
-    src/io/github/christianernst/tav/AudioCapture.java src/io/github/christianernst/tav/AdaptiveScale.java \
-    src/io/github/christianernst/tav/Equalizer.java src/io/github/christianernst/tav/ColourDrive.java \
+# every source but the activity (which needs the generated R class): the Look check pulls in most of them
+javac -nowarn -d "$OUT/classes" -cp "$JAR" $(ls src/io/github/christianernst/tav/*.java | grep -v MainActivity) \
     test/io/github/christianernst/tav/AnalyzerCheck.java test/io/github/christianernst/tav/AdaptiveScaleCheck.java \
-    test/io/github/christianernst/tav/EqualizerCheck.java test/io/github/christianernst/tav/ColourDriveCheck.java
+    test/io/github/christianernst/tav/EqualizerCheck.java test/io/github/christianernst/tav/ColourDriveCheck.java \
+    test/io/github/christianernst/tav/LookCheck.java
 java -cp "$OUT/classes" io.github.christianernst.tav.AnalyzerCheck
 java -cp "$OUT/classes" io.github.christianernst.tav.AdaptiveScaleCheck
 java -cp "$OUT/classes" io.github.christianernst.tav.EqualizerCheck
 java -cp "$OUT/classes" io.github.christianernst.tav.ColourDriveCheck
+
+echo "[looks]"
+# Look (saved looks, share payload, shuffle) uses org.json, which android.jar only stubs: run it
+# against the real library, fetched once (~70 KB). Without network the check is skipped, not failed.
+JSON=${JSON_JAR:-$HOME/.cache/tav/json-20240303.jar}
+if [ ! -s "$JSON" ]; then
+    mkdir -p "$(dirname "$JSON")"
+    curl -fsSL -o "$JSON.part" https://repo1.maven.org/maven2/org/json/json/20240303/json-20240303.jar && mv "$JSON.part" "$JSON" || rm -f "$JSON.part"
+fi
+if [ -s "$JSON" ]; then
+    java -cp "$JSON:$OUT/classes:$JAR" io.github.christianernst.tav.LookCheck
+else
+    echo "  skipped: could not fetch org.json (set JSON_JAR)"
+fi

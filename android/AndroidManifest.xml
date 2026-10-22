@@ -36,6 +36,20 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="tav" android:host="auth" />
             </intent-filter>
+            <!-- Shared Looks: tav://look?d=... from the web page's "Open in TAV" button. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="tav" android:host="look" />
+            </intent-filter>
+            <!-- The same links as the web edition (Look.SHARE_BASE), so a shared link can open the app. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="christian-ernst.github.io" android:pathPrefix="/TAV/web" />
+            </intent-filter>
         </activity>
 
         <service

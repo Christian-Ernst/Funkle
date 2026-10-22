@@ -34,11 +34,25 @@ colours (menu → Colours → Custom) are done. What is still open, and what to 
   `colours`, `rainbow`, `motion`). The app itself still keeps everything in separate prefs; a "save as named
   preset" UI is the next step and would use that document.
 
-## Colour editor follow-ups (ask first)
+## Looks, sharing and the first run (new, not yet on a phone)
 
-- A "Shuffle" chip that rolls a harmonious random palette (golden-ratio hue steps).
-- Several named custom palettes instead of one (`custom0`–`custom2` is a single slot today).
-- The web edition has the Brightness control (button or `b`) but no custom-colour editor.
+- Menu → Looks: Save this look, My looks (tap to apply, Share, ✕), Open a code or link. Sharing uses the
+  system share sheet with a link `https://christian-ernst.github.io/TAV/web/#l=code&d=payload`; the payload
+  is the look itself, so the link works without the cloud, and the code comes only when the cloud is
+  configured and signed in (a shared look is made public in the presets table). **GitHub Pages must be on**
+  (Settings → Pages → deploy from the default branch, root) for the links to open in a browser; without it
+  the app still catches `tav://look` and the https link when chosen as the handler.
+- The https intent filter is not verified (no assetlinks.json), so on Android 12+ a tapped link opens the
+  browser; the web page then shows *Open in the TAV app* (`tav://look?d=...`). Verifying needs the page
+  `/.well-known/assetlinks.json` with the release key's fingerprint, once signing is settled.
+- First run: the visuals start on the built-in beat (DemoTrack, synthesized in a background thread) before
+  the permission card; *Hear the demo* plays it out loud. The `first_visual` event records the seconds from
+  first open. Check on the phone that the beat starts within a couple of seconds and that AudioTrack
+  playback lines up with the visuals.
+- Shuffle: Colours → Shuffle and the chip in the editor (Android), `x` or the button (web).
+- Not done: a QR code for a look, a gallery of other people's public looks (the SQL exists), the daily look.
+- The web edition has the Brightness control (button or `b`) but no custom-colour editor; a look with custom
+  colours shows as *Colours: <name>* there.
 
 ## Cloud (accounts, sync, events)
 
@@ -46,8 +60,7 @@ colours (menu → Colours → Custom) are done. What is still open, and what to 
   (ten minutes); until then both clients run offline and the Account entry is hidden.
 - Open for the next session: the preset gallery UI (list, publish, like, fork; the SQL and the
   client calls exist in `web/cloud.js` and `Cloud.java`, nothing draws them yet), "preset of the
-  day" on the start card, and the Android menu chips refreshing after a newer cloud copy of the
-  settings lands (today they show the new choice after a restart).
+  day" on the start card. The menu chips now follow a newer cloud copy of the settings (`refreshChips`).
 - Android cannot be built in the cloud session without the SDK build tools; CI builds the APK.
   The sign-in deep link `tav://auth` and the Google flow have not run on a phone yet.
 

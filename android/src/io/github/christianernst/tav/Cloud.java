@@ -280,6 +280,17 @@ final class Cloud {
         run(cb, () -> ((JSONArray) rpc("preset_by_code", new JSONObject().put("p_code", code))).optJSONObject(0));
     }
 
+    /**
+     * The same, without a session: preset_by_code is granted to anon, so a shared link opens for
+     * someone who has never signed in (or whose sign-in is still on its way).
+     */
+    void presetByCodeAnon(String code, Callback<JSONObject> cb) {
+        run(cb, () -> {
+            Object r = call("POST", "/rest/v1/rpc/preset_by_code", new JSONObject().put("p_code", code), false);
+            return r instanceof JSONArray ? ((JSONArray) r).optJSONObject(0) : null;
+        });
+    }
+
     void forkPreset(String id, Callback<JSONObject> cb) {
         run(cb, () -> (JSONObject) rpc("fork_preset", new JSONObject().put("p_id", id)));
     }

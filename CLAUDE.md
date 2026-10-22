@@ -30,6 +30,15 @@ which loads the Android shaders). README.md is the user-facing description. Open
     also holds the preset JSON (`toJson`/`fromJson`, `{"v":1,"name","colours":[3 hex],"rainbow","motion":{..}}`)
     that the cloud sync uses; `web/engine.js` has `ColourDrive`, `COLOUR_MODES`, `exportPreset`/`importPreset`
     with the same numbers.
+  - `Look.java`: a saved look (the colour preset JSON from `Palettes.toJson` plus `palette`, `scene`, `sym`,
+    `brightness`, `calm`, `eq`), its share payload (`#d=` base64url JSON, opens without the cloud) and the
+    link parsers; `LookStore.java` is the shelf in prefs `tav_looks`, mirrored to the cloud presets table
+    (a public row gets the six-letter `#l=` code). `web/looks.js` is the same for the browser. The Looks
+    cards, share sheet and the `tav://look` / web-link handling are in `MainActivity` (`showSaveLook`,
+    `showLooks`, `showOpenCode`, `applyLook`, `shareLook`, `handleLink`); `refreshChips()` restyles every
+    menu row from prefs. `Palettes.shuffle()` is the harmonious shuffle (JVM-safe, no android.graphics).
+  - `DemoTrack.java`: the built-in beat (port of `web/demo.js`); `AudioCapture.startDemo` feeds it to the
+    visuals on a clock, or out loud through an AudioTrack, so the first run moves before the permission ask.
   - `Equalizer.java`: how hard the scenes react. A master, a gain per band, punch (blend from the
     auto-gained bands `an.bands` toward the absolute ones `an.bandsAbs`) and the beat strength. The
     renderer hands the scenes `eq.shapeBands`/`shapeLevel`/`shapeBeat`, never the raw analyzer values.
@@ -47,7 +56,8 @@ which loads the Android shaders). README.md is the user-facing description. Open
   and with `ANDROID_HOME`.
 - `android/tools/check.sh`: runs glslangValidator on every shader and link pair, plus the analyzer,
   adaptive-scale, equalizer and colour-drive self-tests (EqualizerCheck includes a groove with a verse 8 dB under
-  the chorus).
+  the chorus) and LookCheck (needs a real org.json jar, fetched once; android.jar's is a stub).
+- `web/tools/looks-check.js`: the same for `web/looks.js`, in node, including a payload written by Look.java.
 - `web/tools/measure.js`: renders every scene at the demo's drop in headless Chromium on a virtual clock
   and prints clipped, near-white and saturated-flat shares per scene. `--track dense` stands in for a
   loud mastered song; `--root` measures another checkout (a `git worktree`) for before/after; `--colour N`
