@@ -20,6 +20,20 @@ colours (menu → Colours → Custom) are done. What is still open, and what to 
   ones, and boosted bands should not white out the scenes (the brightness measurement is the guardrail).
 - The equalizer is Android only. The web edition and the terminal edition still react with the flat look.
 
+## Colour motion (new, not yet on a phone)
+
+- Menu → Colour motion: Still (default, the old look), Drift, Beat, Bands, Custom (five sliders). Plus the
+  Ocean, Candy and Rainbow palettes. The web edition has the same (button or `d`). Ask the owner which mode
+  should be the default; Still keeps the app looking as before, Beat is the liveliest. The default is
+  `ColourDrive.STILL` in `MainActivity` (`cm_mode`) and `COLOUR_MODES[0]` in `web/index.html`.
+- The beat step (1/16 turn) and the drop jump (1/3 turn) were picked on the demo beat. On a real song, check
+  that Beat is a pulse and not a strobe, and that Bands reads as "bass is colour 1, treble is colour 3".
+- Band pump (Bands: 40 %) raises one colour by up to that much when its band dominates; the measurement stays
+  at 0 % clipped on the dense track, but check Bright on the phone.
+- The cloud thread stores a preset as the JSON from `Palettes.toJson` / `exportPreset` (`v`, `name`,
+  `colours`, `rainbow`, `motion`). The app itself still keeps everything in separate prefs; a "save as named
+  preset" UI is the next step and would use that document.
+
 ## Colour editor follow-ups (ask first)
 
 - A "Shuffle" chip that rolls a harmonious random palette (golden-ratio hue steps).
