@@ -29,6 +29,8 @@ final class Autopilot {
             {"orb", 0.0f, 0.5f},
             {"nebula", 0.0f, 0.6f},
             {"spiro", 0.3f, 0.9f},
+            {"fluid", 0.2f, 0.9f},
+            {"landscape", 0.1f, 0.7f},
     };
     /** Palette families by energy, by palette name (the host maps a name to its own index). */
     static final String[] PAL_LOW = {"Ice", "Ocean", "Aurora", "Vapor"},

@@ -2,6 +2,7 @@
 // with the live waveform etched along the curve. uCopies rotated layers, each
 // reading a different stretch of the waveform and wearing its own hue, stack into a
 // lace rosette. On a tall screen the rosette is stretched along the long axis.
+// Sliders: pen (the offset that shapes the lobes), thickness, trails (in scope.frag).
 uniform float uCount;
 uniform float uCopies;
 out vec3 vCol;
@@ -11,7 +12,7 @@ void main() {
     float th = t * TAU;
     float lobes = 5.0 + mod(uSeed, 4.0);
     float dp = drop();
-    float pen = 0.16 + 0.22 * bass() + 0.05 * beat() + 0.12 * dp;
+    float pen = tune(0, 0.05, 0.27) + 0.22 * bass() + 0.05 * beat() + 0.12 * dp;
     vec2 base = vec2(cos(th), sin(th)) * (0.62 - pen * 0.5)
               + vec2(cos(-th * (lobes - 1.0)), sin(-th * (lobes - 1.0))) * pen;
     vec2 nrm = normalize(base + 1e-5);
@@ -22,7 +23,7 @@ void main() {
     float halfH = uRes.y / min(uRes.x, uRes.y);
     q.y *= 1.0 + 0.5 * max(halfH - 1.0, 0.0);
     gl_Position = vec4(q * min(uRes.x, uRes.y) / uRes, 0.0, 1.0);
-    gl_PointSize = max(1.5, (2.0 + 1.5 * beat() + 2.0 * dp) * min(uRes.x, uRes.y) / 700.0);
+    gl_PointSize = max(1.5, (tune(1, 1.0, 3.0) + 1.5 * beat() + 2.0 * dp) * min(uRes.x, uRes.y) / 700.0);
     float s = spec(0.05 + 0.6 * fract(t * lobes));
     // All copies cover the same rosette: 1/sqrt(copies) keeps Mirror from multiplying the brightness.
     vCol = pal(t * 2.0 + copy / uCopies + uFlow * 0.02) * (0.05 + 0.18 * level() + 0.25 * s * s + 0.2 * dp) * 1.8 / sqrt(uCopies);

@@ -47,8 +47,27 @@ Album colours keep the cover's saturation and brightness above a floor (`Palette
   on the phone, lower the ambient (`palBg() * 0.8` in `composite.frag`) before touching the scenes.
 - Not judged on a phone: the drop moves' strength (`drop()` terms in each scene), the Ferro floor ripple,
   and whether Mandala's fold-count re-roll on a drop is welcome or jarring.
-- Still open from the review: per-scene sliders, saved looks with thumbnails, a share sheet, and two new
-  scenes (fluid, landscape).
+- Still open from the review: saved looks with thumbnails and a share sheet.
+
+## Two new scenes and per-scene sliders (2026-10-22, not yet on a phone)
+
+Ink (`fluid.frag`) and Horizon (`landscape.frag`) are new, and every scene has three sliders (menu → Tune
+this scene; web: the Tune button or `t`) that reach the shaders as `uTune`. The middle of a slider is the
+look the scene had before; the ends were picked so Normal brightness stays at 0 % clipped on the dense track
+(`web/tools/measure.js --track dense --tune 1,1,1`).
+
+- Ink: judged only in headless Chromium. The current (`vel`), the dye amount (`gain`) and the fade
+  (0.978 per 60 Hz frame) were set so a quiet verse leaves thin wisps and a drop fills the screen. If it
+  reads as too dark between drops on the phone, raise `gain` first; the ink stacks in the feedback, so
+  re-measure.
+- Horizon: 64 march steps and three spectrogram taps per step; check Quality → Battery on an older phone
+  (AdaptiveScale should catch it). The grid lines alias into a shimmer near the horizon; the haze hides most
+  of it, and a cheaper fix would be to fade the lines with distance.
+- The sliders' ends (`tune(k, lo, hi)` in each shader) are guesses from the measurement, not from a phone:
+  Halo at full Trails and Spiro at full Trails give large solid (not white) blobs; shorten those ranges if
+  they look muddy on an OLED.
+- The Look format (PR #6) carries the sliders as `"tune": {id: 0..1}` for the Look's scene; whichever of the
+  two PRs merges last wires `captureLook`/`applyLook` to `tune_<scene>_<k>` and `setTune`.
 
 ## Music-aware autopilot (new, not yet on a phone)
 

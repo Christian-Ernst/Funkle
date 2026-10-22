@@ -2,21 +2,25 @@
 // distance — "Unknown Pleasures", alive. Front ridges occlude the ones behind.
 // Above the horizon an aurora in the palette's tone and stars that twinkle with
 // the hi-hats fill the top of a tall screen; a drop lifts the whole landscape.
+// Sliders: ridges (how many lines), height, stars.
 void main() {
     vec2 p = toP(gl_FragCoord.xy);
     float halfW = uRes.x / min(uRes.x, uRes.y);
     float halfH = uRes.y / min(uRes.x, uRes.y);
     float dp = drop();
     float yFront = -0.9 * halfH, yBack = 0.4 * halfH;
-    float hScale = 0.5 * min(halfH, 1.8) * (1.0 + 0.6 * dp);
+    float hScale = tune(1, 0.2, 0.8) * min(halfH, 1.8) * (1.0 + 0.6 * dp);
     float sway = 0.04 * sin(uTime * 0.21);
     vec3 col = vec3(0.0);
-    const int LINES = 48;
+    const int LINES = 80;
+    float nLines = floor(tune(0, 16.0, 80.0));
+    float dMax = 1.0 - 1.0 / (1.0 + (nLines - 1.0) * 0.055);
     float hit = 0.0;
     for (int i = 0; i < LINES; i++) {
         float fi = float(i);
-        float d = 1.0 - 1.0 / (1.0 + fi * 0.055);            // 0 = front, -> ~0.73 at the back
-        float k = d / 0.73;
+        if (fi >= nLines) break;
+        float d = 1.0 - 1.0 / (1.0 + fi * 0.055);            // 0 = front, dMax at the back
+        float k = d / dMax;
         float base = mix(yFront, yBack, k);
         float width = halfW * (1.0 - 0.45 * k);
         float x = (p.x - sway * k) / width;
@@ -53,6 +57,6 @@ void main() {
     float star = hash12(cell);
     vec2 sp = hash22(cell) - 0.5;
     float tw = 0.5 + 0.5 * sin(uTime * (2.0 + 4.0 * star) + star * 40.0);
-    col += palHi() * sky * step(0.985, star) * glow(length(g - cell - 0.5 - sp * 0.6), 0.06) * (0.2 + 0.8 * treble()) * tw * 0.8;
+    col += palHi() * sky * step(tune(2, 0.999, 0.971), star) * glow(length(g - cell - 0.5 - sp * 0.6), 0.06) * (0.2 + 0.8 * treble()) * tw * 0.8;
     fragColor = vec4(col, 1.0);
 }

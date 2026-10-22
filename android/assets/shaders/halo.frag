@@ -3,7 +3,7 @@
 // in rings; short feedback trails give the motion its smear. Built for a tall screen:
 // the rays run toward the corners, an outer ring arcs across the top and bottom and
 // faint spectral rings keep travelling outward. On a drop the rays shoot to the edges
-// and the core swells.
+// and the core swells. Sliders: rays (how many), trails (how long they linger), rings (how fast).
 void main() {
     vec2 p = toP(gl_FragCoord.xy);
     float r = length(p);
@@ -12,7 +12,7 @@ void main() {
     float b = bass(), bt = beat(), lv = level(), dp = drop();
     float edge = max(uRes.x, uRes.y) / min(uRes.x, uRes.y);   // half the long screen axis
 
-    vec3 col = feedback(p, 0.994 - 0.012 * bt - 0.02 * dp, 0.002 + 0.006 * mids(), 0.80);
+    vec3 col = feedback(p, 0.994 - 0.012 * bt - 0.02 * dp, 0.002 + 0.006 * mids(), tune(1, 0.68, 0.92));
     col *= vec3(0.97, 0.95, 1.0);              // trails cool off as they travel
 
     // haze in the palette's deep tone, so the space around the halo belongs to the look
@@ -46,7 +46,7 @@ void main() {
     // spectral rings travelling outward, pushed by the bass
     for (int k = 0; k < 3; k++) {
         float fk = float(k);
-        float ph = fract(uFlow * 0.25 + fk / 3.0);
+        float ph = fract(uFlow * tuneExp(2, 0.08, 0.78) + fk / 3.0);
         float rr = 0.3 + ph * (edge + 0.3);
         float ws = waveS(u * 3.0 + fk * 0.31) * 0.05 * (0.5 + lv);
         float life = (1.0 - ph) * smoothstep(0.0, 0.15, ph);
@@ -54,7 +54,7 @@ void main() {
     }
 
     // spectral rays radiating out of the ring; a drop fires them to the corners
-    float nr = 96.0;
+    float nr = floor(tuneExp(0, 24.0, 384.0));
     float cu = (floor(u * nr) + 0.5) / nr;
     float cm = circFreq(cu + uFlow * 0.004);
     float sv = spec(0.03 + 0.7 * cm);

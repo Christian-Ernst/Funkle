@@ -4,9 +4,10 @@
 // clock (30 fps), so two runs see exactly the same audio and can be compared number for number.
 //
 //   node web/tools/measure.js [--level 0-3] [--palette N] [--colour N] [--scenes halo,spiro]
-//                             [--track demo|dense] [--sym N] [--root DIR] [--out DIR]
+//                             [--track demo|dense] [--sym N] [--tune a,b,c] [--root DIR] [--out DIR]
 //
 // --colour picks the colour motion mode (0 Still, 1 Drift, 2 Beat, 3 Bands); --palette 9 is Rainbow.
+// --tune sets every scene's three sliders (0..1; the default 0.5,0.5,0.5 is each scene's own look).
 //
 // --track dense mixes side-chained pink noise into the demo and limits it hard: a stand-in for a
 // loud mastered song, which fills the whole spectrum the way the synthetic demo doesn't.
@@ -37,6 +38,7 @@ const root = path.resolve(args.root || path.join(__dirname, '../..'));
 const level = args.level === undefined ? -1 : +args.level;
 const palette = +(args.palette || 0), colour = +(args.colour || 0), sym = +(args.sym || 0), track = args.track || 'demo';
 const only = args.scenes ? args.scenes.split(',') : null;
+const tune = args.tune ? args.tune.split(',').map(Number) : null;
 const W = 405, H = 900, FPS = 30, START = 9.0;
 const SHOTS = [15.2, 15.5, 16.0, 17.0, 18.5, 20.0, 22.5, 25.0];   // the drop starts at 15.0 s
 
@@ -126,7 +128,7 @@ function measureFrame(wantPng) {
       useDemo();
     });
   }
-  const scenes = await page.evaluate(({ level, palette, colour, sym }) => {
+  const scenes = await page.evaluate(({ level, palette, colour, sym, tune }) => {
     slow = -1e9;   // keep the adaptive resolution out of it
     document.getElementById('start').hidden = true;
     if (typeof setPalette === 'function') setPalette(palette); else targetPalette = PALETTES[palette][1];
@@ -134,11 +136,12 @@ function measureFrame(wantPng) {
     if (typeof setColourMode === 'function') setColourMode(colour);   // 0 = Still, whatever the page's default
     if (level >= 0 && eng.setBrightness) eng.setBrightness(level);
     if (sym) eng.sym = sym;
+    if (tune) SCENES.forEach((s, i) => tune.forEach((v, k) => eng.setTune(i, k, v)));
     return SCENES.map((s) => s.id);
-  }, { level, palette, colour, sym });
+  }, { level, palette, colour, sym, tune });
   if (args.out) fs.mkdirSync(args.out, { recursive: true });
 
-  console.log(`${root}  track=${track} palette=${palette} colour=${colour} level=${level < 0 ? 'default' : level}${sym ? ' sym=' + sym : ''}`);
+  console.log(`${root}  track=${track} palette=${palette} colour=${colour} level=${level < 0 ? 'default' : level}${sym ? ' sym=' + sym : ''}${tune ? ' tune=' + tune.join(',') : ''}`);
   console.log('scene      clip%   max%   sat5  white%   hot%   luma');
   for (let si = 0; si < scenes.length; si++) {
     if (only && !only.includes(scenes[si])) continue;
