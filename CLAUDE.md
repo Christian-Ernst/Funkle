@@ -13,13 +13,23 @@ which loads the Android shaders). README.md is the user-facing description. Open
     setting), the now-playing section with `TransportButton`s, the song-title overlay and gestures.
     Settings are in SharedPreferences `prefs` (keys `scene`, `sym`, `palette`, `brightness`, `source`,
     `autopilot`, `titleAlways`, `quality`, `motion` (0 Full, 1 Calm), `eq_mode` (0 Flat, 1 Punch, 2 Custom), `eq_master`, `eq_punch`, `eq_beat`,
-    `eq_g0`–`eq_g3` (floats), and `custom0`–`custom2`, the custom palette as ARGB ints) and
+    `eq_g0`–`eq_g3` (floats), `custom0`–`custom2`, the custom palette as ARGB ints, `cm_mode` (the Colour
+    motion chip, see `ColourDrive.MODE_NAMES`), `cm_drift`/`cm_beat`/`cm_drop`/`cm_tilt`/`cm_pump` (floats) and
+    `prefs_version` (2: Custom moved from palette index 8 to 11 when Ocean, Candy and Rainbow came)) and
     reach the GL thread through `view.queueEvent(() -> renderer.setX(..))`. Colours → Custom opens the
-    colour editor card (`showColourEditor`, sliders are `GradientSlider.java`). The equalizer is the
-    Equalizer row and its card (`showEqualizer`, `editEqualizer`).
+    colour editor card (`showColourEditor`, sliders are `GradientSlider.java`). The equalizer and the colour
+    motion each have a chip row and a slider card (`sliderCard`/`openCard`/`closeCard`, `showEqualizer`,
+    `showColourMotion`).
   - `TavRenderer.java`: the frame is scene pass (feedback ping-pong FBOs) → points/particles →
     transition blend → dual-Kawase bloom → `composite.frag`. `uExposure` and `uBloomStrength` come from
     the Brightness setting (`EXPOSURE`/`BLOOM`, the same table as `BRIGHTNESS` in `web/engine.js`).
+  - `ColourDrive.java`: colour motion. Immutable settings (hue drift per second, hue step per beat, jump per
+    drop, band tilt, band pump) and a `State` the renderer steps every frame: the hue in turns and the
+    smoothed bass/mids/treble shares. They reach the shaders as `uColour` (hue, tilt, pump, rainbow flag) and
+    `uBandMix`, and `pal()` in `common.glsl` applies them, so every scene gets them for free. `Palettes.java`
+    also holds the preset JSON (`toJson`/`fromJson`, `{"v":1,"name","colours":[3 hex],"rainbow","motion":{..}}`)
+    that the cloud sync uses; `web/engine.js` has `ColourDrive`, `COLOUR_MODES`, `exportPreset`/`importPreset`
+    with the same numbers.
   - `Equalizer.java`: how hard the scenes react. A master, a gain per band, punch (blend from the
     auto-gained bands `an.bands` toward the absolute ones `an.bandsAbs`) and the beat strength. The
     renderer hands the scenes `eq.shapeBands`/`shapeLevel`/`shapeBeat`, never the raw analyzer values.
@@ -35,17 +45,31 @@ which loads the Android shaders). README.md is the user-facing description. Open
     0 Off, 1 Spotify, 2 Any player, quiet for an hour after a swipe-away), `Palettes.java` (presets plus colours from album
     art → `uPal[3]`), `Scene.java`, `Shapes.java`, `TavView.java`.
 - `android/assets/shaders/`: `common.glsl` is prepended to every shader. It has the uniforms,
-  `pal()`, `glow()`, `feedback()` and `angle()`.
+  `pal()` (with the colour motion and the Rainbow palette), `glow()`, `feedback()` and `angle()`, plus
+  `drop()` (an envelope from `uDrop`, seconds since the last drop; every scene has a drop move on it) and
+  the role colours `palBg()` (deep tint for haze, fog, floors and skies) and `palHi()` (tinted light
+  instead of plain white), both derived from `pal()` so colour motion and Rainbow reach them.
+  Scenes are composed for a portrait phone: `toP()` puts the short axis at [-1, 1], so the long axis
+  reaches about ±2.2 and the top and bottom must carry something.
 - `android/build.sh`: Gradle-free build (aapt2, javac `-source 8`, d8, apksigner). It works in Termux
   and with `ANDROID_HOME`.
 - `android/tools/check.sh`: runs glslangValidator on every shader and link pair, plus the analyzer,
-  adaptive-scale and equalizer self-tests (EqualizerCheck includes a groove with a verse 8 dB under the chorus).
+  adaptive-scale, equalizer and colour-drive self-tests (EqualizerCheck includes a groove with a verse 8 dB under
+  the chorus).
 - `web/tools/measure.js`: renders every scene at the demo's drop in headless Chromium on a virtual clock
   and prints clipped, near-white and saturated-flat shares per scene. `--track dense` stands in for a
-  loud mastered song; `--root` measures another checkout (a `git worktree`) for before/after.
+  loud mastered song; `--root` measures another checkout (a `git worktree`) for before/after; `--colour N`
+  and `--palette 9` (Rainbow) cover the colour motion.
+- `cloud/`: the Supabase side (see `cloud/README.md`): `supabase/migrations/0001_init.sql` is the schema
+  (profiles, `user_settings`, `presets` as opaque jsonb with `v` and `name`, append-only `events`, and the
+  SQL functions `sync_settings`, `ingest_events`, `trending_presets`, `preset_of_the_day`,
+  `recommend_presets`, `me_summary`), `tools/check.sh` applies it to any Postgres and runs
+  `tools/scenario.sql` (CI does this). The clients are `web/cloud.js` and `Cloud.java`, plain HTTPS and
+  JSON, no SDK; both are no-ops without `web/cloud-config.js` / `android/assets/cloud.json` (committed; the publishable key is public).
+  Events are batched and only ever written through `ingest_events`; the account card has the opt-out.
 - `setup.sh`: one-shot Termux setup (repair packages, tools, optional signing, build, install).
-- `.github/workflows/build.yml`: CI runs the checks, builds the APK (as an artifact on every push) and
-  builds `termux/tav` with gcc and clang `-Werror`. The `latest` release is republished only on pushes
+- `.github/workflows/build.yml`: CI runs the checks, builds the APK (as an artifact on every push),
+  builds `termux/tav` with gcc and clang `-Werror` and runs the cloud schema test on a Postgres service. The `latest` release is republished only on pushes
   to the default branch `ccr-00429428-wmfa7f`.
 
 ## Rules
@@ -55,7 +79,8 @@ which loads the Android shaders). README.md is the user-facing description. Open
   owner's phone. Without them, CI signs each release with a one-off key.
 - Language level is Java 8, with no AndroidX and no libraries. `android.jar` has no
   LambdaMetafactory: a stub in `tools/stubs` covers javac and d8 desugars lambdas. minSdk is 24,
-  targetSdk is 35.
+  targetSdk is 35. The owner said on 2026-10-22 that Termux compatibility is no longer required, so a
+  change may bring in Gradle or a library when it needs one; say so in the PR.
 - Shaders are GLSL ES 3.00. Keep them NaN-free (one NaN texel spreads through bloom) and use
   `angle()` instead of a bare `atan(y, x)`. Feedback scales with `uStep` for frame-rate independence,
   and time uniforms wrap.

@@ -99,6 +99,22 @@
   .toast.show { opacity: .9; }
   .err { color: #ff9cc4; }
 
+  .sheet {
+    position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 4;
+    width: min(400px, calc(100% - 32px)); box-sizing: border-box; padding: 20px 20px 16px; border-radius: 22px;
+    background: var(--glass); border: 1px solid var(--edge); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    display: grid; gap: 12px;
+  }
+  .sheet h2 { margin: 0; font: 700 19px/1.2 var(--display); }
+  .sheet p { margin: 0; color: var(--mute); font-size: 13.5px; }
+  .sheet .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .sheet input[type=email] { flex: 1 1 160px; min-width: 0; font: 500 14px/1 var(--ui); color: var(--text); padding: 10px 14px; border-radius: 999px; background: rgba(0,0,0,.25); border: 1px solid var(--edge); }
+  .sheet .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; text-align: center; }
+  .sheet .stats b { display: block; font: 800 22px/1.1 var(--display); background: linear-gradient(90deg, var(--hot), var(--ice)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .sheet .stats span { font: 600 10px/1.3 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--mute); }
+  .sheet label.check { display: flex; gap: 8px; align-items: center; color: var(--mute); font-size: 13px; }
+  .sheet .close { position: absolute; top: 10px; right: 12px; padding: 6px 10px; }
+
   @media (max-width: 520px) {
     .meters { grid-template-columns: auto 40px; }
     .mark { font-size: 22px; }
@@ -145,15 +161,40 @@
     <button id="clear" type="button">Clear</button>
     <button id="mirror" type="button">Mirror off</button>
     <button id="colours" type="button">Colours: Neon</button>
+    <button id="motion" type="button">Colour motion: Beat</button>
     <button id="bright" type="button">Brightness: Normal</button>
     <button id="auto" type="button" aria-pressed="true">Autopilot</button>
     <button id="full" type="button">Fullscreen</button>
+    <button id="account" type="button" hidden>Account</button>
   </div>
 </footer>
+
+<section class="sheet" id="sheet" hidden role="dialog" aria-labelledby="sheetTitle">
+  <button class="close" id="sheetClose" type="button" aria-label="Close">✕</button>
+  <h2 id="sheetTitle">Your TAV</h2>
+  <div class="stats" id="stats" hidden>
+    <div><b id="stStreak">0</b><span>day streak</span></div>
+    <div><b id="stDays">0</b><span>days this week</span></div>
+    <div><b id="stMin">0</b><span>minutes of light</span></div>
+  </div>
+  <p id="sheetText"></p>
+  <div class="row" id="signRow">
+    <input type="email" id="email" placeholder="you@example.com" autocomplete="email">
+    <button id="sendLink" type="button" class="primary">Email me a link</button>
+    <button id="google" type="button">Google</button>
+  </div>
+  <label class="check"><input type="checkbox" id="analytics" checked> Help improve TAV with anonymous usage stats</label>
+  <div class="row">
+    <button id="signOut" type="button" hidden>Sign out</button>
+    <button id="forget" type="button" hidden>Delete my usage history</button>
+  </div>
+</section>
 
 <script src="analyzer.js"></script>
 <script src="engine.js"></script>
 <script src="demo.js"></script>
+<script src="cloud-config.js"></script>
+<script src="cloud.js"></script>
 <script>
 'use strict';
 const $ = (id) => document.getElementById(id);
@@ -166,6 +207,10 @@ const PALETTES = [
   ['Inferno', [[1.0, 0.2, 0.05], [1.0, 0.6, 0.1], [1.0, 0.95, 0.5]]],
   ['Vapor', [[1.0, 0.4, 0.85], [0.3, 0.95, 0.9], [0.65, 0.55, 1.0]]],
   ['Aurora', [[0.2, 1.0, 0.6], [0.2, 0.55, 1.0], [0.85, 0.3, 1.0]]],
+  ['Ocean', [[0.0, 0.9, 0.8], [0.1, 0.4, 1.0], [0.7, 1.0, 1.0]]],
+  ['Candy', [[1.0, 0.25, 0.6], [1.0, 0.6, 0.15], [0.6, 0.3, 1.0]]],
+  // Rainbow: the shader paints the spectrum; these are what bass, mids and treble pull toward
+  ['Rainbow', [[1.0, 0.1, 0.1], [0.1, 1.0, 0.2], [0.2, 0.3, 1.0]], true],
 ];
 const SHAPES = ['Circle', 'Heart', 'Star', 'Spiral', 'Infinity', 'Hexagon', 'Flower'];
 const MIRRORS = [1, 2, 3, 4, 6, 8, 12];
@@ -230,6 +275,7 @@ function play(fromStart) {
   $('start').hidden = true;
   syncPlay();
   wakeLock();
+  sessionStart();
 }
 
 function stopNode() {
@@ -244,6 +290,7 @@ function pause() {
   stopNode();
   audio.playing = false;
   syncPlay();
+  sessionEnd();
 }
 
 function syncPlay() { $('play').textContent = audio.playing ? 'Pause' : 'Play'; }
@@ -300,13 +347,42 @@ const sceneButtons = SCENES.map((s, i) => {
 });
 SHAPES.forEach((name, i) => $('shapes').appendChild(chip(name, () => { if (eng) eng.addStroke(shapePoints(i, 0.62), Math.random()); poke(); })));
 
-let sceneTimer = 0, autopilot = true, mirrorIdx = 0, palIdx = 0;
-function setScene(i) {
+let sceneTimer = 0, autopilot = true, mirrorIdx = 0, palIdx = 0, motionIdx = DEFAULT_COLOUR_MODE;
+function setScene(i, by = 'user') {
   if (!eng) return;
   eng.setScene(i);
   sceneTimer = 0;
   sceneButtons.forEach((b, k) => b.setAttribute('aria-pressed', String(k === eng.scene)));
   toast(SCENES[eng.scene].name);
+  TavCloud.track('scene', { scene: SCENES[eng.scene].id, by });
+  if (by === 'user') saveSettings();
+}
+
+// ---------------------------------------------------------------- settings: kept in this browser, and in the cloud when signed in
+const SETTINGS_KEY = 'tav.settings';
+let settingsAt = 0;   // when the local settings last changed (ms); the cloud copy wins if it is newer
+function currentSettings() {
+  return { scene: eng ? eng.scene : 0, palette: PALETTES[palIdx][0], mirror: MIRRORS[mirrorIdx], brightness: eng ? eng.brightness : DEFAULT_BRIGHTNESS, autopilot };
+}
+function saveSettings() {
+  settingsAt = Date.now();
+  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify({ at: settingsAt, data: currentSettings() })); } catch (e) { /* private mode */ }
+  clearTimeout(saveSettings.t);
+  saveSettings.t = setTimeout(() => TavCloud.settings.sync(currentSettings(), settingsAt).catch(() => {}), 1500);
+}
+function applySettings(d) {
+  if (!d || !eng) return;
+  const p = PALETTES.findIndex((x) => x[0] === d.palette);
+  if (p >= 0) { palIdx = p; targetPalette = PALETTES[p][1]; eng.rainbow = !!PALETTES[p][2]; $('colours').textContent = 'Colours: ' + PALETTES[p][0]; }
+  const m = MIRRORS.indexOf(d.mirror);
+  if (m >= 0) { mirrorIdx = m; eng.sym = MIRRORS[m]; $('mirror').textContent = MIRRORS[m] === 1 ? 'Mirror off' : 'Mirror ×' + MIRRORS[m]; }
+  if (Number.isInteger(d.brightness) && BRIGHTNESS[d.brightness]) { eng.setBrightness(d.brightness); $('bright').textContent = 'Brightness: ' + BRIGHTNESS[d.brightness].name; }
+  if (typeof d.autopilot === 'boolean') { autopilot = d.autopilot; $('auto').setAttribute('aria-pressed', String(autopilot)); }
+  if (Number.isInteger(d.scene) && SCENES[d.scene]) setScene(d.scene, 'restore');
+}
+function loadLocalSettings() {
+  try { const s = JSON.parse(localStorage.getItem(SETTINGS_KEY)); if (s && s.data) { settingsAt = s.at || 0; return s.data; } } catch (e) { /* none */ }
+  return null;
 }
 
 $('playDemo').addEventListener('click', () => { useDemo(); play(true); });
@@ -318,25 +394,121 @@ $('mirror').addEventListener('click', () => {
   mirrorIdx = (mirrorIdx + 1) % MIRRORS.length;
   if (eng) eng.sym = MIRRORS[mirrorIdx];
   $('mirror').textContent = MIRRORS[mirrorIdx] === 1 ? 'Mirror off' : 'Mirror ×' + MIRRORS[mirrorIdx];
-  poke();
+  TavCloud.track('setting_changed', { key: 'mirror', to: MIRRORS[mirrorIdx] });
+  saveSettings(); poke();
 });
-$('colours').addEventListener('click', () => {
-  palIdx = (palIdx + 1) % PALETTES.length;
+$('colours').addEventListener('click', () => { setPalette(palIdx + 1); poke(); });
+function setPalette(i) {
+  palIdx = ((i % PALETTES.length) + PALETTES.length) % PALETTES.length;
   targetPalette = PALETTES[palIdx][1];
+  if (eng) eng.rainbow = !!PALETTES[palIdx][2];
   $('colours').textContent = 'Colours: ' + PALETTES[palIdx][0];
-  poke();
-});
+  TavCloud.track('palette', { palette: PALETTES[palIdx][0] });
+  saveSettings();
+}
+$('motion').addEventListener('click', () => { setColourMode(motionIdx + 1); poke(); });
+function setColourMode(i) {
+  motionIdx = ((i % COLOUR_MODES.length) + COLOUR_MODES.length) % COLOUR_MODES.length;
+  if (eng) eng.colour.set(COLOUR_MODES[motionIdx]);
+  $('motion').textContent = 'Colour motion: ' + COLOUR_MODES[motionIdx].name;
+  TavCloud.track('setting_changed', { key: 'colour_motion', to: COLOUR_MODES[motionIdx].name });
+  saveSettings();
+}
 $('bright').addEventListener('click', () => {
   if (!eng) return;
   eng.setBrightness((eng.brightness + 1) % BRIGHTNESS.length);
   $('bright').textContent = 'Brightness: ' + BRIGHTNESS[eng.brightness].name;
-  poke();
+  TavCloud.track('setting_changed', { key: 'brightness', to: BRIGHTNESS[eng.brightness].name });
+  saveSettings(); poke();
 });
 $('auto').addEventListener('click', () => {
   autopilot = !autopilot; sceneTimer = 0;
   $('auto').setAttribute('aria-pressed', String(autopilot));
-  poke();
+  TavCloud.track('setting_changed', { key: 'autopilot', to: autopilot });
+  saveSettings(); poke();
 });
+
+// ---------------------------------------------------------------- account sheet: streak, sign-in, privacy
+const sheet = $('sheet');
+function showSheet(show) {
+  sheet.hidden = !show;
+  if (show) refreshSheet();
+}
+async function refreshSheet() {
+  const st = TavCloud.auth.state();
+  $('analytics').checked = TavCloud.auth.analyticsOn();
+  $('signOut').hidden = st.anonymous;
+  $('forget').hidden = !st.signedIn;
+  $('signRow').hidden = !st.anonymous;
+  $('sheetText').textContent = st.anonymous
+    ? 'You are a guest. Add an email or Google to keep your streak, settings and presets on every device.'
+    : 'Signed in as ' + st.email + '. Settings and presets follow you to every device.';
+  try {
+    const me = await TavCloud.me();
+    if (me) {
+      $('stats').hidden = false;
+      $('stStreak').textContent = me.current_streak;
+      $('stDays').textContent = me.days_this_week;
+      $('stMin').textContent = Math.round((me.listened_seconds || 0) / 60);
+    }
+  } catch (e) { $('stats').hidden = true; }
+}
+$('account').addEventListener('click', () => { showSheet(sheet.hidden); poke(); });
+$('sheetClose').addEventListener('click', () => showSheet(false));
+$('sendLink').addEventListener('click', async () => {
+  const email = $('email').value.trim();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { toast('Enter an email'); return; }
+  try {
+    const how = await TavCloud.auth.sendMagicLink(email);
+    $('sheetText').textContent = how === 'confirm'
+      ? 'Check ' + email + ': tap the confirmation link and this guest becomes your account.'
+      : 'Check ' + email + ' for your sign-in link.';
+    $('signRow').hidden = true;
+  } catch (e) { $('sheetText').textContent = 'Could not send the link: ' + e.message; }
+});
+$('google').addEventListener('click', () => TavCloud.auth.linkGoogle());
+$('signOut').addEventListener('click', async () => { await TavCloud.auth.signOut(); toast('Signed out'); refreshSheet(); });
+$('analytics').addEventListener('change', (e) => TavCloud.auth.setAnalytics(e.target.checked).catch(() => {}));
+$('forget').addEventListener('click', async () => {
+  if (!confirm('Delete your usage history (streak and stats) in the cloud? Presets and settings stay.')) return;
+  try { await TavCloud.auth.forgetMyEvents(); toast('History deleted'); refreshSheet(); } catch (e) { toast('Failed'); }
+});
+
+// A shared look opens from its code in the URL (#l=abc123), signed in or not.
+async function openSharedLook() {
+  const m = /[#&]l=([a-z0-9]{6})/i.exec(location.hash);
+  if (!m) return;
+  try {
+    const look = await TavCloud.presets.byCode(m[1]);
+    if (look && look.data && Array.isArray(look.data.colours)) {
+      const rgb = look.data.colours.slice(0, 3).map((h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255));
+      if (rgb.length === 3 && rgb.flat().every(Number.isFinite)) {
+        targetPalette = rgb;
+        $('colours').textContent = 'Colours: ' + (look.data.name || 'Shared');
+        toast(look.data.name || 'Shared look');
+        TavCloud.track('look_applied', { preset_id: look.id, origin: 'shared' });
+      }
+    }
+  } catch (e) { /* bad or expired code */ }
+}
+
+// Session: starts when sound starts, ends when the tab hides or closes, with the time listened.
+let sessionStartedAt = 0;
+function sessionStart() {
+  if (sessionStartedAt) return;
+  sessionStartedAt = performance.now();
+  TavCloud.track('session_start', { source: audio.name ? 'file' : 'demo', install_id: TavCloud.auth.state().uid });
+}
+function sessionEnd() {
+  if (!sessionStartedAt) return;
+  const seconds = Math.round((performance.now() - sessionStartedAt) / 1000);
+  sessionStartedAt = 0;
+  TavCloud.track('session_end', { seconds, end_scene: eng ? SCENES[eng.scene].id : null, autopilot, mode: 'normal' });
+  TavCloud.flush(true);
+  TavCloud.newSession();
+}
+addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') sessionEnd(); else if (audio.playing) sessionStart(); });
+addEventListener('pagehide', sessionEnd);
 $('full').addEventListener('click', async () => {
   try { if (!document.fullscreenElement) await document.documentElement.requestFullscreen(); else await document.exitFullscreen(); }
   catch (e) { $('full').hidden = true; }
@@ -361,6 +533,7 @@ addEventListener('keydown', (e) => {
   else if (k === 'c') $('clear').click();
   else if (k === 'm') $('mirror').click();
   else if (k === 'k') $('colours').click();
+  else if (k === 'd') $('motion').click();
   else if (k === 'b') $('bright').click();
   else if (k === 's') { eng.addStroke(shapePoints(shapeKey++ % SHAPES.length, 0.62)); }
   else return;
@@ -493,12 +666,21 @@ async function boot() {
   eng = new TavEngine(gl, src);
   eng.palette = PALETTES[0][1].map((c) => c.slice());
   eng.sym = 1;
+  setColourMode(DEFAULT_COLOUR_MODE);
   eng.compileAll();
   useDemo();
   resize();
   addEventListener('resize', resize);
-  setScene(0);
+  setScene(0, 'restore');
+  applySettings(loadLocalSettings());
   requestAnimationFrame(frame);
+  $('account').hidden = !TavCloud.enabled;
+  TavCloud.init({ app: 'web', version: '1.0' }).then(async () => {
+    const remote = await TavCloud.settings.sync(currentSettings(), settingsAt).catch(() => null);
+    if (remote && remote.updatedAt > settingsAt) { settingsAt = remote.updatedAt; applySettings(remote.data); }
+    await openSharedLook();   // after the settings, so a shared link wins over the saved palette
+    if (audio.playing) sessionStart();
+  });
 }
 
 let last = 0, slow = 0;
@@ -517,7 +699,7 @@ function frame(now) {
   if (autopilot && audio.playing && ((an.drop && sceneTimer > 12) || sceneTimer > 40)) {
     let next = eng.scene;
     while (next === eng.scene) next = Math.floor(Math.random() * SCENES.length);
-    setScene(next);
+    setScene(next, 'autopilot');
   }
   eng.frame(dt, an);
   for (let i = 0; i < 4; i++) meters[i].style.width = Math.round(an.bands[i] * 100) + '%';

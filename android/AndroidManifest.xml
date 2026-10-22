@@ -9,6 +9,8 @@
          behind RECORD_AUDIO; MODIFY_AUDIO_SETTINGS is required to attach it. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <!-- Optional cloud (assets/cloud.json): accounts, synced settings, presets. -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <!-- The opt-in "music started" nudge (menu -> Light up when music starts). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Lets TAV see whether Spotify is installed, for the "Open Spotify" shortcut. -->
@@ -32,6 +34,13 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- The browser comes back here after a sign-in link or Google (Cloud.REDIRECT). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="tav" android:host="auth" />
             </intent-filter>
         </activity>
 

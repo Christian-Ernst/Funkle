@@ -81,10 +81,16 @@ final class TavRenderer implements GLSurfaceView.Renderer {
     // uniforms in the thousands lose the precision that fract()/sin() patterns need.
     private double time, transStart = -10;
     private float stepScale = 1, flash, seed;
+    // Drops: seconds since the last one (the scenes' drop() envelope), and a surge that runs the
+    // music clock ahead for a moment so every scene lurches forward on the hit.
+    private float dropAge = 100, surge, flowExtra;
     private long lastNanos;
     private float sceneTimer;
     private boolean autopilot = true, lastSilent;
     private final float[][] palette = Palettes.preset(1), target = Palettes.preset(1);
+    private boolean rainbow;                                     // Colours: Rainbow (the shader paints the spectrum)
+    private ColourDrive drive = ColourDrive.preset(ColourDrive.STILL);
+    private final ColourDrive.State colour = new ColourDrive.State();
     private final List<double[]> ripples = new ArrayList<>();   // x, y, born, strength
     private final List<Stroke> strokes = new ArrayList<>();
     private Stroke liveStroke;
@@ -112,7 +118,10 @@ final class TavRenderer implements GLSurfaceView.Renderer {
         }
         scene = i;
         sceneTimer = 0;
-        if (an != null && an.flow > 400) an.flow = 0;   // rebase the music clock while the crossfade hides the jump
+        if (an != null && an.flow > 400) {   // rebase the music clock while the crossfade hides the jump
+            an.flow = 0;
+            flowExtra = 0;
+        }
         host.onSceneChanged(i);
     }
 
@@ -162,6 +171,14 @@ final class TavRenderer implements GLSurfaceView.Renderer {
             System.arraycopy(p[k], 0, target[k], 0, 3);
             if (snap) System.arraycopy(p[k], 0, palette[k], 0, 3);
         }
+    }
+
+    void setRainbow(boolean on) {
+        rainbow = on;
+    }
+
+    void setColourDrive(ColourDrive d) {
+        drive = d;
     }
 
     /** Called when the playing track changes: autopilot moves on with the music. */
@@ -313,11 +330,20 @@ final class TavRenderer implements GLSurfaceView.Renderer {
         autopilot(dt);
         for (int k = 0; k < 3; k++)
             for (int c = 0; c < 3; c++) palette[k][c] += (target[k][c] - palette[k][c]) * (1 - (float) Math.exp(-dt * 1.5));
-        if (an.drop) {
+        drive.step(colour, dt, shaped, shapedLevel, an.onBeat, an.drop);
+        if (an.drop && !calm) {   // Calm: no flash, and no re-roll of the scenes' look on a drop
             seed = (seed + 1) % 64;
-            flash = calm ? 0f : eq.dropFlash();
+            flash = eq.dropFlash();
         }
         flash *= (float) Math.exp(-dt * 4);
+        dropAge += dt;
+        if (an.drop && !calm) {
+            dropAge = 0;
+            surge = 1;
+        }
+        flowExtra += surge * 2f * dt;
+        surge *= (float) Math.exp(-dt * 1.5);
+        if (flowExtra > 2000) flowExtra -= 2000;
         Scene sc = Scene.ALL[scene];
         if (sc.beatRipples && an.onBeat && !calm) addRipple(0, 0, 0.5f + 0.5f * shaped[0]);
 
@@ -524,7 +550,8 @@ final class TavRenderer implements GLSurfaceView.Renderer {
             else glUniform2f(res, width, height);
         }
         uniform1f(p, "uTime", (float) (time % 3600.0));
-        uniform1f(p, "uFlow", an.flow);
+        uniform1f(p, "uFlow", an.flow + flowExtra);
+        uniform1f(p, "uDrop", calm ? 100f : dropAge);
         uniform1f(p, "uStep", stepScale);
         uniform1f(p, "uHistHead", an.histHead);
         uniform1f(p, "uSym", sym);
@@ -538,6 +565,10 @@ final class TavRenderer implements GLSurfaceView.Renderer {
             for (int k = 0; k < 3; k++) System.arraycopy(palette[k], 0, palFlat, k * 3, 3);
             glUniform3fv(l, 3, palFlat, 0);
         }
+        l = p.loc("uColour");
+        if (l >= 0) glUniform4f(l, colour.hue, drive.tilt, drive.pump, rainbow ? 1f : 0f);
+        l = p.loc("uBandMix");
+        if (l >= 0) glUniform3f(l, colour.mix[0], colour.mix[1], colour.mix[2]);
         bindTex(p, "uAudio", audioTex, 0);
         bindTex(p, "uHist", histTex, 1);
         if (prev != null) bindTex(p, "uPrev", prev.tex, 2);

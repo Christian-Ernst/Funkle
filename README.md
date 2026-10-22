@@ -82,13 +82,19 @@ even without notification access, because TAV then sends ordinary media-button p
 | Two-finger swipe | Next / previous scene |
 | Swipe the song title | Next (left) / previous (right) track |
 | Tap the song title | Play / pause |
-| Long-press or ☰ | Menu: playback controls, scenes, shape stamps, mirror (mandala) mode, colours, brightness, motion, equalizer, audio source, autopilot, song title, quality |
+| Long-press or ☰ | Menu: playback controls, scenes, shape stamps, mirror (mandala) mode, colours, colour motion, brightness, motion, equalizer, audio source, autopilot, song title, quality |
 
 **Autopilot** (on by default) changes scenes when the track changes, when a drop hits, or every 45 s.
 **Mirror** repeats everything you draw 2–12 times around the centre.
-**Colours**: *Album* takes the colours from the cover art, *Neon* to *Aurora* are presets, and *Custom* opens an
+**Colours**: *Album* takes the colours from the cover art and keeps its tone (a dusty cover gives a dusty palette,
+a neon cover a neon one), *Neon* to *Candy* are presets, *Rainbow* paints the whole spectrum, and *Custom* opens an
 editor for your own three colours. Tap a swatch, then drag Hue, Saturation and Brightness; the visuals change while
 you drag, and TAV keeps the colours for next time. Tap *Custom* again to edit them.
+**Colour motion** makes any palette move with the music. *Still* leaves the colours as they are. *Drift* turns the
+hues slowly, faster when the music is loud. *Beat* (the default) turns the hue a step on every beat and a big jump on a drop.
+*Bands* lets bass, mids and treble each pull the picture toward their own colour (the first, second and third
+colour of the palette) and light it up. *Custom* opens five sliders: drift, beat step, drop jump, band tilt and
+band pump. Try *Rainbow* with *Beat*, or *Candy* with *Bands*.
 **Brightness**: Dim, Soft, Normal (the default) or Bright. On an OLED screen in a dark room, try Soft or Dim.
 **Equalizer** sets how hard the scenes react to the music, for every scene. *Flat* is the look before the
 equalizer: each band is scaled to its own recent peak, so a quiet verse looks much like the chorus. *Punch*
@@ -96,8 +102,8 @@ equalizer: each band is scaled to its own recent peak, so a quiet verse looks mu
 sliders: **Master** (how much everything moves), the four bands (**Bass**, **Low mids**, **High mids**,
 **Treble**; each one's share of the motion), **Punch** (how much loud-and-quiet survives) and **Beat** (the
 beat pulse and drop flash). The visuals change while you drag.
-**Motion**: Full (the default) or Calm. Calm stops the beat pulses, beat ripples and drop flashes; the scenes still
-move with the music. Use it if flashing lights bother you or you are sensitive to them.
+**Motion**: Full (the default) or Calm. Calm stops the beat pulses, beat ripples, drop flashes and the drop moves
+(nothing re-rolls or lurches on a drop); the scenes still move with the music. Use it if flashing lights bother you or you are sensitive to them.
 
 ### If the visuals don't move
 
@@ -113,13 +119,23 @@ move with the music. Use it if flashing lights bother you or you are sensitive t
 
 ### Scenes
 
-**Halo** — a plasma core, a waveform ring and spectral rays; every beat launches a ripple.
-**Wormhole** — a neon tunnel flown at the speed of the music.
-**Pulsar** — the spectrogram as receding ridgelines ("Unknown Pleasures").
-**Mandala** — a kaleidoscope that folds over its own previous frame.
-**Ferro** — a raymarched ferrofluid sphere; each spike listens to its own frequency.
-**Nebula** — a 48 000-star galaxy whose rings breathe per band, with a shockwave on every beat.
-**Spiro** — spirograph lace etched with the waveform.
+**Halo** — a plasma core, a waveform ring and spectral rays that run to the corners; every beat launches a
+ripple, and a drop fires the rays and flares the core.
+**Wormhole** — a neon tunnel flown at the speed of the music, its far end lost in fog; a drop twists it and
+re-rolls the panels.
+**Pulsar** — the spectrogram as receding ridgelines ("Unknown Pleasures") under an aurora; a drop lifts the
+whole landscape.
+**Mandala** — a kaleidoscope that folds over its own previous frame; a drop sucks the echoes in and, unless
+Mirror fixes the symmetry, re-rolls the fold count.
+**Ferro** — a raymarched ferrofluid sphere over a floor that mirrors it; each spike listens to its own
+frequency and a drop bursts them.
+**Nebula** — a 48 000-star galaxy laid along the long axis of the screen, whose rings breathe per band, with a
+shockwave on every beat and a bigger one on every drop.
+**Spiro** — spirograph lace etched with the waveform, one hue per strand, over a spectrogram curtain.
+
+Every scene is composed for a phone held upright: the top and bottom carry haze, rings, sky or a floor in the
+palette's own deep tone instead of black. On every drop the music clock surges, so all motion lurches forward
+for a moment.
 
 ---
 
@@ -164,7 +180,8 @@ python3 -m http.server 8000    # then visit http://localhost:8000/web/
 
 Turn on GitHub Pages for the repository and it works at `https://<user>.github.io/TAV/web/` too.
 Browsers can't hear other apps, so it can't follow Spotify; that's what the Android app is for.
-Keys: arrows or `1`–`7` for scenes, `space` play/pause, `k` colours, `b` brightness, `m` mirror, `s` shape, `c` clear.
+Keys: arrows or `1`–`7` for scenes, `space` play/pause, `k` colours, `d` colour motion, `b` brightness, `m` mirror,
+`s` shape, `c` clear.
 
 ---
 

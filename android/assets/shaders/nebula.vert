@@ -1,7 +1,8 @@
 // NEBULA particles: a stateless spiral galaxy. Every star is a pure function of
 // its id and the music clock. Orbit radius maps to frequency, so each ring of the
-// galaxy breathes with its own part of the spectrum, and every beat sends a
-// shockwave rolling out from the core.
+// galaxy breathes with its own part of the spectrum, every beat sends a
+// shockwave rolling out from the core and a drop sends a bigger, slower one. On a
+// tall screen the disc lies along the long axis.
 uniform float uCount;
 out vec3 vCol;
 void main() {
@@ -29,6 +30,8 @@ void main() {
     float front = (1.0 - beat()) * 1.6;
     float dr = (rad - front) * 7.0;   // squared by hand: pow() of a negative base is undefined
     float shock = exp(-dr * dr) * beat();
+    float dr2 = (rad - uDrop * 1.1) * 4.0;
+    shock = min(shock + exp(-dr2 * dr2) * drop() * 1.5, 2.0);
     pos *= 1.0 + 0.12 * s + 0.25 * shock;
     pos.y += (h3 - 0.5) * 0.4 * s * s;
     // camera: tilted disc slowly turning
@@ -36,6 +39,7 @@ void main() {
     pos.xy = rot(0.3 * sin(uTime * 0.03)) * pos.xy;
     float zc = 2.1 - pos.z;
     vec2 sp = pos.xy / zc * 2.5;
+    if (uRes.y > uRes.x) sp = vec2(-sp.y, sp.x) * 1.15;   // portrait: the disc along the long axis
     gl_Position = vec4(sp * min(uRes.x, uRes.y) / uRes, 0.0, 1.0);
     float px = min(uRes.x, uRes.y) / 700.0;
     gl_PointSize = max(1.0, (1.4 + 3.0 * s * h4 + 3.0 * shock) * px * 2.1 / zc);
@@ -43,7 +47,7 @@ void main() {
     // thin it out, so it glows instead of filling in solid.
     float core = exp(-rad * 4.0);
     vec3 c = pal(rad * 0.6 + h3 * 0.2 + uFlow * 0.01) * (0.25 + 1.3 * s);
-    c += mix(pal(0.1 + h3 * 0.3), vec3(1.0, 0.85, 0.7), 0.35) * core * 0.5;
-    c += mix(pal(rad * 0.6 + 0.3), vec3(1.0), 0.4) * shock * 0.8;
+    c += mix(pal(0.1 + h3 * 0.3), palHi(), 0.35) * core * 0.5;
+    c += mix(pal(rad * 0.6 + 0.3), palHi(), 0.5) * shock * 0.8;
     vCol = c * (0.3 + 0.7 * h4) * 0.6 * (1.0 - 0.55 * core);
 }
