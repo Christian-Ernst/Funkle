@@ -89,7 +89,14 @@ under a name. *Save this look* keeps the one on screen, *My looks* brings one ba
 as a link with a six-letter code. The link opens the look in a browser, no app or account needed, with an *Open in
 the TAV app* button on Android; *Open a code or link* pastes one in. Looks are stored on the phone and, with the
 cloud edition, follow you to every device.
-**Autopilot** (on by default) changes scenes when the track changes, when a drop hits, or every 45 s.
+**Autopilot** (on by default) follows the music. It hears the track's energy, tempo, drops and section changes
+and picks scenes that suit the moment: a quiet verse stays on a calm scene, a build-up is held, and the switch
+comes on the downbeat of the bar after a drop, so the scene's own drop move plays out first. Changes land on a
+beat, with a short crossfade on a drop and a slow one into a quiet section. *Scenes + colours* (the default) also
+gives every section and every new track a palette and a colour motion to match its energy; *Album* and *Custom*
+colours are left alone, and a palette or colour motion you pick yourself stays until the next track. *Scenes*
+keeps your colours fixed; *Off* leaves everything to you. Scenes you pick yourself are favoured later, and a
+scene you skip right after the autopilot chose it is picked less often.
 **Mirror** repeats everything you draw 2–12 times around the centre.
 **Colours**: *Album* takes the colours from the cover art and keeps its tone (a dusty cover gives a dusty palette,
 a neon cover a neon one), *Neon* to *Candy* are presets, *Rainbow* paints the whole spectrum, and *Custom* opens an
@@ -198,7 +205,7 @@ python3 -m http.server 8000    # then visit http://localhost:8000/web/
 Turn on GitHub Pages for the repository and it works at `https://<user>.github.io/TAV/web/` too.
 Browsers can't hear other apps, so it can't follow Spotify; that's what the Android app is for.
 Keys: arrows or `1`–`9` for scenes, `t` the scene's sliders, `space` play/pause, `k` colours, `x` shuffle,
-`d` colour motion, `b` brightness, `m` mirror, `s` shape, `c` clear, `l` looks. **Looks** saves the scene, colours, mirror and brightness under a
+`d` colour motion, `b` brightness, `a` autopilot, `m` mirror, `s` shape, `c` clear, `l` looks. **Looks** saves the scene, colours, mirror and brightness under a
 name in this browser (and in the cloud when signed in) and shares them as a link: `#d=` carries the look itself,
 so a link opens anywhere, and `#l=code` is the six-letter cloud code. A link from the Android app opens here too.
 

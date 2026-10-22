@@ -54,11 +54,12 @@ mkdir -p "$OUT/gen"
 javac -nowarn -d "$OUT/classes" -cp "$JAR" src/io/github/christianernst/tav/*.java "$OUT/gen/R.java" \
     test/io/github/christianernst/tav/AnalyzerCheck.java test/io/github/christianernst/tav/AdaptiveScaleCheck.java \
     test/io/github/christianernst/tav/EqualizerCheck.java test/io/github/christianernst/tav/ColourDriveCheck.java \
-    test/io/github/christianernst/tav/LookCheck.java
+    test/io/github/christianernst/tav/LookCheck.java test/io/github/christianernst/tav/AutopilotCheck.java
 java -cp "$OUT/classes" io.github.christianernst.tav.AnalyzerCheck
 java -cp "$OUT/classes" io.github.christianernst.tav.AdaptiveScaleCheck
 java -cp "$OUT/classes" io.github.christianernst.tav.EqualizerCheck
 java -cp "$OUT/classes" io.github.christianernst.tav.ColourDriveCheck
+java -cp "$OUT/classes" io.github.christianernst.tav.AutopilotCheck
 
 echo "[looks]"
 # Look (saved looks, share payload, shuffle) uses org.json, which android.jar only stubs: run it
@@ -72,4 +73,11 @@ if [ -s "$JSON" ]; then
     java -cp "$JSON:$OUT/classes:$JAR" io.github.christianernst.tav.LookCheck
 else
     echo "  skipped: could not fetch org.json (set JSON_JAR)"
+fi
+
+if command -v node >/dev/null 2>&1; then
+    echo "[web]"
+    node ../web/tools/autopilot-check.js | tail -1
+else
+    echo "[web] skipped: node not installed"
 fi
