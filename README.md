@@ -23,7 +23,7 @@ There are two editions sharing one audio engine:
 
 ### Install
 
-1. On your phone, open the **[latest release](https://github.com/Christian-Ernst/TAV/releases/tag/latest)** and download **TAV.apk**.
+1. On your phone, open the **[latest release](https://github.com/Christian-Ernst/Funkle/releases/tag/latest)** and download **TAV.apk**.
 2. Open it and allow installing from your browser when Android asks.
 3. Start Funkle. It is already running on a built-in beat; tap **Light up my music** and play something in Spotify.
 
@@ -31,7 +31,7 @@ Or build it on the phone itself, in Termux, with one script:
 
 ```sh
 pkg install git
-git clone https://github.com/Christian-Ernst/TAV && cd TAV
+git clone https://github.com/Christian-Ernst/Funkle && cd Funkle
 bash setup.sh
 ```
 
@@ -187,7 +187,7 @@ for a moment.
 
 ```sh
 pkg install git
-git clone https://github.com/Christian-Ernst/TAV && cd TAV/termux
+git clone https://github.com/Christian-Ernst/Funkle && cd Funkle/termux
 ./install.sh
 ```
 
@@ -220,7 +220,7 @@ root and open `/web/`:
 python3 -m http.server 8000    # then visit http://localhost:8000/web/
 ```
 
-Turn on GitHub Pages for the repository and it works at `https://<user>.github.io/TAV/web/` too.
+Turn on GitHub Pages for the repository and it works at `https://<user>.github.io/Funkle/web/` too.
 Browsers can't hear other apps, so it can't follow Spotify; that's what the Android app is for.
 Keys: arrows or `1`–`9` for scenes, `t` the scene's sliders, `space` play/pause, `k` colours, `x` shuffle,
 `d` colour motion, `b` brightness, `a` autopilot, `m` mirror, `s` shape, `c` clear, `l` looks. **Looks** saves the scene, colours, mirror and brightness under a
@@ -259,7 +259,7 @@ No signing key lives in this repository: a key anyone can download would let any
 Actions as the `TAV_KEYSTORE_B64` and `TAV_KS_PASS` secrets, then starts a fresh build:
 
 ```sh
-cd TAV && android/tools/setup-signing.sh     # or: bash setup.sh, which offers this step
+cd Funkle && android/tools/setup-signing.sh     # or: bash setup.sh, which offers this step
 ```
 
 It installs `gh` and a JDK if needed and asks you to log in to GitHub once. Afterwards every release and

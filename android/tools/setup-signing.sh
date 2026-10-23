@@ -4,13 +4,13 @@
 # every APK you build here with build.sh, is signed with the same key, so updates install
 # over each other.
 #
-#   android/tools/setup-signing.sh [owner/repo]      (default: Christian-Ernst/TAV)
+#   android/tools/setup-signing.sh [owner/repo]      (default: Christian-Ernst/Funkle)
 #
 # The key never leaves this device except into GitHub's encrypted secret store. Keep
 # ~/.config/tav/ backed up: without the key, the next release can't update an installed TAV.
 set -euo pipefail
 
-REPO=${1:-Christian-Ernst/TAV}
+REPO=${1:-Christian-Ernst/Funkle}
 DIR=$HOME/.config/tav
 KEY=$DIR/tav.keystore
 PASSFILE=$DIR/password

@@ -24,7 +24,7 @@ repository's "no libraries" rule holds. Without a config file both editions run 
    in through the browser and Supabase, never through Google's Android SDK, and the browser comes
    back through `tav://auth` (Android) or the page's own URL (web).
 4. *Authentication → URL configuration*: add the redirect URLs `tav://auth` (the Android app) and
-   the web page's address, for instance `https://christian-ernst.github.io/TAV/web/`.
+   the web page's address, for instance `https://christian-ernst.github.io/Funkle/web/`.
 5. Configure the clients:
    - web: copy `web/cloud-config.example.js` to `web/cloud-config.js` and fill in URL and key.
    - Android: copy `android/assets/cloud.example.json` to `android/assets/cloud.json` and fill it

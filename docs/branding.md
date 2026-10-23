@@ -24,8 +24,8 @@ is the same rings in solid white for Android 13 themed icons.
 | App name | `Funkle` (chosen 2026-10-23; the package id `io.github.christianernst.tav`, the repository and `TAV.apk` keep the old name) |
 | User support email | the Gmail address that owns the Cloud project |
 | App logo | `docs/brand/logo-120.png` (uploading a logo on an External app triggers brand verification, which needs the three links below to be live) |
-| Application home page | `https://christian-ernst.github.io/TAV/` |
-| Application privacy policy link | `https://christian-ernst.github.io/TAV/privacy.html` |
+| Application home page | `https://christian-ernst.github.io/Funkle/` |
+| Application privacy policy link | `https://christian-ernst.github.io/Funkle/privacy.html` |
 | Application terms of service link | leave empty (optional) |
 | Authorised domains | `christian-ernst.github.io` and `zgwpvbpqzktozxaxmqss.supabase.co` |
 | Developer contact information | the same Gmail address |

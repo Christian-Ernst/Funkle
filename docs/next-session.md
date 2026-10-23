@@ -131,7 +131,7 @@ look the scene had before; the ends were picked so Normal brightness stays at 0 
 ## Looks, sharing and the first run (new, not yet on a phone)
 
 - Menu → Looks: Save this look, My looks (tap to apply, Share, ✕), Open a code or link. Sharing uses the
-  system share sheet with a link `https://christian-ernst.github.io/TAV/web/#l=code&d=payload`; the payload
+  system share sheet with a link `https://christian-ernst.github.io/Funkle/web/#l=code&d=payload`; the payload
   is the look itself, so the link works without the cloud, and the code comes only when the cloud is
   configured and signed in (a shared look is made public in the presets table). **GitHub Pages must be on**
   (Settings → Pages → deploy from the default branch, root) for the links to open in a browser; without it
@@ -160,7 +160,7 @@ look the scene had before; the ends were picked so Normal brightness stays at 0 
 
 ## Sharing and release state
 
-- The repo is public, so the link https://github.com/Christian-Ernst/TAV/releases/tag/latest can be
+- The repo is public, so the link https://github.com/Christian-Ernst/Funkle/releases/tag/latest can be
   shared as it is.
 - As of commit 4bb16d9 the signing secrets are **not** set. Every CI release is therefore signed
   with a new one-off key, and installing an update means uninstalling first. Before wider sharing,

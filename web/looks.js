@@ -14,7 +14,7 @@
 
 const TavLooks = (() => {
   const VERSION = 1, MAX_NAME = 40, MAX = 60, KEY = 'tav.looks';
-  const SHARE_BASE = 'https://christian-ernst.github.io/TAV/web/', APP_SCHEME = 'tav://look';
+  const SHARE_BASE = 'https://christian-ernst.github.io/Funkle/web/', APP_SCHEME = 'tav://look';
   const MOTION_KEYS = ['drift', 'beat', 'drop', 'tilt', 'pump'];
   const MOTION_MAX = { drift: 0.1, beat: 0.25, drop: 0.5, tilt: 1, pump: 1 };   // same as COLOUR_MAX in engine.js
 
