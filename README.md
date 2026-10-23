@@ -142,17 +142,20 @@ ripple, and a drop fires the rays and flares the core.
 re-rolls the panels.
 **Pulsar** — the spectrogram as receding ridgelines ("Unknown Pleasures") under an aurora; a drop lifts the
 whole landscape.
-**Mandala** — a kaleidoscope that folds over its own previous frame; a drop sucks the echoes in and, unless
-Mirror fixes the symmetry, re-rolls the fold count.
+**Mandala** — a kaleidoscope of filled gems on rings that reach the top and bottom of the screen, each ring
+swelling with its slice of the spectrum, folded over a slow echo of its own previous frame; a drop draws the
+echoes in and, unless Mirror fixes the symmetry, re-rolls the fold count.
 **Ferro** — a raymarched ferrofluid sphere over a floor that mirrors it; each spike listens to its own
 frequency and a drop bursts them.
 **Nebula** — a 48 000-star galaxy laid along the long axis of the screen, whose rings breathe per band, with a
 shockwave on every beat and a bigger one on every drop.
 **Spiro** — spirograph lace etched with the waveform, one hue per strand, over a spectrogram curtain.
-**Ink** — dye in water: the bands drip ink that a curl-noise current folds and streaks, the waveform draws a
-thread across it, a beat spins the basin and a drop pours in a ring of ink.
-**Horizon** — a flight over a terrain built from the spectrogram (what just played rises in front of you),
-with a neon grid on the ground, a sun that pulses with the bass, an aurora and stars; a drop lifts the land.
+**Ink** — dye in water: a field of eddies that turn over with the music and run faster the louder it gets
+folds the ink into filaments; the bass pours from the bottom in time with the beat, the mids circle the middle,
+the treble sprinkles from the top, a beat spins the basin and a drop pours in a ring of ink.
+**Horizon** — a night sea under a striped sun: far mountains on the horizon are the spectrogram of a few seconds
+ago, the water mirrors the sun and the sky in a glittering path broken by waves that roll toward you with the
+music, their crests lit by what just played; an aurora breathes with the treble and a drop lifts the land.
 
 **Tune this scene** (menu, under the scene chips) opens three sliders made for the scene you are looking at,
 with the scene changing as you drag: Halo's rays, trails and rings; Wormhole's speed, panels and twist;
