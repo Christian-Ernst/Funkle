@@ -948,7 +948,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         quickPause = quickButton("\u275A\u275A", "Pause the visuals", v -> setFrozen(!frozen));
         quickBar.addView(quickPause);
         quickBar.addView(quickButton("\u2684", "Shuffle the colours", v -> shuffleColours()));
-        quickUndo = quickButton("\u21B6", "Undo the last drawing", v -> view.queueEvent(renderer::undoStroke));
+        quickUndo = quickButton("\u21B6", "Undo the last drawing", v -> undoDrawing());
         quickUndo.setVisibility(View.GONE);
         quickBar.addView(quickUndo);
         quickClear = quickButton("\u232B", "Clear the drawing", v -> clearDrawing());
@@ -1507,7 +1507,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         });
         LinearLayout actions = new LinearLayout(this);
         actions.setPadding(0, px(12), 0, 0);
-        actions.addView(chip("\u21B6  Undo", false, v -> view.queueEvent(renderer::undoStroke)));
+        actions.addView(chip("\u21B6  Undo", false, v -> undoDrawing()));
         TextView clear = chip("\u2715  Clear the drawing", true, v -> clearDrawing());
         LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(-2, -2);
         clp.leftMargin = px(8);
@@ -1519,7 +1519,13 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
 
     private void clearDrawing() {
         view.queueEvent(renderer::clearStrokes);   // onStrokesChanged hides the buttons
+        view.requestRender();   // a paused picture shows the change too
         flash("C L E A R E D");
+    }
+
+    private void undoDrawing() {
+        view.queueEvent(renderer::undoStroke);
+        view.requestRender();
     }
 
     /** Sound: what TAV listens to, how hard the scenes react, the music-started nudge. */
