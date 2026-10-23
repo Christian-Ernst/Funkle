@@ -54,7 +54,8 @@ mkdir -p "$OUT/gen"
 javac -nowarn -d "$OUT/classes" -cp "$JAR" src/io/github/christianernst/tav/*.java "$OUT/gen/R.java" \
     test/io/github/christianernst/tav/AnalyzerCheck.java test/io/github/christianernst/tav/AdaptiveScaleCheck.java \
     test/io/github/christianernst/tav/EqualizerCheck.java test/io/github/christianernst/tav/ColourDriveCheck.java \
-    test/io/github/christianernst/tav/LookCheck.java test/io/github/christianernst/tav/AutopilotCheck.java
+    test/io/github/christianernst/tav/LookCheck.java test/io/github/christianernst/tav/AutopilotCheck.java \
+    test/io/github/christianernst/tav/ProfileCheck.java
 java -cp "$OUT/classes" io.github.christianernst.tav.AnalyzerCheck
 java -cp "$OUT/classes" io.github.christianernst.tav.AdaptiveScaleCheck
 java -cp "$OUT/classes" io.github.christianernst.tav.EqualizerCheck
@@ -71,6 +72,7 @@ if [ ! -s "$JSON" ]; then
 fi
 if [ -s "$JSON" ]; then
     java -cp "$JSON:$OUT/classes:$JAR" io.github.christianernst.tav.LookCheck
+    java -cp "$JSON:$OUT/classes:$JAR" io.github.christianernst.tav.ProfileCheck
 else
     echo "  skipped: could not fetch org.json (set JSON_JAR)"
 fi

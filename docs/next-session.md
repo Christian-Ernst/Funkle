@@ -177,3 +177,22 @@ the gestures in headless Chromium and fails when the drawn light is not under th
   twist is what shows.
 - The Modern menu thread's quick-action bar calls `renderer.clearStrokes()`/`undoStroke()` and listens to
   `Host.onStrokesChanged(count)`.
+
+## Per-scene colours and profiles (2026-10-23, not yet on a phone)
+
+Every scene remembers its own colours, colour motion, palette and mirror (prefs `own_<sceneId>`, written the first
+time the user picks any of them while the scene is on screen; the sliders were per scene already). Switching scenes
+restores them; a scene without its own keeps what is showing; the autopilot paints only scenes without their own.
+Profiles (`Profile.java`, `ProfileStore.java`, menu → Profile) hold the whole set-up under a name; the active one
+follows every change and syncs to the presets table with `kind: "profile"`.
+
+- Judge on the phone: is "a scene without its own colours shows what is on screen" the right default, or should
+  every scene start with its own? The `ownEverywhere` chip (This scene's colours → Use these for every scene) is the
+  manual way to the second.
+- Brightness and Motion (Calm) stay global on purpose: they are about the room and the eyes. If the owner wants them
+  per scene, add the keys to `LIVE_KEYS` and `liveLook()`.
+- The autopilot's Scenes + colours mode has nothing to paint once every scene has its own colours; the chip could say so.
+- The web edition has neither per-scene colours nor profiles yet. The document format is in `Profile.java`; `web/looks.js`
+  would need `parseProfile`/`makeProfile`, and `index.html` an `own` map keyed by scene id.
+- The Modern menu thread (#18) rebuilds the menu as a bottom sheet; the Profile row (`addProfileRow`) and the
+  "This scene's colours" row need a place on its pages.

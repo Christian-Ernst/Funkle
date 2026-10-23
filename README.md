@@ -85,13 +85,22 @@ even without notification access, because Funkle then sends ordinary media-butto
 | Three-finger tap | Clear your drawings (the menu has Undo and Clear too) |
 | Swipe the song title | Next (left) / previous (right) track |
 | Tap the song title | Play / pause |
-| Long-press or ☰ | Menu: playback controls, looks, scenes, the scene's sliders, shape stamps, mirror (mandala) mode, colours, colour motion, brightness, motion, equalizer, audio source, autopilot, song title, quality |
+| Long-press or ☰ | Menu: playback controls, looks, profiles, scenes, the scene's sliders, shape stamps, mirror (mandala) mode, colours, colour motion, brightness, motion, equalizer, audio source, autopilot, song title, quality |
 
 **Looks**: everything on screen (scene, colours and their motion, mirror, brightness, motion, equalizer) saved
 under a name. *Save this look* keeps the one on screen, *My looks* brings one back with a tap, and *Share* sends it
 as a link with a six-letter code. The link opens the look in a browser, no app or account needed, with an *Open in
 the Funkle app* button on Android; *Open a code or link* pastes one in. Looks are stored on the phone and, with the
 cloud edition, follow you to every device.
+**Every scene keeps its own colours.** Pick colours, a colour motion or a mirror while a scene is on screen and
+that scene remembers them; switch scenes and each comes back the way you left it (the three sliders are per scene
+too). A scene you have not coloured yet shows whatever is on screen, so one pick colours everything until you want
+a second scene different. The autopilot paints only scenes you have not coloured yourself. Menu → *This scene's
+colours* copies the current colours to every scene or makes a scene forget its own.
+**Profiles** hold your whole set-up: every scene's colours and sliders, the scene on screen, brightness, motion,
+equalizer and autopilot. The active profile keeps up with what you change, so switching to another one and back
+loses nothing. *+ New* starts a profile from what is on screen, *Manage* renames or deletes; profiles sync with
+the cloud edition like looks. A look is one scene with its colours, made for sharing; a profile is everything.
 **Autopilot** (on by default) follows the music. It hears the track's energy, tempo, drops and section changes
 and picks scenes that suit the moment: a quiet verse stays on a calm scene, a build-up is held, and the switch
 comes on the downbeat of the bar after a drop, so the scene's own drop move plays out first. Changes land on a
