@@ -60,6 +60,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     private static final String HINT_IDLE = "Play something on Spotify \u266A\nTap to make ripples \u00B7 drag to draw with sound";
     private static final String HINT_BLOCKED = "Music is playing, but Funkle hears silence.\nTurn the volume up, or open \u2630 \u2192 Sound \u2192 Microphone.";
     private static final String HINT_NO_PERMISSION = "Without audio access Funkle can't hear the music.\nTap and drag still make waves.";
+    private static final String HINT_CANVAS = "Drag to paint \u00B7 tap for a dot\nColours are in the bar above, the brush behind \u270E";
     private static final String HINT_DEMO = "This is Funkle's built-in beat.\nTap to make ripples \u00B7 drag to draw \u00B7 \u2630 \u2192 Sound, for your own music";
 
     private final Handler ui = new Handler(Looper.getMainLooper());
@@ -170,6 +171,15 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         if (intro != null || notice != null || sheet.shown()) return;   // a card or the menu is explaining things already
         // Music is known to be playing but the output mix reads as silence: the ROM or the
         // player is keeping audio away from the visualizer. Point at the microphone.
+        if (onCanvas()) {   // painting needs no music: explain the brush until the first stroke, then keep out of the picture
+            if (strokesOnScreen) {
+                if (hint.getAlpha() > 0f) hint.animate().alpha(0f).setDuration(400).start();
+                return;
+            }
+            hint.setText(HINT_CANVAS);
+            if (hint.getAlpha() < 1f) hint.animate().alpha(1f).setDuration(800).start();
+            return;
+        }
         boolean blocked = capture.source() == AudioCapture.SOURCE_SYSTEM && media.isPlaying();
         hint.setText(capture.demoRunning() ? HINT_DEMO : !hasAudioPermission() ? HINT_NO_PERMISSION : blocked ? HINT_BLOCKED : HINT_IDLE);
         if (hint.getAlpha() < 1f) hint.animate().alpha(1f).setDuration(800).start();
@@ -510,6 +520,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     public void onStrokesChanged(int count) {
         ui.post(() -> {
             strokesOnScreen = count > 0;
+            if (strokesOnScreen && onCanvas() && hint.getAlpha() > 0f) hint.animate().alpha(0f).setDuration(400).start();
             refreshQuick();
         });
     }
@@ -2076,8 +2087,20 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
                 d.setOrientation(GradientDrawable.Orientation.TL_BR);
             }
             boolean sel = k == chosen && tool != TavRenderer.BRUSH_ERASER;
-            d.setStroke(px(sel ? 3 : 1), sel ? Color.WHITE : 0x66FFFFFF);
-            paintSwatches[k].setBackground(d);
+            if (sel) {
+                // the chosen swatch: a white ring with a dark gap inside it, so even the white swatch shows it
+                d.setStroke(px(2), 0xFF000000);
+                GradientDrawable ring = new GradientDrawable();
+                ring.setShape(GradientDrawable.OVAL);
+                ring.setColor(Color.TRANSPARENT);
+                ring.setStroke(px(2.5f), Color.WHITE);
+                android.graphics.drawable.LayerDrawable both = new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[]{ring, d});
+                both.setLayerInset(1, px(2.5f), px(2.5f), px(2.5f), px(2.5f));
+                paintSwatches[k].setBackground(both);
+            } else {
+                d.setStroke(px(1), 0x66FFFFFF);
+                paintSwatches[k].setBackground(d);
+            }
             paintSwatches[k].setSelected(sel);
         }
         paintTool.setText(BRUSH_GLYPHS[tool]);
