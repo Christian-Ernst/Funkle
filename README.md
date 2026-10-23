@@ -152,8 +152,9 @@ beat pulse and drop flash). The visuals change while you drag.
 ripple, and a drop fires the rays and flares the core.
 **Wormhole** — a neon tunnel flown at the speed of the music, its far end lost in fog; a drop twists it and
 re-rolls the panels.
-**Pulsar** — the spectrogram as receding ridgelines ("Unknown Pleasures") under an aurora; a drop lifts the
-whole landscape.
+**Pulsar** — a landscape of soft, solid ridges under an aurora, each ridge the spectrum of one moment, gliding
+off to the horizon while the newest rises at your feet; a beat lifts the front ridges and flashes the pulsar
+on the horizon, a drop lifts the whole range.
 **Mandala** — a kaleidoscope of filled gems on rings that reach the top and bottom of the screen, each ring
 swelling with its slice of the spectrum, folded over a slow echo of its own previous frame; a drop draws the
 echoes in and, unless Mirror fixes the symmetry, re-rolls the fold count.

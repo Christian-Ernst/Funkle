@@ -94,6 +94,15 @@ look the scene had before; the ends were picked so Normal brightness stays at 0 
   only in headless Chromium: check on the phone that Ink's motion is smooth and visible between drops (raise
   `gain` or the fade if it is too thin), that Horizon's skyline varies on a real song (the dense test track
   saturates it into a plateau) and that Mandala's gems are not too big at Jewels = 100 %.
+- Pulsar (2026-10-23, after Christian found it rough and its motion aimless): filled ridges (a lit slope under
+  each crest, fog toward the horizon) instead of 80 hairlines, the spectrum smoothed across seven bins, and
+  every ridge keeps its own spectrogram row: the 6..12 ridges share the 128-row ring (`spacing = 128 / n`,
+  `ph = fract(uHistHead / spacing)`), so a ridge is born at the bottom edge with the sound of now and glides
+  to the horizon in 4.3 s without its shape ever changing. The old version sampled fixed screen rows from a
+  scrolling history, which made every line flicker. Beats lift the front ridges and flash a pulsar on the
+  horizon; a drop lifts the range. Judged in headless Chromium only (`web/tools/measure.js --shots` renders
+  a frame sequence): check on the phone that 4.3 s per ridge feels right and that Ridges = 100 % (12) is not
+  too busy near the horizon.
 - The sliders' ends (`tune(k, lo, hi)` in each shader) are guesses from the measurement, not from a phone:
   Halo at full Trails and Spiro at full Trails give large solid (not white) blobs; shorten those ranges if
   they look muddy on an OLED.
