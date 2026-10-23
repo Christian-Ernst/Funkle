@@ -49,6 +49,16 @@ which loads the Android shaders). README.md is the user-facing description. Open
     cards, share sheet and the `tav://look` / web-link handling are in `MainActivity` (`showSaveLook`,
     `showLooks`, `showOpenCode`, `applyLook`, `shareLook`, `handleLink`); `refreshChips()` restyles every
     menu row from prefs. `Palettes.shuffle()` is the harmonious shuffle (JVM-safe, no android.graphics).
+  - `Profile.java` / `ProfileStore.java`: profiles. A profile is the whole set-up (`{"v":1,"kind":"profile","name",
+    "scene","look":{colours..},"scenes":{id:{colours..,"tune":{..}}},"brightness","calm","autopilot","eq"}`); the colour
+    groups are Look documents without a name, so `Look.fromJson` reads them. The store is prefs `tav_profiles` plus
+    the cloud presets table (`kind` tells a profile row from a Look; LookStore skips it because it has no top-level
+    colours, ProfileStore skips Looks). The active profile is kept up to date from a prefs listener (`scenePrefs` in
+    `MainActivity`, debounced, pushed to the cloud 4 s later); `applyProfile` writes everything back. Per-scene
+    colours: prefs `own_<sceneId>` hold a scene's own colours, colour motion, palette name and mirror (a colour group)
+    once the user picked any of them on that scene (`rememberScene`); `loadSceneSettings` restores them on a scene
+    change, `onAutopilotLook` does not paint a scene that has its own, and `LIVE_KEYS` lists what counts.
+    Brightness and Motion are deliberately global. `ProfileCheck` runs in `check.sh`. The web edition has neither yet.
   - `DemoTrack.java`: the built-in beat (port of `web/demo.js`); `AudioCapture.startDemo` feeds it to the
     visuals on a clock, or out loud through an AudioTrack, so the first run moves before the permission ask.
   - `Equalizer.java`: how hard the scenes react. A master, a gain per band, punch (blend from the
