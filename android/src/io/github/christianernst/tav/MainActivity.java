@@ -58,9 +58,9 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     private static final int REQ_AUDIO = 7, REQ_NOTIFY = 8;
     private static final int[] SYMMETRY = {1, 2, 3, 4, 6, 8, 12};
     private static final String HINT_IDLE = "Play something on Spotify \u266A\nTap to make ripples \u00B7 drag to draw with sound";
-    private static final String HINT_BLOCKED = "Music is playing, but TAV hears silence.\nTurn the volume up, or open \u2630 \u2192 Sound \u2192 Microphone.";
-    private static final String HINT_NO_PERMISSION = "Without audio access TAV can't hear the music.\nTap and drag still make waves.";
-    private static final String HINT_DEMO = "This is TAV's built-in beat.\nTap to make ripples \u00B7 drag to draw \u00B7 \u2630 \u2192 Sound, for your own music";
+    private static final String HINT_BLOCKED = "Music is playing, but Funkle hears silence.\nTurn the volume up, or open \u2630 \u2192 Sound \u2192 Microphone.";
+    private static final String HINT_NO_PERMISSION = "Without audio access Funkle can't hear the music.\nTap and drag still make waves.";
+    private static final String HINT_DEMO = "This is Funkle's built-in beat.\nTap to make ripples \u00B7 drag to draw \u00B7 \u2630 \u2192 Sound, for your own music";
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private SharedPreferences prefs;
@@ -233,12 +233,12 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     /** The previous launch died: show the trace, with a button that copies all of it. */
     private void showCrash(final String trace) {
         if (notice != null) return;
-        notice = card("Last time, TAV crashed",
-                "This is what went wrong. Copy it and paste it into the chat, then TAV can be fixed.\n\n"
+        notice = card("Last time, Funkle crashed",
+                "This is what went wrong. Copy it and paste it into the chat, then Funkle can be fixed.\n\n"
                         + CrashLog.summary(trace, 10),
                 "Copy the report", () -> {
                     ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-                    if (cm != null) cm.setPrimaryClip(ClipData.newPlainText("TAV crash", trace));
+                    if (cm != null) cm.setPrimaryClip(ClipData.newPlainText("Funkle crash", trace));
                     flash("Copied");
                     dismissNotice();
                 }, this::dismissNotice);
@@ -378,7 +378,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     public void onRequestPermissionsResult(int code, String[] perms, int[] results) {
         if (code == REQ_NOTIFY) {
             if (results.length > 0 && !NowPlayingNudge.allowed(this))
-                Toast.makeText(this, "Without notifications TAV can't offer to light up when music starts", Toast.LENGTH_LONG).show();
+                Toast.makeText(this, "Without notifications Funkle can't offer to light up when music starts", Toast.LENGTH_LONG).show();
             return;
         }
         if (code != REQ_AUDIO) return;
@@ -390,7 +390,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         } else if (introBody != null && !shouldShowRequestPermissionRationale(Manifest.permission.RECORD_AUDIO)) {
             // Android won't show the dialog again; the only way left is the app's settings page.
             openSettingsInstead = true;
-            introBody.setText("Android won't ask again. To let TAV hear the music, open App info \u2192 Permissions "
+            introBody.setText("Android won't ask again. To let Funkle hear the music, open App info \u2192 Permissions "
                     + "\u2192 Microphone and choose Allow. Tap and drag work either way.");
             introButton.setText("Open App info");
         }
@@ -410,7 +410,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         try {
             startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName())));
         } catch (RuntimeException e) {
-            Toast.makeText(this, "Open Settings \u2192 Apps \u2192 TAV", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "Open Settings \u2192 Apps \u2192 Funkle", Toast.LENGTH_LONG).show();
         }
     }
 
@@ -1098,7 +1098,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         rowDisplay = row(list, "Display", this::showDisplay);
         if (cloud.enabled()) rowAccount = row(list, "Account", this::showAccount);
         row(list, "Gestures and help", this::showHelp);
-        TextView exit = row(list, "Exit TAV", this::exitApp);
+        TextView exit = row(list, "Exit Funkle", this::exitApp);
         exit.setText("everything stops");
         home.addView(list);
 
@@ -1455,7 +1455,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         }
         prefs.edit().putInt("palette", i).apply();
         if (i == Palettes.ALBUM && !MediaWatcher.hasNotificationAccess(this))
-            askNotificationAccess("Allow TAV in the list to colour the visuals from album art");
+            askNotificationAccess("Allow Funkle in the list to colour the visuals from album art");
         view.queueEvent(renderer::autopilotUserColours);   // the user's colours stay for this track
         pushPalette();
         markPalette(i);
@@ -1550,7 +1550,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
                         return;
                     }
                     if (!MediaWatcher.hasNotificationAccess(this))
-                        askNotificationAccess("Allow TAV in the list so it can see when music starts");
+                        askNotificationAccess("Allow Funkle in the list so it can see when music starts");
                     else if (Build.VERSION.SDK_INT >= 33 && !NowPlayingNudge.allowed(this))
                         requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, REQ_NOTIFY);
                 });
@@ -2092,8 +2092,8 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
      */
     private void showIntro() {
         LinearLayout c = card("T A V",
-                "This is TAV on its built-in beat. Your own music looks like this too: Spotify, YouTube, anything your phone plays.\n\n"
-                        + "To hear it, Android needs the \u201Crecord audio\u201D permission. TAV only analyses the sound "
+                "This is Funkle on its built-in beat. Your own music looks like this too: Spotify, YouTube, anything your phone plays.\n\n"
+                        + "To hear it, Android needs the \u201Crecord audio\u201D permission. Funkle only analyses the sound "
                         + "frame by frame to drive the visuals; nothing is recorded, stored or sent anywhere.",
                 "Light up my music", this::requestAudio, () -> {
                     removeIntro();
@@ -2175,7 +2175,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         notice = card("One more switch",
                 "Android blocks notification access for apps installed outside an app store. "
                         + "Open App info, tap \u22EE in the top corner, choose \u201CAllow restricted settings\u201D, "
-                        + "then pick the setting in TAV again.",
+                        + "then pick the setting in Funkle again.",
                 "Open App info", () -> {
                     dismissNotice();
                     openAppInfo();
@@ -2345,7 +2345,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         box.addView(row);
 
         CheckBox analytics = new CheckBox(this);
-        analytics.setText("Help improve TAV with anonymous usage stats");
+        analytics.setText("Help improve Funkle with anonymous usage stats");
         analytics.setTextColor(0xCCFFFFFF);
         analytics.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         analytics.setChecked(cloud.analyticsOn());
@@ -2363,7 +2363,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         }));
         box.addView(forget);
 
-        accountCard = openCard("Your TAV", box);
+        accountCard = openCard("Your Funkle", box);
         refreshAccount();
     }
 
@@ -2687,7 +2687,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         });
         TextView t = text(12.5f, 0x99FFFFFF, false);
         t.setShadowLayer(0, 0, 0, 0);
-        t.setText("A look someone shared with you: the six letters, or the whole link. Links from TAV open here on their own.");
+        t.setText("A look someone shared with you: the six letters, or the whole link. Links from Funkle open here on their own.");
         t.setLineSpacing(0, 1.25f);
         box.addView(t);
         looksCard = openCard("Open a shared look", box);
@@ -2710,7 +2710,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
             return;
         }
         if (code == null) {
-            Toast.makeText(this, "That is not a TAV code or link", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "That is not a Funkle code or link", Toast.LENGTH_SHORT).show();
             return;
         }
         if (!cloud.enabled()) {
@@ -2759,9 +2759,9 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         looks.publish(cloud, e, (x, err) -> {
             refreshLooksChip();
             String link = e.look.shareUrl(e.code);
-            String text = "My TAV look “" + e.look.name + "”" + (e.code != null ? " · code " + e.code : "") + "\n" + link;
+            String text = "My Funkle look “" + e.look.name + "”" + (e.code != null ? " · code " + e.code : "") + "\n" + link;
             Intent send = new Intent(Intent.ACTION_SEND).setType("text/plain")
-                    .putExtra(Intent.EXTRA_SUBJECT, "TAV look: " + e.look.name).putExtra(Intent.EXTRA_TEXT, text);
+                    .putExtra(Intent.EXTRA_SUBJECT, "Funkle look: " + e.look.name).putExtra(Intent.EXTRA_TEXT, text);
             try {
                 startActivity(Intent.createChooser(send, "Share your look"));
             } catch (RuntimeException ex) {

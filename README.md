@@ -1,11 +1,11 @@
-# TAV — music turned into light
+# Funkle — music turned into light
 
-Music turned into light on your phone. TAV listens to whatever is playing — Spotify, YouTube, a file —
+Music turned into light on your phone. Funkle (until October 2026 called TAV, which is still the repository, package and APK name) listens to whatever is playing — Spotify, YouTube, a file —
 and drives GPU shaders with it: rings that ripple out on every kick, a tunnel that speeds up with the
 track, Joy Division ridgelines built from the spectrogram, a ferrofluid ball that grows spikes per
 frequency. And you can draw on it: whatever shape you trace becomes a line made of the live sound wave.
 
-![TAV scenes](docs/scenes.jpg)
+![Funkle scenes](docs/scenes.jpg)
 
 There are two editions sharing one audio engine:
 
@@ -25,7 +25,7 @@ There are two editions sharing one audio engine:
 
 1. On your phone, open the **[latest release](https://github.com/Christian-Ernst/TAV/releases/tag/latest)** and download **TAV.apk**.
 2. Open it and allow installing from your browser when Android asks.
-3. Start TAV. It is already running on a built-in beat; tap **Light up my music** and play something in Spotify.
+3. Start Funkle. It is already running on a built-in beat; tap **Light up my music** and play something in Spotify.
 
 Or build it on the phone itself, in Termux, with one script:
 
@@ -46,32 +46,32 @@ your phone in `~/.config/tav/`.
 
 ### How it hears Spotify
 
-TAV attaches Android's `Visualizer` effect to audio session 0, the phone's global output mix, so it sees
+Funkle attaches Android's `Visualizer` effect to audio session 0, the phone's global output mix, so it sees
 exactly what you hear from any app without that app's cooperation. Android puts this behind the
-"record audio" permission. TAV only analyses the samples frame by frame; nothing is recorded, stored or sent.
+"record audio" permission. Funkle only analyses the samples frame by frame; nothing is recorded, stored or sent.
 
-If a phone's ROM blocks this (some do), TAV falls back to the microphone automatically. You can also pick
+If a phone's ROM blocks this (some do), Funkle falls back to the microphone automatically. You can also pick
 **Listen to → Microphone** yourself.
 
-**What's playing:** Spotify keeps running as its own app. When the song changes, TAV shows the cover, title and
+**What's playing:** Spotify keeps running as its own app. When the song changes, Funkle shows the cover, title and
 artist with a thin progress line (menu → **Song title → Always on screen** keeps them there) and can switch
 scenes with it. Choose **Colours → Album** and grant notification access, and every scene is recoloured from the
 cover art. Tap the cover to jump to Spotify; **Open Spotify** at the top of the menu does the same.
 Without notification access, switch on *Settings → Device Broadcast Status* in Spotify for title and artist.
 
 **Light up when music starts:** menu → **Light up when music starts → Spotify** (or *Any player*). When Spotify
-starts playing while TAV is closed, a quiet notification (no sound, no pop-up) shows the song and offers to light
+starts playing while Funkle is closed, a quiet notification (no sound, no pop-up) shows the song and offers to light
 it up; it disappears again when the music stops, and swiping it away keeps it quiet for an hour. It needs the same
 notification access as album colours, plus the notification permission on Android 13+.
 
-**What TAV cannot do with Spotify:** Android's `Visualizer` hands out an 8-bit waveform for the visuals only, and
-Spotify opts out of `AudioPlaybackCapture`, so TAV cannot record Spotify's audio; a shareable clip would be silent
+**What Funkle cannot do with Spotify:** Android's `Visualizer` hands out an 8-bit waveform for the visuals only, and
+Spotify opts out of `AudioPlaybackCapture`, so Funkle cannot record Spotify's audio; a shareable clip would be silent
 (that is also what Spotify's licence requires). Spotify's Web API adds nothing here: the audio-features endpoint
 is closed to new apps, and the media session already gives the title, artist and cover without any login.
 
 **Playback controls:** previous, play/pause and next sit at the top of the menu, and the on-screen song title
 works as a remote: swipe it left for the next track, right for the previous one, tap it to pause. They work
-even without notification access, because TAV then sends ordinary media-button presses to the active player.
+even without notification access, because Funkle then sends ordinary media-button presses to the active player.
 
 ### Controls
 
@@ -90,7 +90,7 @@ even without notification access, because TAV then sends ordinary media-button p
 **Looks**: everything on screen (scene, colours and their motion, mirror, brightness, motion, equalizer) saved
 under a name. *Save this look* keeps the one on screen, *My looks* brings one back with a tap, and *Share* sends it
 as a link with a six-letter code. The link opens the look in a browser, no app or account needed, with an *Open in
-the TAV app* button on Android; *Open a code or link* pastes one in. Looks are stored on the phone and, with the
+the Funkle app* button on Android; *Open a code or link* pastes one in. Looks are stored on the phone and, with the
 cloud edition, follow you to every device.
 **Autopilot** (on by default) follows the music. It hears the track's energy, tempo, drops and section changes
 and picks scenes that suit the moment: a quiet verse stays on a calm scene, a build-up is held, and the switch
@@ -104,7 +104,7 @@ scene you skip right after the autopilot chose it is picked less often.
 **Colours**: *Album* takes the colours from the cover art and keeps its tone (a dusty cover gives a dusty palette,
 a neon cover a neon one), *Neon* to *Candy* are presets, *Rainbow* paints the whole spectrum, and *Custom* opens an
 editor for your own three colours. Tap a swatch, then drag Hue, Saturation and Brightness; the visuals change while
-you drag, and TAV keeps the colours for next time. Tap *Custom* again to edit them.
+you drag, and Funkle keeps the colours for next time. Tap *Custom* again to edit them.
 *Shuffle* (in the Colours row and in the editor) rolls three random colours that go together: hues a golden angle
 apart, bright and saturated, never the same twice.
 **Colour motion** makes any palette move with the music. *Still* leaves the colours as they are. *Drift* turns the
@@ -125,14 +125,14 @@ beat pulse and drop flash). The visuals change while you drag.
 ### If the visuals don't move
 
 * **Volume at zero:** some phones hand the visualizer silence when the media volume is muted. Turn it up a notch.
-* **Phone blocks output capture:** a few ROMs refuse the global visualizer; TAV then switches to the microphone
-  on its own and says so. Others hand it silence instead. If Spotify is playing while TAV hears nothing, it tells
+* **Phone blocks output capture:** a few ROMs refuse the global visualizer; Funkle then switches to the microphone
+  on its own and says so. Others hand it silence instead. If Spotify is playing while Funkle hears nothing, it tells
   you to pick **Listen to → Microphone**; hold the phone near the speaker.
 * **Album colours missing:** grant notification access (menu → Colours → Album), or switch on
   *Device Broadcast Status* in Spotify's settings for track names.
 * **No "light it up" notification:** it needs notification access (menu → Light up when music starts), the
-  notification permission on Android 13+, and Spotify's own notification to be on; it never shows while TAV is open.
-* **Stutters on an older phone:** Quality is *Auto* by default: TAV starts at 70 % of the screen's pixels, lowers
+  notification permission on Android 13+, and Spotify's own notification to be on; it never shows while Funkle is open.
+* **Stutters on an older phone:** Quality is *Auto* by default: Funkle starts at 70 % of the screen's pixels, lowers
   its resolution when frames run late (down to about a third) and climbs back to full once they run fast for a while.
   *Low* (50 %) saves battery and holds the frame rate on a weak phone, *Medium* (70 %) and *High* (100 %) pin a
   ceiling; all of them still step down if the phone can't keep up. The web edition has the same button (or `q`).
@@ -145,17 +145,20 @@ ripple, and a drop fires the rays and flares the core.
 re-rolls the panels.
 **Pulsar** — the spectrogram as receding ridgelines ("Unknown Pleasures") under an aurora; a drop lifts the
 whole landscape.
-**Mandala** — a kaleidoscope that folds over its own previous frame; a drop sucks the echoes in and, unless
-Mirror fixes the symmetry, re-rolls the fold count.
+**Mandala** — a kaleidoscope of filled gems on rings that reach the top and bottom of the screen, each ring
+swelling with its slice of the spectrum, folded over a slow echo of its own previous frame; a drop draws the
+echoes in and, unless Mirror fixes the symmetry, re-rolls the fold count.
 **Ferro** — a raymarched ferrofluid sphere over a floor that mirrors it; each spike listens to its own
 frequency and a drop bursts them.
 **Nebula** — a 48 000-star galaxy laid along the long axis of the screen, whose rings breathe per band, with a
 shockwave on every beat and a bigger one on every drop.
 **Spiro** — spirograph lace etched with the waveform, one hue per strand, over a spectrogram curtain.
-**Ink** — dye in water: the bands drip ink that a curl-noise current folds and streaks, the waveform draws a
-thread across it, a beat spins the basin and a drop pours in a ring of ink.
-**Horizon** — a flight over a terrain built from the spectrogram (what just played rises in front of you),
-with a neon grid on the ground, a sun that pulses with the bass, an aurora and stars; a drop lifts the land.
+**Ink** — dye in water: a field of eddies that turn over with the music and run faster the louder it gets
+folds the ink into filaments; the bass pours from the bottom in time with the beat, the mids circle the middle,
+the treble sprinkles from the top, a beat spins the basin and a drop pours in a ring of ink.
+**Horizon** — a night sea under a striped sun: far mountains on the horizon are the spectrogram of a few seconds
+ago, the water mirrors the sun and the sky in a glittering path broken by waves that roll toward you with the
+music, their crests lit by what just played; an aurora breathes with the treble and a drop lifts the land.
 
 **Tune this scene** (menu, under the scene chips) opens three sliders made for the scene you are looking at,
 with the scene changing as you drag: Halo's rays, trails and rings; Wormhole's speed, panels and twist;
@@ -241,7 +244,7 @@ samples ──► AudioAnalyzer ──► 512-bin log spectrum + peaks, triggere
 ### Signing
 
 No signing key lives in this repository: a key anyone can download would let anyone ship an
-"update" that silently inherits TAV's microphone and notification access.
+"update" that silently inherits Funkle's microphone and notification access.
 
 **One-time setup (2 minutes, in Termux):** this makes a release key on your phone and gives it to GitHub
 Actions as the `TAV_KEYSTORE_B64` and `TAV_KS_PASS` secrets, then starts a fresh build:
@@ -251,7 +254,7 @@ cd TAV && android/tools/setup-signing.sh     # or: bash setup.sh, which offers t
 ```
 
 It installs `gh` and a JDK if needed and asks you to log in to GitHub once. Afterwards every release and
-every APK you build on the phone share that key, so updates install over each other. Uninstall the TAV
+every APK you build on the phone share that key, so updates install over each other. Uninstall the Funkle
 you have once before installing the first release signed with it. Back up `~/.config/tav/`: without the
 key, a later release can't update the installed app.
 

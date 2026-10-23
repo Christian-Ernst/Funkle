@@ -11,7 +11,7 @@ visuals (scene ‹ ›, pause, shuffle, clear) and a first-run "Three moves" car
   see-through on slider drag (`setGhost`, alpha 0.38) is meant for judging a change on the scene itself.
 - The scene thumbnails are the web edition's frames at the demo's drop (Neon palette); rerun
   `android/tools/thumbs.sh` when a scene's look changes, or they lie.
-- Pause freezes the frame (render mode WHEN_DIRTY) and keeps the quick bar on screen; Exit TAV finishes the
+- Pause freezes the frame (render mode WHEN_DIRTY) and keeps the quick bar on screen; Exit Funkle finishes the
   activity, which stops rendering, capture and the media watcher (onStop). The notification listener service
   stays, by design, while notification access is granted.
 
@@ -83,14 +83,17 @@ this scene; web: the Tune button or `t`) that reach the shaders as `uTune`. The 
 look the scene had before; the ends were picked so Normal brightness stays at 0 % clipped on the dense track
 (`web/tools/measure.js --track dense --tune 1,1,1`).
 
-- Ink: judged only in headless Chromium. The current (`vel`), the dye amount (`gain`) and the fade
-  (0.978 per 60 Hz frame) were set so a quiet verse leaves thin wisps and a drop fills the screen. If it
-  reads as too dark between drops on the phone, raise `gain` first; the ink stacks in the feedback, so
-  re-measure.
-- Horizon: 64 march steps and three spectrogram taps per step. Measured with `web/tools/perf.js`: at full
-  resolution it costs the same as Halo (both about 1.8x Mandala), at half resolution half of Halo, so it is not
-  an outlier. Quality Auto (the default now) starts at 70 % and lowers the resolution if a phone can't hold it. The grid lines alias into a shimmer near the horizon; the haze hides most
-  of it, and a cheaper fix would be to fade the lines with distance.
+- Ink, Horizon and Mandala were redone on 2026-10-23 after the owner saw them on the phone (Ink did not move,
+  Horizon's terrain was "really bad", Mandala "weird"). Ink: the current is the curl of a domain-warped noise
+  that evolves with the music clock (`psi()`), the dye fades at 0.99 per 60 Hz frame (half-life about a
+  second, so the streaks show the flow) and four droppers feed it. Horizon: no longer a raymarched terrain
+  (that was also a near twin of Pulsar's ridgelines); it is a night sea that mirrors a striped sun and a
+  skyline made of the spectrogram at ages 96..120, with crests rolling toward the camera on the music clock.
+  It costs one `sky()` evaluation per pixel (two on the water) and no march. Mandala: filled gems (`glow(max(d,
+  0))`) on six rings up to r = 1.72, a gentler echo (zoom 1.012 per frame), a smooth lace. All three judged
+  only in headless Chromium: check on the phone that Ink's motion is smooth and visible between drops (raise
+  `gain` or the fade if it is too thin), that Horizon's skyline varies on a real song (the dense test track
+  saturates it into a plateau) and that Mandala's gems are not too big at Jewels = 100 %.
 - The sliders' ends (`tune(k, lo, hi)` in each shader) are guesses from the measurement, not from a phone:
   Halo at full Trails and Spiro at full Trails give large solid (not white) blobs; shorten those ranges if
   they look muddy on an OLED.

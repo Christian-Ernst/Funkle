@@ -209,8 +209,8 @@ final class Sheet extends FrameLayout {
     private void header(int depth) {
         back.setVisibility(depth > 0 ? VISIBLE : INVISIBLE);
         Object t = depth > 0 ? stack.get(depth).getTag() : null;
-        title.setText(t != null ? t.toString() : "T A V");
-        title.setLetterSpacing(t != null ? 0f : 0.3f);
+        title.setText(t != null ? t.toString() : "Funkle");
+        title.setLetterSpacing(t != null ? 0f : 0.2f);
         title.setGravity(depth > 0 ? Gravity.START : Gravity.CENTER);
     }
 

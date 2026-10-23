@@ -41,7 +41,7 @@ jobs:
             echo "KEY_NOTE=Signed with the repository's release key, so it installs over earlier releases." >> "$GITHUB_ENV"
           else
             echo "::warning::No TAV_KEYSTORE_B64 secret: signing with a one-off key (see README, Signing)."
-            echo "KEY_NOTE=Signed with a one-off key: uninstall an older TAV before installing this one. Add the TAV_KEYSTORE_B64 and TAV_KS_PASS secrets (README, Signing) to make updates seamless." >> "$GITHUB_ENV"
+            echo "KEY_NOTE=Signed with a one-off key: uninstall an older Funkle (TAV) before installing this one. Add the TAV_KEYSTORE_B64 and TAV_KS_PASS secrets (README, Signing) to make updates seamless." >> "$GITHUB_ENV"
           fi
 
       - name: Build APK
@@ -62,7 +62,7 @@ jobs:
         run: |
           gh release delete latest --yes --cleanup-tag || true
           gh release create latest android/build/TAV.apk \
-            --target "$GITHUB_SHA" --latest --title "TAV — latest build" \
+            --target "$GITHUB_SHA" --latest --title "Funkle — latest build" \
             --notes "Built from ${GITHUB_SHA::7} on \`${GITHUB_REF_NAME}\`. Download **TAV.apk** on your phone and open it to install (allow installs from your browser/file manager when asked). ${KEY_NOTE}"
 
   terminal:
