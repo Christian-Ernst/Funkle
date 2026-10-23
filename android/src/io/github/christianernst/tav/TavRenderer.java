@@ -57,6 +57,13 @@ final class TavRenderer implements GLSurfaceView.Renderer {
         void onSilence(boolean silent);
 
         void onRenderError(String message);
+
+        /**
+         * The number of drawings on screen changed (a stroke finished, undone or cleared), so a Clear or Undo
+         * control can show or hide. Called on the GL thread; post to the UI thread before touching views.
+         */
+        default void onStrokesChanged(int count) {
+        }
     }
 
     private final Context ctx;
@@ -116,6 +123,19 @@ final class TavRenderer implements GLSurfaceView.Renderer {
     private final List<Stroke> strokes = new ArrayList<>();
     private Stroke liveStroke;
     private final float[] palFlat = new float[9], rippleFlat = new float[MAX_RIPPLES * 4];
+
+    // The user's hand on the picture, uploaded as uView, uTouch and uPush (see common.glsl). All of it is
+    // smoothed here, per frame, so the shaders only ever see small steps. Same numbers as web/engine.js.
+    static final float ZOOM_MAX = 3f, TOUCH_REACH = 0.45f, STIR_MAX = 0.08f, LENS_MAX = 0.6f, BLAST = 0.05f,
+            TILT_PAN = 0.35f, TILT_MAX = 0.15f, ZOOM_HOLD = 1.5f;
+    private float zoom = 1, zoomTarget = 1, panX, panY, panTargetX, panTargetY;
+    private float touchX, touchY, reach, lens, stir, pushX, pushY, blast, pushAccX, pushAccY, turnAcc;
+    private float lastTouchX, lastTouchY, lastVelX, lastVelY;
+    private boolean fingerDown, pinching;
+    private double pinchEnd = -100;
+    private float pinchWorldX, pinchWorldY, pinchZoom0 = 1;
+    private float tiltX, tiltY, tiltRestX, tiltRestY;
+    private boolean tiltSeen;
 
     TavRenderer(Context ctx, AudioCapture capture, Host host) {
         this.ctx = ctx.getApplicationContext();
@@ -259,6 +279,126 @@ final class TavRenderer implements GLSurfaceView.Renderer {
         if (ripples.size() > MAX_RIPPLES) ripples.remove(0);
     }
 
+    // ---- touch: the finger on the picture (centred units: the short screen axis is [-1, 1])
+
+    /** A finger landed: from now on the picture bends around it. Drawing starts with {@link #beginStroke}. */
+    void touchDown(float x, float y) {
+        touchX = lastTouchX = x;
+        touchY = lastTouchY = y;
+        fingerDown = true;
+        lastVelX = lastVelY = 0;
+        turnAcc = pushAccX = pushAccY = 0;
+    }
+
+    /** The finger moved: the paint under it is dragged along, and a curve stirs it round. */
+    void touchMove(float x, float y) {
+        float dx = x - lastTouchX, dy = y - lastTouchY;
+        float d = (float) Math.sqrt(dx * dx + dy * dy);
+        if (d > 0) {
+            if (lastVelX != 0 || lastVelY != 0) {
+                float lv = (float) Math.sqrt(lastVelX * lastVelX + lastVelY * lastVelY);
+                turnAcc += (lastVelX * dy - lastVelY * dx) / (lv * d) * Math.min(1f, d * 20f);   // signed turning, in radians-ish
+            }
+            lastVelX = dx;
+            lastVelY = dy;
+        }
+        pushAccX += dx;
+        pushAccY += dy;
+        lastTouchX = touchX = x;
+        lastTouchY = touchY = y;
+    }
+
+    void touchUp() {
+        fingerDown = false;
+    }
+
+    /** A tap: a burst of rings and sparks from the point, and the paint around it is shoved outward. */
+    void tap(float x, float y) {
+        addRipple(x, y, 1f);
+        touchX = x;
+        touchY = y;
+        reach = TOUCH_REACH;
+        blast = BLAST;
+        fingerDown = false;
+    }
+
+    /** Two fingers: pinch to magnify around them (1..ZOOM_MAX); the view springs back after they lift. */
+    void pinchBegin(float cx, float cy) {
+        pinching = true;
+        pinchZoom0 = zoom;
+        pinchWorldX = cx / zoom + panX;
+        pinchWorldY = cy / zoom + panY;
+    }
+
+    void pinchUpdate(float scale, float cx, float cy) {
+        if (!pinching) return;
+        zoomTarget = Math.max(1f, Math.min(ZOOM_MAX, pinchZoom0 * scale));
+        panTargetX = pinchWorldX - cx / zoomTarget;
+        panTargetY = pinchWorldY - cy / zoomTarget;
+        clampPan();
+    }
+
+    void pinchEnd() {
+        if (!pinching) return;
+        pinching = false;
+        pinchEnd = time;
+    }
+
+    /** Gravity along the screen's x and y axes (-1..1; +y is up). The scene drifts the way the phone leans. */
+    void setTilt(float x, float y) {
+        tiltX = x;
+        tiltY = y;
+        if (!tiltSeen) {
+            tiltRestX = x;
+            tiltRestY = y;
+            tiltSeen = true;
+        }
+    }
+
+    private void clampPan() {
+        float m = Math.max(1, Math.min(width, height));
+        float ex = width / m, ey = height / m, room = 1 - 1 / zoomTarget;
+        panTargetX = Math.max(-ex * room, Math.min(ex * room, panTargetX));
+        panTargetY = Math.max(-ey * room, Math.min(ey * room, panTargetY));
+    }
+
+    /** Steps the touch state one frame; uploaded by {@link #use}. */
+    private void touchFrame(float dt) {
+        float k = 1 - (float) Math.exp(-dt * 14);
+        if (fingerDown) {
+            reach += (TOUCH_REACH - reach) * k;
+            float s = Math.max(-STIR_MAX, Math.min(STIR_MAX, turnAcc * 0.6f / Math.max(stepScale, 0.25f)));
+            stir += (s - stir) * k;
+            lens += (Math.max(-LENS_MAX, Math.min(LENS_MAX, turnAcc * 6f)) - lens) * k;
+            pushX = 0.8f * pushAccX / Math.max(stepScale, 0.25f);
+            pushY = 0.8f * pushAccY / Math.max(stepScale, 0.25f);
+        } else {
+            float f = (float) Math.exp(-dt * 6);
+            reach *= blast > 1e-3 ? 1 : f;
+            stir *= f;
+            lens *= f;
+            pushX *= f;
+            pushY *= f;
+        }
+        blast *= (float) Math.exp(-dt * 8);
+        turnAcc = pushAccX = pushAccY = 0;
+        if (!pinching && zoomTarget != 1 && time - pinchEnd > ZOOM_HOLD) {
+            zoomTarget = 1;
+            panTargetX = panTargetY = 0;
+        }
+        float z = 1 - (float) Math.exp(-dt * (pinching ? 14 : 2.5));
+        zoom += (zoomTarget - zoom) * z;
+        panX += (panTargetX - panX) * z;
+        panY += (panTargetY - panY) * z;
+        float r = 1 - (float) Math.exp(-dt / 4);   // the way the phone is held is the rest position
+        tiltRestX += (tiltX - tiltRestX) * r;
+        tiltRestY += (tiltY - tiltRestY) * r;
+    }
+
+    private float tiltPan(float t, float rest) {
+        return Math.max(-TILT_MAX, Math.min(TILT_MAX, (t - rest) * TILT_PAN));
+    }
+
     void beginStroke(float x, float y) {
         liveStroke = new Stroke(rnd.nextFloat(), time);
         liveStroke.points.add(new float[]{x, y});
@@ -292,6 +432,7 @@ final class TavRenderer implements GLSurfaceView.Renderer {
             s.release();
             return false;
         }
+        host.onStrokesChanged(strokes.size());
         return true;
     }
 
@@ -300,6 +441,7 @@ final class TavRenderer implements GLSurfaceView.Renderer {
         s.points.addAll(pts);
         strokes.add(s);
         trimStrokes();
+        host.onStrokesChanged(strokes.size());
     }
 
     void clearStrokes() {
@@ -307,6 +449,20 @@ final class TavRenderer implements GLSurfaceView.Renderer {
         strokes.clear();
         liveStroke = null;
         ripples.clear();
+        host.onStrokesChanged(0);
+    }
+
+    /** Takes back the latest drawing (the one being drawn, if a finger is down). */
+    void undoStroke() {
+        if (strokes.isEmpty()) return;
+        Stroke s = strokes.remove(strokes.size() - 1);
+        if (s == liveStroke) liveStroke = null;
+        s.release();
+        host.onStrokesChanged(strokes.size());
+    }
+
+    int strokeCount() {
+        return strokes.size();
     }
 
     private void trimStrokes() {
@@ -387,6 +543,7 @@ final class TavRenderer implements GLSurfaceView.Renderer {
         time += dt;
         if (an.flow > 2000) an.flow -= 2000;   // safety net when autopilot is off and no scene changes
         stepScale = Math.min(4f, Math.max(0.25f, dt * 60f));
+        touchFrame(dt);
         adapt(dt, stalled);
         autopilot(dt);
         for (int k = 0; k < 3; k++)
@@ -406,7 +563,7 @@ final class TavRenderer implements GLSurfaceView.Renderer {
         surge *= (float) Math.exp(-dt * 1.5);
         if (flowExtra > 2000) flowExtra -= 2000;
         Scene sc = Scene.ALL[scene];
-        if (sc.beatRipples && an.onBeat && !calm) addRipple(0, 0, 0.5f + 0.5f * shaped[0]);
+        if (sc.beatRipples && an.onBeat && !calm) addRipple(0, 0, 0.5f + 0.4f * shaped[0]);   // under 0.95: no sparks
 
         // upload audio
         glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
@@ -620,7 +777,13 @@ final class TavRenderer implements GLSurfaceView.Renderer {
         uniform1f(p, "uHistHead", an.histHead);
         uniform1f(p, "uSym", sym);
         uniform1f(p, "uSeed", seed);
-        int l = p.loc("uTune");
+        int l = p.loc("uView");
+        if (l >= 0) glUniform4f(l, zoom, panX + tiltPan(tiltX, tiltRestX), panY + tiltPan(tiltY, tiltRestY), lens);
+        l = p.loc("uTouch");
+        if (l >= 0) glUniform4f(l, touchX, touchY, reach, stir);
+        l = p.loc("uPush");
+        if (l >= 0) glUniform4f(l, pushX, pushY, blast, 0f);
+        l = p.loc("uTune");
         if (l >= 0) glUniform4f(l, tune[scene][0], tune[scene][1], tune[scene][2], 0f);
         l = p.loc("uBands");
         if (l >= 0) glUniform4f(l, shaped[0], shaped[1], shaped[2], shaped[3]);

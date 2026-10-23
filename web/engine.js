@@ -24,6 +24,8 @@ const SHADER_FILES = ['common.glsl', 'fullscreen.vert', 'bloom_down.frag', 'bloo
   ...new Set(SCENES.flatMap((s) => [s.frag, s.points && s.points.vert].filter(Boolean)))];
 
 const MAX_RIPPLES = 8, BLOOM_LEVELS = 4;
+// The user's hand on the picture (uView, uTouch, uPush in common.glsl); same numbers as TavRenderer.
+const TOUCH = { zoomMax: 3, reach: 0.45, stirMax: 0.08, lensMax: 0.6, blast: 0.05, tiltPan: 0.35, tiltMax: 0.15, zoomHold: 1.5 };
 // Brightness setting: composite exposure and bloom per level. Same table as TavRenderer.
 const BRIGHTNESS = [
   { name: 'Dim', exposure: 0.45, bloom: 0.45 },
@@ -332,6 +334,12 @@ class TavEngine {
     this.rainbow = false;   // Colours: Rainbow (the shader paints the spectrum)
     this.colour = new ColourDrive(COLOUR_MODES[0]);
     this.ripples = []; this.strokes = [];
+    // touch: zoom and pan (pinch, tilt), the finger's reach, lens, stir, drag and a tap's blast; stepped in touchFrame()
+    this.view = { zoom: 1, zoomTarget: 1, panX: 0, panY: 0, panTargetX: 0, panTargetY: 0 };
+    this.touch = { x: 0, y: 0, reach: 0, lens: 0, stir: 0, pushX: 0, pushY: 0, blast: 0, accX: 0, accY: 0, turn: 0,
+      lastX: 0, lastY: 0, velX: 0, velY: 0, down: false, pinching: false, pinchEnd: -100, worldX: 0, worldY: 0, zoom0: 1,
+      tiltX: 0, tiltY: 0, restX: 0, restY: 0, tiltSeen: false };
+    this.userOnly = false;   // test hook (web/tools/touch-check.js): draw only the ripples and strokes, on black
     this.transStart = -10; this.transDur = 0.9; this.flash = 0;
     this.dropAge = 100; this.surge = 0; this.flowExtra = 0;   // drop envelope and music-clock surge, as in TavRenderer
     this.brightness = DEFAULT_BRIGHTNESS;
@@ -422,6 +430,10 @@ class TavEngine {
     if (L.uPal) gl.uniform3fv(L.uPal, this.palette.flat());
     if (L.uColour) gl.uniform4f(L.uColour, this.colour.hue, this.colour.tilt, this.colour.pump, this.rainbow ? 1 : 0);
     if (L.uBandMix) gl.uniform3fv(L.uBandMix, this.colour.mix);
+    const v = this.view, t = this.touch;
+    if (L.uView) gl.uniform4f(L.uView, v.zoom, v.panX + this.tiltPan(t.tiltX, t.restX), v.panY + this.tiltPan(t.tiltY, t.restY), t.lens);
+    if (L.uTouch) gl.uniform4f(L.uTouch, t.x, t.y, t.reach, t.stir);
+    if (L.uPush) gl.uniform4f(L.uPush, t.pushX, t.pushY, t.blast, 0);
     let unit = 0;
     const bind = (name, tex) => { if (!L[name]) return; gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, tex); gl.uniform1i(L[name], unit++); };
     bind('uAudio', this.audioTex); bind('uHist', this.histTex);
@@ -470,6 +482,81 @@ class TavEngine {
     if (this.ripples.length > MAX_RIPPLES) this.ripples.shift();
   }
 
+  // ---------- touch: the finger on the picture (centred units, the short axis is [-1, 1]) ----------
+  // A finger landed: the picture bends around it from now on. Drawing starts with beginStroke().
+  touchDown(x, y) {
+    const t = this.touch;
+    t.x = t.lastX = x; t.y = t.lastY = y; t.down = true;
+    t.velX = t.velY = 0; t.turn = t.accX = t.accY = 0;
+  }
+  // The finger moved: the paint under it is dragged along, and a curve stirs it round.
+  touchMove(x, y) {
+    const t = this.touch, dx = x - t.lastX, dy = y - t.lastY, d = Math.hypot(dx, dy);
+    if (d > 0) {
+      if (t.velX !== 0 || t.velY !== 0) {
+        const lv = Math.hypot(t.velX, t.velY);
+        t.turn += (t.velX * dy - t.velY * dx) / (lv * d) * Math.min(1, d * 20);
+      }
+      t.velX = dx; t.velY = dy;
+    }
+    t.accX += dx; t.accY += dy;
+    t.lastX = t.x = x; t.lastY = t.y = y;
+  }
+  touchUp() { this.touch.down = false; }
+  // A tap: a burst of rings and sparks, and the paint around it is shoved outward.
+  tap(x, y) {
+    this.addRipple(x, y, 1);
+    const t = this.touch;
+    t.x = x; t.y = y; t.reach = TOUCH.reach; t.blast = TOUCH.blast; t.down = false;
+  }
+  // Two fingers: pinch to magnify around them (1..zoomMax); the view springs back after they lift.
+  pinchBegin(cx, cy) {
+    const t = this.touch, v = this.view;
+    t.pinching = true; t.zoom0 = v.zoom;
+    t.worldX = cx / v.zoom + v.panX; t.worldY = cy / v.zoom + v.panY;
+  }
+  pinchUpdate(scale, cx, cy) {
+    const t = this.touch, v = this.view;
+    if (!t.pinching) return;
+    v.zoomTarget = Math.max(1, Math.min(TOUCH.zoomMax, t.zoom0 * scale));
+    v.panTargetX = t.worldX - cx / v.zoomTarget; v.panTargetY = t.worldY - cy / v.zoomTarget;
+    const m = Math.max(1, Math.min(this.w, this.h)), room = 1 - 1 / v.zoomTarget, ex = this.w / m * room, ey = this.h / m * room;
+    v.panTargetX = Math.max(-ex, Math.min(ex, v.panTargetX)); v.panTargetY = Math.max(-ey, Math.min(ey, v.panTargetY));
+  }
+  pinchEnd() {
+    const t = this.touch;
+    if (!t.pinching) return;
+    t.pinching = false; t.pinchEnd = this.time;
+  }
+  // Gravity along the screen's axes (-1..1, +y up): the scene drifts the way the device leans.
+  setTilt(x, y) {
+    const t = this.touch;
+    t.tiltX = x; t.tiltY = y;
+    if (!t.tiltSeen) { t.restX = x; t.restY = y; t.tiltSeen = true; }
+  }
+  tiltPan(t, rest) { return Math.max(-TOUCH.tiltMax, Math.min(TOUCH.tiltMax, (t - rest) * TOUCH.tiltPan)); }
+  touchFrame(dt) {
+    const t = this.touch, v = this.view, k = 1 - Math.exp(-dt * 14), step = Math.max(this.step || 1, 0.25);
+    if (t.down) {
+      t.reach += (TOUCH.reach - t.reach) * k;
+      const s = Math.max(-TOUCH.stirMax, Math.min(TOUCH.stirMax, t.turn * 0.6 / step));
+      t.stir += (s - t.stir) * k;
+      t.lens += (Math.max(-TOUCH.lensMax, Math.min(TOUCH.lensMax, t.turn * 6)) - t.lens) * k;
+      t.pushX = 0.8 * t.accX / step; t.pushY = 0.8 * t.accY / step;
+    } else {
+      const f = Math.exp(-dt * 6);
+      t.reach *= t.blast > 1e-3 ? 1 : f;
+      t.stir *= f; t.lens *= f; t.pushX *= f; t.pushY *= f;
+    }
+    t.blast *= Math.exp(-dt * 8);
+    t.turn = t.accX = t.accY = 0;
+    if (!t.pinching && v.zoomTarget !== 1 && this.time - t.pinchEnd > TOUCH.zoomHold) { v.zoomTarget = 1; v.panTargetX = v.panTargetY = 0; }
+    const z = 1 - Math.exp(-dt * (t.pinching ? 14 : 2.5));
+    v.zoom += (v.zoomTarget - v.zoom) * z; v.panX += (v.panTargetX - v.panX) * z; v.panY += (v.panTargetY - v.panY) * z;
+    const r = 1 - Math.exp(-dt / 4);   // the way the device is held is the rest position
+    t.restX += (t.tiltX - t.restX) * r; t.restY += (t.tiltY - t.restY) * r;
+  }
+
   // points: array of [x, y] in centred coordinates (shorter axis = [-1, 1])
   addStroke(points, hue = Math.random()) {
     if (points.length < 2) return;
@@ -497,6 +584,11 @@ class TavEngine {
     this.live = null;
     if (s && s.points.length < 4) this.strokes = this.strokes.filter((x) => x !== s);
   }
+  // Takes back the latest drawing (the one being drawn, if a finger is down).
+  undoStroke() {
+    const s = this.strokes.pop();
+    if (s === this.live) this.live = null;
+  }
   clearStrokes() { this.strokes = []; this.ripples = []; this.live = null; }
 
   buildStroke(st) {
@@ -523,6 +615,7 @@ class TavEngine {
     this.rebaseFlow = false;
     if (an.flow > 2000) an.flow -= 2000;
     this.step = Math.min(4, Math.max(0.25, dt * 60));
+    this.touchFrame(dt);
     this.colour.step(dt, an.bands, an.level, an.onBeat, an.drop);
     if (an.drop) { this.seed = (this.seed + 1) % 64; this.flash = 0.6; }
     this.flash *= Math.exp(-dt * 4);
@@ -531,7 +624,7 @@ class TavEngine {
     this.flowExtra += this.surge * 2 * dt;
     this.surge *= Math.exp(-dt * 1.5);
     if (this.flowExtra > 2000) this.flowExtra -= 2000;
-    if (sc.beatRipples && an.onBeat) this.addRipple(0, 0, 0.5 + 0.5 * an.bands[0]);
+    if (sc.beatRipples && an.onBeat) this.addRipple(0, 0, 0.5 + 0.4 * an.bands[0]);
 
     gl.bindTexture(gl.TEXTURE_2D, this.audioTex);
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
@@ -547,11 +640,15 @@ class TavEngine {
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.cur.fb);
     gl.viewport(0, 0, this.cur.w, this.cur.h);
     gl.disable(gl.BLEND);
-    this.use(this.program('fullscreen.vert', sc.frag), an);
-    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    if (this.userOnly) {
+      gl.clearColor(0, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+    } else {
+      this.use(this.program('fullscreen.vert', sc.frag), an);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+    }
 
     gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE);
-    if (sc.points) {
+    if (sc.points && !this.userOnly) {
       const p = this.program(sc.points.vert, 'particle.frag');
       this.use(p, an);
       const inst = sc.points.instances === 'sym' ? (this.sym > 1 ? this.sym : 6) : sc.points.instances;

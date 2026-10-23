@@ -77,12 +77,23 @@ which loads the Android shaders). README.md is the user-facing description. Open
     `TavRenderer` builds the other shaders a frame at a time at start-up. Quality is a device setting: it is
     in the synced settings document but deliberately not in a Look (a Look shared to a weaker phone must not
     pin it at High).
+  - `TavView.java`: the GL surface and every gesture (tap = burst, drag = draw and stir, pinch = zoom, two-finger
+    swipe = scene, three-finger tap = clear, long-press = menu) plus the gravity sensor for tilt; it hands the
+    renderer centred coordinates (short axis [-1, 1]) on the GL thread. The renderer's touch state (`touchDown/
+    Move/Up`, `tap`, `pinchBegin/Update/End`, `setTilt`, stepped in `touchFrame`) reaches every scene through
+    `uView` (zoom, pan, lens), `uTouch` (finger, reach, stir) and `uPush` (drag, blast) in `toP()`/`toUv()` of
+    `common.glsl`: zoom, pan and the lens are undone in `toUv()` so the feedback stays put; stir, drag and blast
+    are not, so the paint moves with the finger. Strokes are drawn in screen space (`stroke.vert`), never through
+    `toP()`, so a stroke sits under the finger at any zoom. `Host.onStrokesChanged(count)` (a default method)
+    tells the UI when Undo/Clear apply; `undoStroke()`/`clearStrokes()` are the actions. `web/engine.js` has the
+    same (`touch`, `view`, `TOUCH`), `web/index.html` the same gestures, and `web/tools/touch-check.js` plays them
+    in headless Chromium and measures where the light landed (it caught the stroke drifting with the music clock).
   - `AudioCapture.java` (Visualizer on session 0, mic fallback), `MediaWatcher.java` (MediaSession and
     Spotify broadcasts, play/pause/next/previous, position for the `Hairline` under the title, open the
     player), `MediaListenerService.java` + `NowPlayingNudge.java` (notification access; watches the media
     sessions in the background and posts the opt-in, silent "music started" notification, pref `nudge`:
     0 Off, 1 Spotify, 2 Any player, quiet for an hour after a swipe-away), `Palettes.java` (presets plus colours from album
-    art → `uPal[3]`), `Scene.java`, `Shapes.java`, `TavView.java`.
+    art → `uPal[3]`), `Scene.java`, `Shapes.java`.
 - `android/assets/shaders/`: `common.glsl` is prepended to every shader. It has the uniforms,
   `pal()` (with the colour motion and the Rainbow palette), `glow()`, `feedback()` and `angle()`, plus
   `drop()` (an envelope from `uDrop`, seconds since the last drop; every scene has a drop move on it) and
