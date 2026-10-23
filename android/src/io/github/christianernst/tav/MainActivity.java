@@ -3151,7 +3151,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     private boolean handleLink(Uri uri) {
         if (uri == null) return false;
         boolean isLook = "tav".equals(uri.getScheme()) ? "look".equals(uri.getHost())
-                : uri.getPath() != null && uri.getPath().startsWith("/TAV/web");
+                : uri.getPath() != null && uri.getPath().startsWith("/Funkle/web");
         if (!isLook) return false;
         String text = "#" + (uri.getEncodedFragment() != null ? uri.getEncodedFragment() : "") + "&" + (uri.getEncodedQuery() != null ? uri.getEncodedQuery() : "");
         if (Look.codeIn(text) == null && Look.payloadIn(text) == null) return false;   // the plain web page, nothing to open

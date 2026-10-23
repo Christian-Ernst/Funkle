@@ -54,7 +54,7 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="https" android:host="christian-ernst.github.io" android:pathPrefix="/TAV/web" />
+                <data android:scheme="https" android:host="christian-ernst.github.io" android:pathPrefix="/Funkle/web" />
             </intent-filter>
         </activity>
 

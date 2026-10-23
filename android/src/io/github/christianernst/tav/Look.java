@@ -35,7 +35,7 @@ final class Look {
     static final int VERSION = 1;
     static final int MAX_NAME = 40;
     /** The web edition, which opens share links in any browser; the app catches the same links. */
-    static final String SHARE_BASE = "https://christian-ernst.github.io/TAV/web/";
+    static final String SHARE_BASE = "https://christian-ernst.github.io/Funkle/web/";
     /** The app's own link, for the "Open in TAV" button on the web page and for QR codes. */
     static final String APP_SCHEME = "tav://look";
 
