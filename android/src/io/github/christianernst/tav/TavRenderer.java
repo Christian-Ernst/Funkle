@@ -32,6 +32,15 @@ import static android.opengl.GLES30.*;
 final class TavRenderer implements GLSurfaceView.Renderer {
     private static final String TAG = "TAV";
     private static final int MAX_RIPPLES = 8, BLOOM_LEVELS = 4, MAX_STROKES = 12, MAX_STROKE_POINTS = 900;
+    /** Strokes the Canvas scene keeps: a painting, not a few singing lines. The oldest go when it is full. */
+    static final int MAX_PAINT = 400;
+    /** Brush styles on the Canvas (uBrush.z in stroke.frag). Same order as web/engine.js BRUSHES. */
+    static final int BRUSH_PEN = 0, BRUSH_MARKER = 1, BRUSH_SPRAY = 2, BRUSH_ERASER = 3;
+    static final String[] BRUSH_NAMES = {"Pen", "Marker", "Spray", "Eraser"};
+    /** Brush size slider 0..1 to a half-width in centred units (the short screen axis is 2 units wide). */
+    static final float BRUSH_MIN = 0.008f, BRUSH_MAX = 0.16f;
+    /** Paint swatches: the three palette colours, then white, the user's own colour and the spectrum along the line. */
+    static final int SWATCH_WHITE = 3, SWATCH_OWN = 4, SWATCH_SPECTRUM = 5;
     /**
      * Quality Auto, Low, Medium, High: the most of the screen's pixels the scene buffers may use.
      * Auto starts at {@link AdaptiveScale#AUTO_START} and climbs to full while the frames stay fast;
@@ -63,6 +72,13 @@ final class TavRenderer implements GLSurfaceView.Renderer {
          * control can show or hide. Called on the GL thread; post to the UI thread before touching views.
          */
         default void onStrokesChanged(int count) {
+        }
+
+        /**
+         * The painting on the Canvas changed (a stroke finished, undone or cleared), so the host may save it
+         * (see {@link #encodePainting}). Called on the GL thread.
+         */
+        default void onPaintingChanged() {
         }
     }
 
@@ -121,6 +137,13 @@ final class TavRenderer implements GLSurfaceView.Renderer {
     private final ColourDrive.State colour = new ColourDrive.State();
     private final List<double[]> ripples = new ArrayList<>();   // x, y, born, strength
     private final List<Stroke> strokes = new ArrayList<>();
+    /** The Canvas scene's strokes: kept when the scene changes, saved by the host, drawn with the brush settings. */
+    private final List<Stroke> painting = new ArrayList<>();
+    /** Guards `painting` and its points: encodePainting() may run on the UI thread while the GL thread paints. */
+    private final Object paintLock = new Object();
+    private int brushTool = BRUSH_PEN, brushSwatch = 0;
+    private float brushWidth = brushWidth(0.5f);
+    private final float[] brushOwn = {1f, 1f, 1f};
     private Stroke liveStroke;
     private final float[] palFlat = new float[9], rippleFlat = new float[MAX_RIPPLES * 4];
 
@@ -178,12 +201,17 @@ final class TavRenderer implements GLSurfaceView.Renderer {
             transStart = time;
             transDur = fade;
         }
+        boolean wasPaint = Scene.ALL[scene].paint();
         scene = i;
         if (an != null && an.flow > 400) {   // rebase the music clock while the crossfade hides the jump
             an.flow = 0;
             flowExtra = 0;
         }
         host.onSceneChanged(i);
+        if (wasPaint != Scene.ALL[i].paint()) {   // Undo and Clear follow the list the scene shows
+            liveStroke = null;
+            host.onStrokesChanged(current().size());
+        }
         return i;
     }
 
@@ -314,6 +342,10 @@ final class TavRenderer implements GLSurfaceView.Renderer {
 
     /** A tap: a burst of rings and sparks from the point, and the paint around it is shoved outward. */
     void tap(float x, float y) {
+        if (painting()) {   // on the Canvas a tap is a dot of paint, not a burst
+            dot(x, y);
+            return;
+        }
         addRipple(x, y, 1f);
         touchX = x;
         touchY = y;
@@ -399,27 +431,82 @@ final class TavRenderer implements GLSurfaceView.Renderer {
         return Math.max(-TILT_MAX, Math.min(TILT_MAX, (t - rest) * TILT_PAN));
     }
 
+    /** True while the Canvas scene is up: a drag paints, a tap makes a dot, and the strokes belong to the painting. */
+    boolean painting() {
+        return Scene.ALL[scene].paint();
+    }
+
+    /** The strokes the current scene shows: the painting on the Canvas, the singing lines elsewhere. */
+    private List<Stroke> current() {
+        return painting() ? painting : strokes;
+    }
+
+    static float brushWidth(float size) {
+        size = Math.max(0f, Math.min(1f, size));
+        return BRUSH_MIN * (float) Math.pow(BRUSH_MAX / BRUSH_MIN, size);
+    }
+
+    /**
+     * The brush for the next strokes on the Canvas: a style (BRUSH_*), the size slider (0..1), the swatch
+     * (0..2 a palette colour, taken when the stroke starts, so a painting keeps its colours when the album
+     * changes; SWATCH_WHITE, SWATCH_OWN, SWATCH_SPECTRUM) and the user's own colour (RGB 0..1).
+     */
+    void setBrush(int tool, float size, int swatch, float[] own) {
+        brushTool = Math.max(0, Math.min(BRUSH_NAMES.length - 1, tool));
+        brushWidth = brushWidth(size);
+        brushSwatch = Math.max(0, Math.min(SWATCH_SPECTRUM, swatch));
+        if (own != null && own.length >= 3) System.arraycopy(own, 0, brushOwn, 0, 3);
+    }
+
+    private Stroke newStroke() {
+        Stroke s = new Stroke(rnd.nextFloat(), time);
+        if (painting()) {
+            s.tool = brushTool;
+            s.width = brushWidth;
+            if (brushSwatch < 3) s.ink = target[brushSwatch].clone();
+            else if (brushSwatch == SWATCH_WHITE) s.ink = new float[]{0.95f, 0.95f, 1f};
+            else if (brushSwatch == SWATCH_OWN) s.ink = brushOwn.clone();
+            else s.ink = null;   // the spectrum along the line
+        }
+        return s;
+    }
+
     void beginStroke(float x, float y) {
-        liveStroke = new Stroke(rnd.nextFloat(), time);
-        liveStroke.points.add(new float[]{x, y});
-        strokes.add(liveStroke);
-        trimStrokes();
+        synchronized (paintLock) {
+            liveStroke = newStroke();
+            liveStroke.points.add(new float[]{x, y});
+            current().add(liveStroke);
+            trimStrokes();
+        }
     }
 
     void extendStroke(float x, float y) {
         Stroke s = liveStroke;
-        if (s == null || s.points.size() >= MAX_STROKE_POINTS) return;
-        float[] last = s.points.get(s.points.size() - 1);
-        float dx = x - last[0], dy = y - last[1];
-        float d = (float) Math.sqrt(dx * dx + dy * dy);
-        if (d < 0.012f) return;
-        // fill long jumps so the waveform has room to travel
-        int steps = (int) Math.ceil(d / 0.02f);
-        for (int k = 1; k <= steps && s.points.size() < MAX_STROKE_POINTS; k++) {
-            float t = (float) k / steps;
-            s.points.add(new float[]{last[0] + dx * t, last[1] + dy * t});
+        if (s == null) return;
+        synchronized (paintLock) {
+            if (s.points.size() >= MAX_STROKE_POINTS) {
+                if (!painting()) return;
+                // a long painted line goes on in a new stroke from where this one stopped
+                float[] last = s.points.get(s.points.size() - 1);
+                Stroke next = newStroke();
+                next.born = s.born;
+                next.points.add(last.clone());
+                current().add(next);
+                trimStrokes();
+                liveStroke = s = next;
+            }
+            float[] last = s.points.get(s.points.size() - 1);
+            float dx = x - last[0], dy = y - last[1];
+            float d = (float) Math.sqrt(dx * dx + dy * dy);
+            if (d < 0.012f) return;
+            // fill long jumps so the waveform has room to travel
+            int steps = (int) Math.ceil(d / 0.02f);
+            for (int k = 1; k <= steps && s.points.size() < MAX_STROKE_POINTS; k++) {
+                float t = (float) k / steps;
+                s.points.add(new float[]{last[0] + dx * t, last[1] + dy * t});
+            }
+            s.dirty = true;
         }
-        s.dirty = true;
     }
 
     /** Returns false when the touch was too short to count as a drawing. */
@@ -427,50 +514,145 @@ final class TavRenderer implements GLSurfaceView.Renderer {
         Stroke s = liveStroke;
         liveStroke = null;
         if (s == null) return false;
-        if (s.points.size() < 4) {
-            strokes.remove(s);
+        boolean paint = painting.contains(s);
+        if (s.points.size() < (paint ? 2 : 4)) {
+            synchronized (paintLock) {
+                current().remove(s);
+            }
             s.release();
             return false;
         }
-        host.onStrokesChanged(strokes.size());
+        host.onStrokesChanged(current().size());
+        if (paint) host.onPaintingChanged();
         return true;
     }
 
-    void addShape(List<float[]> pts) {
-        Stroke s = new Stroke(rnd.nextFloat(), time);
-        s.points.addAll(pts);
-        strokes.add(s);
-        trimStrokes();
-        host.onStrokesChanged(strokes.size());
+    /** A dot of paint on the Canvas: a tiny ring the brush fills in. */
+    private void dot(float x, float y) {
+        Stroke s = newStroke();
+        float r = Math.max(0.004f, s.width * 0.45f);
+        for (int i = 0; i <= 10; i++) {
+            double a = i * Math.PI * 2 / 10;
+            s.points.add(new float[]{x + (float) Math.cos(a) * r, y + (float) Math.sin(a) * r});
+        }
+        synchronized (paintLock) {
+            painting.add(s);
+            trimStrokes();
+        }
+        host.onStrokesChanged(painting.size());
+        host.onPaintingChanged();
     }
 
+    void addShape(List<float[]> pts) {
+        Stroke s = newStroke();
+        s.points.addAll(pts);
+        synchronized (paintLock) {
+            current().add(s);
+            trimStrokes();
+        }
+        host.onStrokesChanged(current().size());
+        if (painting()) host.onPaintingChanged();
+    }
+
+    /** Clears what the scene shows: the painting on the Canvas, the lines and ripples elsewhere. */
     void clearStrokes() {
-        for (Stroke s : strokes) s.release();
-        strokes.clear();
-        liveStroke = null;
-        ripples.clear();
+        boolean paint = painting();
+        synchronized (paintLock) {
+            for (Stroke s : current()) s.release();
+            current().clear();
+            liveStroke = null;
+        }
+        if (!paint) ripples.clear();
         host.onStrokesChanged(0);
+        if (paint) host.onPaintingChanged();
     }
 
     /** Takes back the latest drawing (the one being drawn, if a finger is down). */
     void undoStroke() {
-        if (strokes.isEmpty()) return;
-        Stroke s = strokes.remove(strokes.size() - 1);
-        if (s == liveStroke) liveStroke = null;
+        List<Stroke> list = current();
+        if (list.isEmpty()) return;
+        Stroke s;
+        synchronized (paintLock) {
+            s = list.remove(list.size() - 1);
+            if (s == liveStroke) liveStroke = null;
+        }
         s.release();
-        host.onStrokesChanged(strokes.size());
+        host.onStrokesChanged(list.size());
+        if (painting()) host.onPaintingChanged();
     }
 
     int strokeCount() {
-        return strokes.size();
+        return current().size();
     }
 
     private void trimStrokes() {
-        while (strokes.size() > MAX_STROKES) {
-            Stroke old = strokes.remove(0);
+        List<Stroke> list = current();
+        int max = painting() ? MAX_PAINT : MAX_STROKES;
+        while (list.size() > max) {
+            Stroke old = list.remove(0);
             if (old == liveStroke) liveStroke = null;
             old.release();
         }
+    }
+
+    // ---- the painting on disk: a small binary record per stroke (see MainActivity.savePainting)
+
+    private static final int PAINT_MAGIC = 0x54415650;   // "TAVP"
+
+    /** The Canvas painting as bytes, to keep across restarts. Safe on any thread. */
+    byte[] encodePainting() {
+        java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+        java.io.DataOutputStream out = new java.io.DataOutputStream(bo);
+        try {
+            synchronized (paintLock) {
+                out.writeInt(PAINT_MAGIC);
+                out.writeInt(painting.size());
+                for (Stroke s : painting) {
+                    out.writeByte(s.tool);
+                    out.writeFloat(s.width);
+                    out.writeFloat(s.hue);
+                    out.writeBoolean(s.ink != null);
+                    if (s.ink != null) for (int k = 0; k < 3; k++) out.writeFloat(s.ink[k]);
+                    out.writeInt(s.points.size());
+                    for (float[] p : s.points) {
+                        out.writeFloat(p[0]);
+                        out.writeFloat(p[1]);
+                    }
+                }
+            }
+        } catch (java.io.IOException e) {
+            return new byte[0];
+        }
+        return bo.toByteArray();
+    }
+
+    /** Restores a painting written by {@link #encodePainting}; a bad record leaves the canvas empty. GL thread. */
+    void setPainting(byte[] data) {
+        List<Stroke> read = new ArrayList<>();
+        try {
+            java.io.DataInputStream in = new java.io.DataInputStream(new java.io.ByteArrayInputStream(data));
+            if (in.readInt() != PAINT_MAGIC) return;
+            int n = Math.min(MAX_PAINT, in.readInt());
+            for (int i = 0; i < n; i++) {
+                Stroke s = new Stroke(0, time - 10);
+                s.tool = in.readByte();
+                s.width = in.readFloat();
+                s.hue = in.readFloat();
+                if (in.readBoolean()) s.ink = new float[]{in.readFloat(), in.readFloat(), in.readFloat()};
+                int m = Math.min(MAX_STROKE_POINTS, in.readInt());
+                for (int k = 0; k < m; k++) s.points.add(new float[]{in.readFloat(), in.readFloat()});
+                if (s.points.size() >= 2) read.add(s);
+            }
+        } catch (java.io.IOException | RuntimeException e) {
+            Log.w(TAG, "painting not restored: " + e);
+            return;
+        }
+        synchronized (paintLock) {
+            for (Stroke s : painting) s.release();
+            painting.clear();
+            painting.addAll(read);
+        }
+        if (painting()) host.onStrokesChanged(painting.size());
     }
 
     // ------------------------------------------------------------------ GLSurfaceView.Renderer
@@ -483,6 +665,8 @@ final class TavRenderer implements GLSurfaceView.Renderer {
         for (int i = 0; i < BLOOM_LEVELS - 1; i++) up[i] = null;
         for (Stroke s : strokes) s.vbo = 0;   // old context's buffers are gone
         for (Stroke s : strokes) s.dirty = true;
+        for (Stroke s : painting) s.vbo = 0;
+        for (Stroke s : painting) s.dirty = true;
         loadSources();
         String ext = glGetString(GL_EXTENSIONS), ver = glGetString(GL_VERSION);
         halfFloat = (ext != null && (ext.contains("GL_EXT_color_buffer_half_float") || ext.contains("GL_EXT_color_buffer_float")))
@@ -659,7 +843,7 @@ final class TavRenderer implements GLSurfaceView.Renderer {
 
     /** The director hears the shaped bands and the analyzer's flags; a look it asks for is applied here. */
     private void autopilot(float dt) {
-        for (int i = 0; i < usable.length; i++) usable[i] = !broken[i];
+        for (int i = 0; i < usable.length; i++) usable[i] = !broken[i] && !Scene.ALL[i].paint();   // never a blank canvas mid-song
         Autopilot.Look look = director.step(dt, shaped, shapedLevel, an.intensity, an.onBeat, an.drop, an.silent, usable);
         if (look == null) return;
         if (look.scene >= 0) applyScene(look.scene, look.fade);
@@ -736,27 +920,52 @@ final class TavRenderer implements GLSurfaceView.Renderer {
                 glDrawArrays(GL_TRIANGLES, 0, 3);
             }
         }
-        if (strokes.isEmpty()) return;
+        List<Stroke> list = current();
+        if (list.isEmpty()) return;
         Program p = program("stroke.vert", "stroke.frag");
         if (p == null) return;
         use(p);
         glBindVertexArray(strokeVao);
         float copies = Math.max(1, sym);
         uniform1f(p, "uCopies", copies);
-        for (Stroke s : strokes) {
-            if (s.points.size() < 2) continue;
-            if (s.dirty || s.vbo == 0) s.upload();
-            glBindBuffer(GL_ARRAY_BUFFER, s.vbo);
-            for (int a = 0; a < 4; a++) glEnableVertexAttribArray(a);
-            glVertexAttribPointer(0, 2, GL_FLOAT, false, 24, 0);
-            glVertexAttribPointer(1, 2, GL_FLOAT, false, 24, 8);
-            glVertexAttribPointer(2, 1, GL_FLOAT, false, 24, 16);
-            glVertexAttribPointer(3, 1, GL_FLOAT, false, 24, 20);
-            uniform1f(p, "uLen", s.len);
-            uniform1f(p, "uHue", s.hue);
-            uniform1f(p, "uAlpha", (float) Math.min(1, (time - s.born) * 3));
-            glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, s.count, (int) copies);
+        boolean paint = painting();
+        // The Canvas echoes its strokes through the feedback (canvas.frag, Echo slider): the paint is dimmed
+        // by about the same amount, so a line settles at its own colour instead of stacking up past it.
+        float gain = paint ? 1f - 0.45f * tune[scene][0] : 1f;
+        int brush = p.loc("uBrush"), ink = p.loc("uInk");
+        if (!paint) {
+            glUniform4f(brush, 0f, 0f, 0f, 0f);
+            glUniform4f(ink, 0f, 0f, 0f, 0f);
         }
+        boolean erasing = false;
+        synchronized (paintLock) {
+            for (Stroke s : list) {
+                if (s.points.size() < 2) continue;
+                if (s.dirty || s.vbo == 0) s.upload();
+                glBindBuffer(GL_ARRAY_BUFFER, s.vbo);
+                for (int a = 0; a < 4; a++) glEnableVertexAttribArray(a);
+                glVertexAttribPointer(0, 2, GL_FLOAT, false, 24, 0);
+                glVertexAttribPointer(1, 2, GL_FLOAT, false, 24, 8);
+                glVertexAttribPointer(2, 1, GL_FLOAT, false, 24, 16);
+                glVertexAttribPointer(3, 1, GL_FLOAT, false, 24, 20);
+                uniform1f(p, "uLen", s.len);
+                uniform1f(p, "uHue", s.hue);
+                uniform1f(p, "uAlpha", (float) Math.min(1, (time - s.born) * 3) * gain);
+                if (paint) {
+                    glUniform4f(brush, s.width, tune[scene][1], s.tool, 1f);
+                    if (s.ink != null) glUniform4f(ink, s.ink[0], s.ink[1], s.ink[2], 1f);
+                    else glUniform4f(ink, 0f, 0f, 0f, 0f);
+                    boolean erase = s.tool == BRUSH_ERASER;
+                    if (erase != erasing) {
+                        if (erase) glBlendFunc(GL_ZERO, GL_ONE_MINUS_SRC_COLOR);
+                        else glBlendFunc(GL_ONE, GL_ONE);
+                        erasing = erase;
+                    }
+                }
+                glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, s.count, (int) copies);
+            }
+        }
+        if (erasing) glBlendFunc(GL_ONE, GL_ONE);
         glBindBuffer(GL_ARRAY_BUFFER, 0);
         glBindVertexArray(vao);
     }
@@ -992,11 +1201,15 @@ final class TavRenderer implements GLSurfaceView.Renderer {
     /** A user stroke: points in centred coordinates, uploaded as a triangle strip. */
     private static final class Stroke {
         final List<float[]> points = new ArrayList<>();
-        final float hue;
-        final double born;
+        float hue;
+        double born;
         int vbo, count;
         float len;
         boolean dirty = true;
+        // paint (Canvas strokes only): the brush style, half-width and colour (null: the spectrum along the line)
+        int tool = BRUSH_PEN;
+        float width = 0.035f;
+        float[] ink;
 
         Stroke(float hue, double born) {
             this.hue = hue;

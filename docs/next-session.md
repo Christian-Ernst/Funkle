@@ -1,5 +1,19 @@
 # Next session: open items
 
+## The Canvas scene (2026-10-23, judged in headless Chromium and on an emulator only)
+
+A black sheet to paint on (`canvas.frag`, the paint bar and Paint page in `MainActivity`, the `painting` list in
+`TavRenderer`/`engine.js`). Not yet on a phone:
+
+- The brush sizes (`BRUSH_MIN`/`BRUSH_MAX`, a half-width of 0.008–0.16 of the short screen axis) and the spray's
+  faintness are browser guesses; so is how bright a pen line should be against the glow (`stroke.frag`, paint pen).
+- The paint bar sits 78 dp from the top, under the scene name; check it clears the camera cut-out and the
+  status bar on the owner's phone, and that 30 dp swatches are big enough for a thumb.
+- Each stroke is a draw call (up to 400 on the Canvas): fine in SwiftShader, not yet timed on a phone GPU. If it
+  stutters, merge finished strokes into one buffer.
+- The web edition's own-colour picker is the browser's `<input type=color>`; Android has hue, saturation and
+  brightness sliders on the Paint page.
+
 ## The menu as a bottom sheet (2026-10-22, judged on an emulator only)
 
 The long-press menu is a bottom sheet with pages (`Sheet.java`, `MainActivity.buildSheet`), a quick bar over the
