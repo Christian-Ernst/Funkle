@@ -75,7 +75,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     private Sheet sheet;
     private View[] tileScenes, tileColours, tileLooks, tileAutopilot;   // {tile, picture, value}
     private TextView rowTune, rowDraw, rowSound, rowDisplay, rowAccount, quickScene, quickPause;
-    private View quickClear;
+    private View quickClear, quickUndo;
     private boolean strokesOnScreen, frozen;
     private final List<View> sceneTiles = new ArrayList<>(), paletteSwatches = new ArrayList<>();
     private final Map<String, Bitmap> thumbs = new java.util.HashMap<>();
@@ -211,14 +211,6 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
             @Override
             public void onLongPress() {
                 togglePanel();
-            }
-
-            @Override
-            public void onDraw() {
-                if (!strokesOnScreen) {
-                    strokesOnScreen = true;
-                    ui.post(() -> refreshQuick());
-                }
             }
         });
 
@@ -483,6 +475,15 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
                         .put("energy", Math.round(look.energy * 100) / 100.0).put("bpm", Math.round(look.bpm)));
             } catch (JSONException ignored) {
             }
+        });
+    }
+
+    /** Strokes came or went (drawn, a shape, undo, clear, three-finger tap): the Clear and Undo buttons follow. */
+    @Override
+    public void onStrokesChanged(int count) {
+        ui.post(() -> {
+            strokesOnScreen = count > 0;
+            refreshQuick();
         });
     }
 
@@ -947,6 +948,9 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         quickPause = quickButton("\u275A\u275A", "Pause the visuals", v -> setFrozen(!frozen));
         quickBar.addView(quickPause);
         quickBar.addView(quickButton("\u2684", "Shuffle the colours", v -> shuffleColours()));
+        quickUndo = quickButton("\u21B6", "Undo the last drawing", v -> view.queueEvent(renderer::undoStroke));
+        quickUndo.setVisibility(View.GONE);
+        quickBar.addView(quickUndo);
         quickClear = quickButton("\u232B", "Clear the drawing", v -> clearDrawing());
         quickClear.setVisibility(View.GONE);
         quickBar.addView(quickClear);
@@ -982,6 +986,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
 
     private void refreshQuick() {
         if (quickClear != null) quickClear.setVisibility(strokesOnScreen ? View.VISIBLE : View.GONE);
+        if (quickUndo != null) quickUndo.setVisibility(strokesOnScreen ? View.VISIBLE : View.GONE);
         if (quickPause != null) {
             quickPause.setText(frozen ? "\u25B6" : "\u275A\u275A");
             quickPause.setTextSize(TypedValue.COMPLEX_UNIT_SP, frozen ? 18 : 11);
@@ -1491,8 +1496,6 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         addRow(box, "Put a shape on screen", Shapes.NAMES, -1, null, i -> {
             final List<float[]> pts = Shapes.make(i, 0, 0, 0.62f);
             view.queueEvent(() -> renderer.addShape(pts));
-            strokesOnScreen = true;
-            refreshQuick();
         });
         String[] syms = {"Off", "2", "3", "4", "6", "8", "12"};
         int symSel = 0;
@@ -1504,15 +1507,18 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         });
         LinearLayout actions = new LinearLayout(this);
         actions.setPadding(0, px(12), 0, 0);
-        actions.addView(chip("✕  Clear the drawing", true, v -> clearDrawing()));
+        actions.addView(chip("\u21B6  Undo", false, v -> view.queueEvent(renderer::undoStroke)));
+        TextView clear = chip("\u2715  Clear the drawing", true, v -> clearDrawing());
+        LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(-2, -2);
+        clp.leftMargin = px(8);
+        actions.addView(clear, clp);
         box.addView(actions);
+        note(box, "Pinch to zoom in for a moment; a three-finger tap also clears everything.");
         openCard("Draw", box);
     }
 
     private void clearDrawing() {
-        view.queueEvent(renderer::clearStrokes);
-        strokesOnScreen = false;
-        refreshQuick();
+        view.queueEvent(renderer::clearStrokes);   // onStrokesChanged hides the buttons
         flash("C L E A R E D");
     }
 

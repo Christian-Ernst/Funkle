@@ -23,9 +23,6 @@ final class TavView extends GLSurfaceView implements SensorEventListener {
         void onAnyTouch();
 
         void onLongPress();
-
-        /** A drag became a stroke (called on the UI thread, once per stroke). */
-        void onDraw();
     }
 
     /** A pinch is one when the fingers' distance changed by this share before they swiped. */
@@ -198,7 +195,6 @@ final class TavView extends GLSurfaceView implements SensorEventListener {
                 if (!drawing && Math.hypot(e.getX() - downX, e.getY() - downY) > slop) {
                     drawing = true;
                     removeCallbacks(longPress);
-                    gestures.onDraw();
                     final float x0 = cx(downX), y0 = cy(downY);
                     queueEvent(() -> renderer.beginStroke(x0, y0));
                 }
