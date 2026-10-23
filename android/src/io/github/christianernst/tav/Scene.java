@@ -10,6 +10,8 @@ final class Scene {
     /** The scene's sliders (menu → Tune this scene), 0..1 each with 0.5 the look it was made with; uTune in the shaders. */
     final String[] tune;
     static final int TUNE = 3;
+    /** The Canvas scene: a black sheet the user paints on (see TavRenderer's painting list and uBrush in stroke.vert). */
+    static final String CANVAS = "canvas";
 
     private Scene(String id, String name, String frag, String pointsVert, int pointCount, int instances, boolean beatRipples, String... tune) {
         this.id = id;
@@ -20,6 +22,11 @@ final class Scene {
         this.instances = instances;
         this.beatRipples = beatRipples;
         this.tune = tune;
+    }
+
+    /** True for the Canvas scene, where a drag paints with the brush instead of drawing a singing line. */
+    boolean paint() {
+        return CANVAS.equals(id);
     }
 
     /** The preference and Look key of slider k: its name in lower case. */
@@ -42,5 +49,6 @@ final class Scene {
             new Scene("spiro", "Spiro", "scope.frag", "scope.vert", 4096, 0, false, "Pen", "Thickness", "Trails"),
             new Scene("fluid", "Ink", "fluid.frag", null, 0, 1, false, "Flow", "Ink", "Swirl"),
             new Scene("landscape", "Horizon", "landscape.frag", null, 0, 1, false, "Height", "Haze", "Glow"),
+            new Scene(CANVAS, "Canvas", "canvas.frag", null, 0, 1, false, "Echo", "Pulse", "Haze"),
     };
 }

@@ -15,8 +15,17 @@ const SCENES = [
   { id: 'spiro',   name: 'Spiro',   frag: 'scope.frag', points: { vert: 'scope.vert', count: 4096, instances: 'sym' }, tune: ['Pen', 'Thickness', 'Trails'] },
   { id: 'fluid',   name: 'Ink',     frag: 'fluid.frag', tune: ['Flow', 'Ink', 'Swirl'] },
   { id: 'landscape', name: 'Horizon', frag: 'landscape.frag', tune: ['Height', 'Haze', 'Glow'] },
+  // Canvas: a black sheet to paint on (paint: true). Its strokes are the engine's `painting`, kept across scenes.
+  { id: 'canvas', name: 'Canvas', frag: 'canvas.frag', paint: true, tune: ['Echo', 'Pulse', 'Haze'] },
 ];
 const TUNE = 3;
+// The Canvas brush (TavRenderer.BRUSH_*): styles, the size slider's range (half-width in centred units)
+// and the swatches: the three palette colours, white, the user's own colour, the spectrum along the line.
+const BRUSHES = ['Pen', 'Marker', 'Spray', 'Eraser'];
+const BRUSH_PEN = 0, BRUSH_MARKER = 1, BRUSH_SPRAY = 2, BRUSH_ERASER = 3;
+const BRUSH_MIN = 0.008, BRUSH_MAX = 0.16, MAX_PAINT = 400;
+const SWATCH_WHITE = 3, SWATCH_OWN = 4, SWATCH_SPECTRUM = 5;
+const brushWidth = (size) => BRUSH_MIN * Math.pow(BRUSH_MAX / BRUSH_MIN, Math.max(0, Math.min(1, size)));
 const tuneId = (scene, k) => SCENES[scene].tune[k].toLowerCase();
 
 const SHADER_FILES = ['common.glsl', 'fullscreen.vert', 'bloom_down.frag', 'bloom_up.frag', 'blend.frag',
@@ -334,6 +343,8 @@ class TavEngine {
     this.rainbow = false;   // Colours: Rainbow (the shader paints the spectrum)
     this.colour = new ColourDrive(COLOUR_MODES[0]);
     this.ripples = []; this.strokes = [];
+    this.painting = [];   // the Canvas scene's strokes (see SCENES[].paint), kept when the scene changes
+    this.brush = { tool: BRUSH_PEN, width: brushWidth(0.5), swatch: 0, own: [1, 1, 1] };
     // touch: zoom and pan (pinch, tilt), the finger's reach, lens, stir, drag and a tap's blast; stepped in touchFrame()
     this.view = { zoom: 1, zoomTarget: 1, panX: 0, panY: 0, panTargetX: 0, panTargetY: 0 };
     this.touch = { x: 0, y: 0, reach: 0, lens: 0, stir: 0, pushX: 0, pushY: 0, blast: 0, accX: 0, accY: 0, turn: 0,
@@ -505,6 +516,7 @@ class TavEngine {
   touchUp() { this.touch.down = false; }
   // A tap: a burst of rings and sparks, and the paint around it is shoved outward.
   tap(x, y) {
+    if (this.isPainting()) { this.dot(x, y); return; }   // on the Canvas a tap is a dot of paint, not a burst
     this.addRipple(x, y, 1);
     const t = this.touch;
     t.x = x; t.y = y; t.reach = TOUCH.reach; t.blast = TOUCH.blast; t.down = false;
@@ -557,22 +569,56 @@ class TavEngine {
     t.restX += (t.tiltX - t.restX) * r; t.restY += (t.tiltY - t.restY) * r;
   }
 
+  // True while the Canvas is up: a drag paints with the brush, a tap is a dot, and strokes belong to the painting.
+  isPainting() { return !!SCENES[this.scene].paint; }
+  current() { return this.isPainting() ? this.painting : this.strokes; }
+  // The brush for the next strokes on the Canvas: tool (BRUSH_*), size slider 0..1, swatch (0..2 a palette
+  // colour, taken when the stroke starts; SWATCH_WHITE, SWATCH_OWN, SWATCH_SPECTRUM), the user's own colour.
+  setBrush(tool, size, swatch, own) {
+    const b = this.brush;
+    if (Number.isInteger(tool)) b.tool = Math.max(0, Math.min(BRUSHES.length - 1, tool));
+    if (Number.isFinite(size)) b.width = brushWidth(size);
+    if (Number.isInteger(swatch)) b.swatch = Math.max(0, Math.min(SWATCH_SPECTRUM, swatch));
+    if (Array.isArray(own) && own.length >= 3) b.own = own.slice(0, 3);
+  }
+  newStroke(points, hue = Math.random()) {
+    const s = { points, hue, born: this.time, vbo: null, dirty: true };
+    if (this.isPainting()) {
+      const b = this.brush;
+      s.tool = b.tool; s.width = b.width;
+      s.ink = b.swatch < 3 ? this.palette[b.swatch].slice() : b.swatch === SWATCH_WHITE ? [0.95, 0.95, 1]
+        : b.swatch === SWATCH_OWN ? b.own.slice() : null;
+    }
+    return s;
+  }
+  push(s) {
+    const list = this.current();
+    list.push(s);
+    while (list.length > (this.isPainting() ? MAX_PAINT : 12)) list.shift();
+  }
   // points: array of [x, y] in centred coordinates (shorter axis = [-1, 1])
   addStroke(points, hue = Math.random()) {
     if (points.length < 2) return;
-    this.strokes.push({ points, hue, born: this.time, vbo: null, dirty: true });
-    if (this.strokes.length > 12) this.strokes.shift();
+    this.push(this.newStroke(points, hue));
+    this.changed();
   }
+  changed() { if (this.isPainting() && this.onPaintingChanged) this.onPaintingChanged(); }
 
   // Live drawing, same rules as TavRenderer: points at least 0.012 apart, long jumps filled in.
   beginStroke(x, y) {
-    this.live = { points: [[x, y]], hue: Math.random(), born: this.time, vbo: null, dirty: true };
-    this.strokes.push(this.live);
-    if (this.strokes.length > 12) this.strokes.shift();
+    this.live = this.newStroke([[x, y]]);
+    this.push(this.live);
   }
   extendStroke(x, y) {
-    const s = this.live;
-    if (!s || s.points.length >= 900) return;
+    let s = this.live;
+    if (!s) return;
+    if (s.points.length >= 900) {
+      if (!this.isPainting()) return;
+      const next = this.newStroke([s.points[s.points.length - 1].slice()]);   // a long painted line goes on
+      next.born = s.born;
+      this.push(next);
+      this.live = s = next;
+    }
     const [lx, ly] = s.points[s.points.length - 1], dx = x - lx, dy = y - ly, d = Math.hypot(dx, dy);
     if (d < 0.012) return;
     const steps = Math.ceil(d / 0.02);
@@ -582,14 +628,44 @@ class TavEngine {
   endStroke() {
     const s = this.live;
     this.live = null;
-    if (s && s.points.length < 4) this.strokes = this.strokes.filter((x) => x !== s);
+    if (!s) return;
+    const paint = this.painting.includes(s);
+    if (s.points.length < (paint ? 2 : 4)) {
+      if (paint) this.painting = this.painting.filter((x) => x !== s);
+      else this.strokes = this.strokes.filter((x) => x !== s);
+    } else if (paint) this.changed();
+  }
+  // A dot of paint on the Canvas: a tiny ring the brush fills in.
+  dot(x, y) {
+    const s = this.newStroke([]), r = Math.max(0.004, s.width * 0.45);
+    for (let i = 0; i <= 10; i++) s.points.push([x + Math.cos(i * Math.PI / 5) * r, y + Math.sin(i * Math.PI / 5) * r]);
+    this.push(s);
+    this.changed();
   }
   // Takes back the latest drawing (the one being drawn, if a finger is down).
   undoStroke() {
-    const s = this.strokes.pop();
+    const s = this.current().pop();
     if (s === this.live) this.live = null;
+    this.changed();
   }
-  clearStrokes() { this.strokes = []; this.ripples = []; this.live = null; }
+  // Clears what the scene shows: the painting on the Canvas, the lines and ripples elsewhere.
+  clearStrokes() {
+    if (this.isPainting()) this.painting = []; else { this.strokes = []; this.ripples = []; }
+    this.live = null;
+    this.changed();
+  }
+  // The painting as plain data (localStorage), and back.
+  exportPainting() {
+    return this.painting.map((s) => ({ tool: s.tool || 0, width: s.width, hue: s.hue, ink: s.ink || null,
+      points: s.points.map(([x, y]) => [Math.round(x * 1000) / 1000, Math.round(y * 1000) / 1000]) }));
+  }
+  importPainting(list) {
+    if (!Array.isArray(list)) return;
+    this.painting = list.filter((s) => s && Array.isArray(s.points) && s.points.length >= 2).slice(-MAX_PAINT).map((s) => ({
+      tool: Number.isInteger(s.tool) ? s.tool : 0, width: Number.isFinite(s.width) ? s.width : 0.035, hue: +s.hue || 0,
+      ink: Array.isArray(s.ink) && s.ink.length >= 3 ? s.ink.slice(0, 3).map(Number) : null,
+      points: s.points.slice(0, 900).map(([x, y]) => [+x, +y]), born: this.time - 10, vbo: null, dirty: true }));
+  }
 
   buildStroke(st) {
     const pts = st.points, n = pts.length, data = new Float32Array(n * 2 * 6);
@@ -724,7 +800,8 @@ class TavEngine {
       gl.uniform1i(p.loc.uRippleCount, this.ripples.length);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     }
-    if (this.strokes.length) {
+    const list = this.current();
+    if (list.length) {
       const p = this.program('stroke.vert', 'stroke.frag');
       this.use(p, an);
       gl.bindVertexArray(this.strokeVao);
@@ -736,21 +813,35 @@ class TavEngine {
       gl.vertexAttribPointer(3, 1, gl.FLOAT, false, 24, 20);
       const copies = Math.max(1, this.sym);
       gl.uniform1f(p.loc.uCopies, copies);
-      for (const st of this.strokes) {
+      const paint = this.isPainting();
+      // The Canvas echoes its strokes through the feedback (Echo slider): the paint is dimmed by about the
+      // same amount, so a line settles at its own colour instead of stacking up past it (as TavRenderer).
+      const gain = paint ? 1 - 0.45 * this.tune[this.scene][0] : 1;
+      if (!paint) { gl.uniform4f(p.loc.uBrush, 0, 0, 0, 0); gl.uniform4f(p.loc.uInk, 0, 0, 0, 0); }
+      let erasing = false;
+      for (const st of list) {
         if (st.dirty) this.buildStroke(st);
         gl.bufferData(gl.ARRAY_BUFFER, st.data, gl.STREAM_DRAW);
         gl.uniform1f(p.loc.uLen, st.len);
         gl.uniform1f(p.loc.uHue, st.hue);
-        gl.uniform1f(p.loc.uAlpha, Math.min(1, (this.time - st.born) * 3));
+        gl.uniform1f(p.loc.uAlpha, Math.min(1, (this.time - st.born) * 3) * gain);
+        if (paint) {
+          gl.uniform4f(p.loc.uBrush, st.width, this.tune[this.scene][1], st.tool || 0, 1);
+          if (st.ink) gl.uniform4f(p.loc.uInk, st.ink[0], st.ink[1], st.ink[2], 1); else gl.uniform4f(p.loc.uInk, 0, 0, 0, 0);
+          const erase = st.tool === BRUSH_ERASER;
+          if (erase !== erasing) { gl.blendFunc(erase ? gl.ZERO : gl.ONE, erase ? gl.ONE_MINUS_SRC_COLOR : gl.ONE); erasing = erase; }
+        }
         gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, st.count, copies);
       }
+      if (erasing) gl.blendFunc(gl.ONE, gl.ONE);
       gl.bindVertexArray(this.vao);
     }
   }
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { TavEngine, ColourDrive, AdaptiveScale, Autopilot, SCENES, TUNE, tuneId, SHADER_FILES, BRIGHTNESS, QUALITY, DEFAULT_QUALITY, QUALITY_AUTO,
+  module.exports = { TavEngine, ColourDrive, AdaptiveScale, Autopilot, SCENES, TUNE, tuneId, SHADER_FILES,
+    BRUSHES, BRUSH_PEN, BRUSH_MARKER, BRUSH_SPRAY, BRUSH_ERASER, BRUSH_MIN, BRUSH_MAX, MAX_PAINT, SWATCH_WHITE, SWATCH_OWN, SWATCH_SPECTRUM, brushWidth, BRIGHTNESS, QUALITY, DEFAULT_QUALITY, QUALITY_AUTO,
     AUTO_START, MIN_RENDER_SCALE, COLOUR_MODES, COLOUR_MAX, DEFAULT_COLOUR_MODE,
     AUTOPILOT_MODES, AUTOPILOT_OFF, AUTOPILOT_SCENES, AUTOPILOT_FULL, DEFAULT_AUTOPILOT, SCENE_MOODS, AUTOPILOT_PALETTES, AUTOPILOT_MOTION, exportPreset, importPreset };
 }
