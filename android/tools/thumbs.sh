@@ -12,4 +12,7 @@ for f in "$tmp"/*_17.0.png; do
     id=$(basename "$f" _17.0.png)
     convert "$f" -gravity center -crop 405x540+0+0 +repage -resize 240x320 -quality 82 "android/assets/thumbs/$id.jpg"
 done
+# the Canvas is black until someone paints on it: its thumbnail is the paint check's sample painting
+node web/tools/paint-check.js --out "$tmp/paint" > /dev/null
+convert "$tmp/paint/7-sample.png" -gravity center -crop 405x540+0+0 +repage -resize 240x320 -quality 82 android/assets/thumbs/canvas.jpg
 ls -la android/assets/thumbs

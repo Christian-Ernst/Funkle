@@ -11,6 +11,7 @@ const TOUR_STEPS = [
   { id: 'mirror', title: 'Mirrored ×{n}', body: 'Your line is drawn {n} times around the centre, like a mandala. The Mirror button below changes it; off keeps one line.', after: 'draw', onCue: true },
   { id: 'tap', title: 'A burst', body: 'Click or tap anywhere: sparks in the colours of the music, and a shove to the paint.' },
   { id: 'scene', title: '{scenes} scenes', body: 'Swipe with two fingers, press ← →, or pick one below. Each scene listens to the music in its own way.' },
+  { id: 'canvas', title: 'A sheet to paint on', body: 'Canvas is black paper among the scenes: swatches and brushes above the rail, and your painting stays until you clear it.', after: 'scene' },
   { id: 'shuffle', title: 'Three colours that fit', body: '⚄ Shuffle picks three colours that go together. Colours cycles the palettes.' },
   { id: 'pinch', title: 'Zoom and clear', body: 'Pinch to zoom in for a moment. A three-finger tap, or c, clears the drawing.', after: 'draw' },
   { id: 'autopilot', title: 'Autopilot', body: 'It changes scenes with the music’s energy and waits for the drop. Your own picks always win.' },

@@ -94,7 +94,7 @@ public final class TourCheck {
             if (p.body.contains("{") && !p.id.equals("mirror") && !p.id.equals("scene")) sound = false;
             if (p.title.contains("{") && !p.id.equals("mirror") && !p.id.equals("scene")) sound = false;
         }
-        check("phone steps are sound (" + Tour.PHONE.length + ")", sound && Tour.PHONE.length >= 8);
+        check("phone steps are sound (" + Tour.PHONE.length + ")", sound && Tour.PHONE.length >= 9);
 
         if (failed) System.exit(1);
         System.out.println("  tour ok");

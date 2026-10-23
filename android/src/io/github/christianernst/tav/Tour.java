@@ -53,6 +53,8 @@ final class Tour {
             new Step("tap", "A burst", "Tap anywhere: sparks in the colours of the music, and a shove to the paint.", null, false),
             new Step("scene", "{scenes} scenes",
                     "Swipe with two fingers, or use ‹ › at the bottom. Each scene listens to the music in its own way.", null, false),
+            new Step("canvas", "A sheet to paint on",
+                    "Canvas is black paper among the scenes: swatches and brushes at the top, and your painting stays until you clear it.", "scene", false),
             new Step("title", "The song title", "Swipe it for the next track, tap it to pause. It fades on its own.", null, true),
             new Step("menu", "The menu", "Long-press the light, or tap ☰, for colours, looks, autopilot and more.", null, false),
             new Step("shuffle", "Three colours that fit",

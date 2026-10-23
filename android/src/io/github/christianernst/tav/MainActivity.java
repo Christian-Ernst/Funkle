@@ -60,6 +60,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     private static final String HINT_IDLE = "Play something on Spotify \u266A\nTap to make ripples \u00B7 drag to draw with sound";
     private static final String HINT_BLOCKED = "Music is playing, but Funkle hears silence.\nTurn the volume up, or open \u2630 \u2192 Sound \u2192 Microphone.";
     private static final String HINT_NO_PERMISSION = "Without audio access Funkle can't hear the music.\nTap and drag still make waves.";
+    private static final String HINT_CANVAS = "Drag to paint \u00B7 tap for a dot\nColours are in the bar above, the brush behind \u270E";
     private static final String HINT_DEMO = "This is Funkle's built-in beat.\nTap to make ripples \u00B7 drag to draw \u00B7 \u2630 \u2192 Sound, for your own music";
 
     private final Handler ui = new Handler(Looper.getMainLooper());
@@ -71,7 +72,13 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
 
     private FrameLayout root;
     private TextView sceneLabel, hint, title, artist, menuButton;
-    private LinearLayout trackBox, quickBar;
+    private LinearLayout trackBox, quickBar, paintBar;
+    // the Canvas scene's paint bar and page (see buildPaintBar, showPaint)
+    private final View[] paintSwatches = new View[6];
+    private TextView paintTool;
+    private final List<TextView> paintToolChips = new ArrayList<>(), paintMirrorChips = new ArrayList<>();
+    private GradientSlider paintHue, paintSat, paintVal;
+    private final Runnable savePaintingSoon = this::savePainting;
     private Sheet sheet;
     private View[] tileScenes, tileColours, tileLooks, tileAutopilot;   // {tile, picture, value}
     private TextView rowProfile, rowTune, rowDraw, rowSound, rowDisplay, rowAccount, quickScene, quickPause;
@@ -171,6 +178,15 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         if (intro != null || notice != null || sheet.shown()) return;   // a card or the menu is explaining things already
         // Music is known to be playing but the output mix reads as silence: the ROM or the
         // player is keeping audio away from the visualizer. Point at the microphone.
+        if (onCanvas()) {   // painting needs no music: explain the brush until the first stroke, then keep out of the picture
+            if (strokesOnScreen) {
+                if (hint.getAlpha() > 0f) hint.animate().alpha(0f).setDuration(400).start();
+                return;
+            }
+            hint.setText(HINT_CANVAS);
+            if (hint.getAlpha() < 1f) hint.animate().alpha(1f).setDuration(800).start();
+            return;
+        }
         boolean blocked = capture.source() == AudioCapture.SOURCE_SYSTEM && media.isPlaying();
         hint.setText(capture.demoRunning() ? HINT_DEMO : !hasAudioPermission() ? HINT_NO_PERMISSION : blocked ? HINT_BLOCKED : HINT_IDLE);
         if (hint.getAlpha() < 1f) hint.animate().alpha(1f).setDuration(800).start();
@@ -243,6 +259,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         buildOverlay();
         setContentView(root);
         applyPrefs();
+        loadPainting();
         prefs.registerOnSharedPreferenceChangeListener(scenePrefs);   // after applyPrefs: the start-up is not the user's hand
         if (!hasAudioPermission()) showIntro();
         startCloud(getIntent());
@@ -360,6 +377,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
             tourBubble.setAlpha(0f);
             tourBubble.setVisibility(View.GONE);
         }
+        savePainting();
         view.onPause();
         capture.stop();
         media.stop();
@@ -467,6 +485,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         ui.post(() -> {
             prefs.edit().putInt("scene", scene).apply();
             loadSceneSettings(scene);   // the scene's own colours, if it has any
+            if (Scene.ALL[scene].paint()) tourDid("canvas");
             sceneLabel.setText(spaced(Scene.ALL[scene].name));
             sceneLabel.animate().cancel();
             sceneLabel.setAlpha(1f);
@@ -474,6 +493,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
             ui.postDelayed(hideScene, 1800);
             markScene(scene);
             refreshHome();
+            refreshPaintBar();
             if (tuneCard != null && tuneScene != scene) closeTune(true);   // the sliders belong to the old scene
         });
     }
@@ -514,6 +534,13 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         });
     }
 
+    /** The Canvas painting changed: it goes to disk a moment later (and at once in onStop), so it survives a restart. */
+    @Override
+    public void onPaintingChanged() {
+        ui.removeCallbacks(savePaintingSoon);
+        ui.postDelayed(savePaintingSoon, 2000);
+    }
+
     /** Strokes came or went (drawn, a shape, undo, clear, three-finger tap): the Clear and Undo buttons follow. */
     @Override
     public void onStrokesChanged(int count) {
@@ -521,6 +548,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
             boolean grew = count > strokeCount;
             strokeCount = count;
             strokesOnScreen = count > 0;
+            if (strokesOnScreen && onCanvas() && hint.getAlpha() > 0f) hint.animate().alpha(0f).setDuration(400).start();
             refreshQuick();
             if (grew) onStrokeDrawn();
         });
@@ -703,6 +731,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         pushEqualizer();
         pushColourDrive();
         pushTune();
+        pushBrush();
     }
 
     // ------------------------------------------------------------------ per-scene sliders
@@ -784,6 +813,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     }
 
     private void pushPalette() {
+        refreshPaintBar();   // the first three swatches are the palette
         final int idx = prefs.getInt("palette", Palettes.ALBUM);
         final float[][] p = paletteFor(idx);
         view.queueEvent(() -> {
@@ -959,6 +989,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         buildQuickBar();
         buildTourBubble();
         buildSheet();
+        buildPaintBar();
     }
 
     /**
@@ -1287,7 +1318,8 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         for (int k = 0; k < Scene.TUNE; k++) tune.append(k > 0 ? " · " : "").append(Math.round(tuneValue(sc, k) * 100));
         rowTune.setText(sc.name + "  " + tune);
         int sym = prefs.getInt("sym", 1);
-        rowDraw.setText(sym <= 1 ? "Mirror off" : "Mirror ×" + sym);
+        String mirror = sym <= 1 ? "Mirror off" : "Mirror ×" + sym;
+        rowDraw.setText(sc.paint() ? "Paint · " + TavRenderer.BRUSH_NAMES[brushTool()] + " · " + mirror : mirror);
         int src = prefs.getInt("source", 0), eq = eqMode;
         rowSound.setText((src == 0 ? "Phone audio" : "Microphone") + " · " + new String[]{"Flat", "Punch", "Custom EQ"}[Math.max(0, Math.min(2, eq))]);
         rowDisplay.setText(new String[]{"Dim", "Soft", "Normal", "Bright"}[Math.max(0, Math.min(3, prefs.getInt("brightness", TavRenderer.DEFAULT_BRIGHTNESS)))]
@@ -1566,8 +1598,12 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         openCard("Autopilot", box);
     }
 
-    /** Draw: sound shapes to put on the scene, the mirror, clear. */
+    /** Draw: sound shapes to put on the scene, the mirror, clear. On the Canvas it is the paint page. */
     private void showDraw() {
+        if (onCanvas()) {
+            showPaint();
+            return;
+        }
         LinearLayout box = pageBox();
         note(box, "Drag a finger over the visuals to draw a line that sings; a tap makes a ripple.");
         addRow(box, "Put a shape on screen", Shapes.NAMES, -1, null, i -> {
@@ -1840,10 +1876,12 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
             hint.setVisibility(View.INVISIBLE);   // the sheet explains things now
             menuButton.animate().alpha(0f).setDuration(150).start();
             quickBar.animate().alpha(0f).setDuration(150).start();
+            if (paintBar != null) paintBar.setVisibility(View.GONE);
         } else {
             sheet.hide();
             hint.setVisibility(View.VISIBLE);
             pokeMenu();
+            refreshPaintBar();
         }
     }
 
@@ -2061,6 +2099,262 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     private void closeCard(View card, boolean backToMenu) {
         if (backToMenu) sheet.remove(card);
         else showPanel(false);
+    }
+
+    // ------------------------------------------------------------------ paint: the Canvas scene
+
+    private static final String[] BRUSH_GLYPHS = {"\u270E", "\u25AC", "\u2234", "\u25A3"};
+    private static final int OWN_DEFAULT = 0xFFFFB347;   // the "My colour" swatch before the user sets it: amber
+
+    private boolean onCanvas() {
+        return Scene.ALL[clampScene(prefs.getInt("scene", 0))].paint();
+    }
+
+    private int brushTool() {
+        return Math.max(0, Math.min(TavRenderer.BRUSH_NAMES.length - 1, prefs.getInt("paint_tool", TavRenderer.BRUSH_PEN)));
+    }
+
+    /**
+     * The paint bar over the Canvas: six swatches (the palette's three colours, white, the user's own colour
+     * and the spectrum along the line) and the brush, which opens the Paint page. It stays up while the scene
+     * does, because painting is the point of this scene; the sheet hides it.
+     */
+    private void buildPaintBar() {
+        paintBar = new LinearLayout(this);
+        paintBar.setGravity(Gravity.CENTER_VERTICAL);
+        paintBar.setBackground(glass(0x66000000, 24));
+        paintBar.setPadding(px(12), 0, px(4), 0);
+        paintBar.setVisibility(View.GONE);
+        String[] names = {"Palette colour 1", "Palette colour 2", "Palette colour 3", "White", "My colour", "Spectrum along the line"};
+        for (int k = 0; k < paintSwatches.length; k++) {
+            final int idx = k;
+            View sw = new View(this);
+            sw.setContentDescription(names[k]);
+            sw.setClickable(true);
+            sw.setOnClickListener(v -> {
+                Sheet.tick(v);
+                if (idx == TavRenderer.SWATCH_OWN && prefs.getInt("paint_swatch", 0) == idx && brushTool() != TavRenderer.BRUSH_ERASER) {
+                    showPanel(true);   // tapped again: change the colour itself
+                    showPaint();
+                    return;
+                }
+                setSwatch(idx);
+            });
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(px(30), px(30));
+            lp.rightMargin = px(8);
+            paintBar.addView(sw, lp);
+            paintSwatches[k] = sw;
+        }
+        paintBar.addView(divider());
+        paintTool = quickButton(BRUSH_GLYPHS[0], "Brush and tools", v -> {
+            showPanel(true);
+            showPaint();
+        });
+        paintBar.addView(paintTool);
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-2, px(48), Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+        lp.topMargin = px(78);
+        root.addView(paintBar, lp);
+        refreshPaintBar();
+    }
+
+    /** Shows the bar on the Canvas (and only there), with the swatches and the brush as set. */
+    private void refreshPaintBar() {
+        if (paintBar == null || sheet == null) return;
+        boolean on = onCanvas();
+        paintBar.setVisibility(on && !sheet.shown() ? View.VISIBLE : View.GONE);
+        if (!on) return;
+        int chosen = prefs.getInt("paint_swatch", 0), tool = brushTool();
+        int[] pal = Palettes.toColors(paletteFor(prefs.getInt("palette", Palettes.ALBUM)));
+        for (int k = 0; k < paintSwatches.length; k++) {
+            GradientDrawable d = new GradientDrawable();
+            d.setShape(GradientDrawable.OVAL);
+            if (k < 3) d.setColor(pal[k]);
+            else if (k == TavRenderer.SWATCH_WHITE) d.setColor(0xFFF2F2FF);
+            else if (k == TavRenderer.SWATCH_OWN) d.setColor(prefs.getInt("paint_own", OWN_DEFAULT));
+            else {
+                int[] r = new int[7];
+                for (int i = 0; i < r.length; i++) r[i] = Color.HSVToColor(new float[]{i * 51.4f, 0.9f, 1f});
+                d.setColors(r);
+                d.setOrientation(GradientDrawable.Orientation.TL_BR);
+            }
+            boolean sel = k == chosen && tool != TavRenderer.BRUSH_ERASER;
+            if (sel) {
+                // the chosen swatch: a white ring with a dark gap inside it, so even the white swatch shows it
+                d.setStroke(px(2), 0xFF000000);
+                GradientDrawable ring = new GradientDrawable();
+                ring.setShape(GradientDrawable.OVAL);
+                ring.setColor(Color.TRANSPARENT);
+                ring.setStroke(px(2.5f), Color.WHITE);
+                android.graphics.drawable.LayerDrawable both = new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[]{ring, d});
+                both.setLayerInset(1, px(2.5f), px(2.5f), px(2.5f), px(2.5f));
+                paintSwatches[k].setBackground(both);
+            } else {
+                d.setStroke(px(1), 0x66FFFFFF);
+                paintSwatches[k].setBackground(d);
+            }
+            paintSwatches[k].setSelected(sel);
+        }
+        paintTool.setText(BRUSH_GLYPHS[tool]);
+        paintTool.setContentDescription(TavRenderer.BRUSH_NAMES[tool] + ". Opens the brush and tools.");
+    }
+
+    private static final String[] SWATCH_FLASH = {"Colour 1", "Colour 2", "Colour 3", "White", "My colour", "Spectrum"};
+
+    /** A swatch on the bar: the colour the next strokes get. Picking one while erasing brings the pen back. */
+    private void setSwatch(int k) {
+        SharedPreferences.Editor e = prefs.edit().putInt("paint_swatch", k);
+        if (brushTool() == TavRenderer.BRUSH_ERASER) e.putInt("paint_tool", TavRenderer.BRUSH_PEN);
+        e.apply();
+        pushBrush();
+        refreshPaintBar();
+        select(paintToolChips, brushTool());
+        flash(spaced(SWATCH_FLASH[Math.max(0, Math.min(SWATCH_FLASH.length - 1, k))]));
+    }
+
+    private void setTool(int t) {
+        prefs.edit().putInt("paint_tool", t).apply();
+        pushBrush();
+        refreshPaintBar();
+        refreshHome();
+    }
+
+    /** The brush from prefs to the renderer: tool, size, swatch and the user's own colour. */
+    private void pushBrush() {
+        final int tool = brushTool(), sw = prefs.getInt("paint_swatch", 0);
+        final float size = prefs.getFloat("paint_size", 0.5f);
+        int own = prefs.getInt("paint_own", OWN_DEFAULT);
+        final float[] rgb = {Color.red(own) / 255f, Color.green(own) / 255f, Color.blue(own) / 255f};
+        view.queueEvent(() -> renderer.setBrush(tool, size, sw, rgb));
+    }
+
+    /** Paint: the brush, its size, the mirror (named for what it does), the user's own colour, undo and clear. */
+    private void showPaint() {
+        LinearLayout box = pageBox();
+        note(box, "The Canvas is yours: drag to paint, tap for a dot. The paint keeps still; only its glow breathes with the music. "
+                + "The bar over the picture holds the colours: your palette, white, a colour of your own and the spectrum.");
+        addRow(box, "Brush", TavRenderer.BRUSH_NAMES, brushTool(), paintToolChips, this::setTool);
+        TextView sizeLabel = label("Size");
+        box.addView(sizeLabel);
+        final GradientSlider size = new GradientSlider(this, "Size");
+        size.setColors(0xFF2A2740, 0xFFFFFFFF);
+        size.setKnobColor(Color.WHITE);
+        size.setValue(prefs.getFloat("paint_size", 0.5f));
+        size.setListener((v, done) -> {
+            sheet.setGhost(!done);
+            prefs.edit().putFloat("paint_size", v).apply();
+            pushBrush();
+            if (done) Sheet.tick(size);
+        });
+        box.addView(size, new LinearLayout.LayoutParams(-1, -2));
+        String[] syms = {"Off", "\u00D72", "\u00D73", "\u00D74", "\u00D76", "\u00D78", "\u00D712"};
+        int symSel = 0;
+        for (int i = 0; i < SYMMETRY.length; i++) if (SYMMETRY[i] == prefs.getInt("sym", 1)) symSel = i;
+        addRow(box, "Mirror \u00B7 every stroke is drawn this many times around the centre", syms, symSel, paintMirrorChips, i -> {
+            prefs.edit().putInt("sym", SYMMETRY[i]).apply();
+            view.queueEvent(() -> renderer.setSymmetry(SYMMETRY[i]));
+            select(mirrorChips, i);
+            refreshHome();
+            flash(SYMMETRY[i] <= 1 ? "M I R R O R  O F F" : spaced("Mirror \u00D7" + SYMMETRY[i]));
+        });
+        box.addView(label("My colour \u00B7 the fifth swatch on the bar"));
+        paintHue = paintSlider(box, "Hue");
+        paintSat = paintSlider(box, "Saturation");
+        paintVal = paintSlider(box, "Brightness");
+        int[] rainbow = new int[7];
+        for (int i = 0; i < rainbow.length; i++) rainbow[i] = Color.HSVToColor(new float[]{i * 60f, 1f, 1f});
+        paintHue.setColors(rainbow);
+        float[] hsv = new float[3];
+        Color.colorToHSV(prefs.getInt("paint_own", OWN_DEFAULT), hsv);
+        paintHue.setValue(hsv[0] / 360f);
+        paintSat.setValue(hsv[1]);
+        paintVal.setValue(hsv[2]);
+        refreshOwnSliders();
+        LinearLayout actions = new LinearLayout(this);
+        actions.setPadding(0, px(14), 0, 0);
+        actions.addView(chip("\u21B6  Undo", false, v -> undoDrawing()));
+        TextView clear = chip("\u2715  Clear the canvas", true, v -> clearDrawing());
+        LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(-2, -2);
+        clp.leftMargin = px(8);
+        actions.addView(clear, clp);
+        box.addView(actions);
+        note(box, "Your painting stays when you leave the scene or the app. Tune this scene sets its Echo (how long the glow lingers), "
+                + "Pulse (how much the music moves it) and Haze (the tint of the empty sheet). A three-finger tap also clears it.");
+        openCard("Paint", box);
+    }
+
+    private GradientSlider paintSlider(LinearLayout box, String name) {
+        TextView l = label(name);
+        l.setPadding(0, px(8), 0, 0);
+        box.addView(l);
+        GradientSlider s = new GradientSlider(this, name);
+        s.setListener((v, done) -> {
+            sheet.setGhost(!done);
+            editOwnColour(done);
+        });
+        box.addView(s, new LinearLayout.LayoutParams(-1, -2));
+        return s;
+    }
+
+    private float[] ownHsv() {
+        return new float[]{paintHue.value() * 360f, paintSat.value(), 0.25f + 0.75f * paintVal.value()};
+    }
+
+    /** The user's own paint colour moved: it is saved, becomes the chosen swatch and shows on the next stroke. */
+    private void editOwnColour(boolean done) {
+        prefs.edit().putInt("paint_own", Color.HSVToColor(ownHsv())).putInt("paint_swatch", TavRenderer.SWATCH_OWN).apply();
+        if (brushTool() == TavRenderer.BRUSH_ERASER) setTool(TavRenderer.BRUSH_PEN);
+        refreshOwnSliders();
+        pushBrush();
+        if (done) {
+            Sheet.tick(paintHue);
+            refreshPaintBar();
+        }
+    }
+
+    private void refreshOwnSliders() {
+        float[] hsv = ownHsv();
+        paintSat.setColors(Color.HSVToColor(new float[]{hsv[0], 0f, hsv[2]}), Color.HSVToColor(new float[]{hsv[0], 1f, hsv[2]}));
+        paintVal.setColors(Color.HSVToColor(new float[]{hsv[0], hsv[1], 0.25f}), Color.HSVToColor(new float[]{hsv[0], hsv[1], 1f}));
+        int c = Color.HSVToColor(hsv);
+        paintHue.setKnobColor(c);
+        paintSat.setKnobColor(c);
+        paintVal.setKnobColor(c);
+    }
+
+    // The painting on disk (files/painting.bin, TavRenderer.encodePainting): written a moment after each
+    // change and in onStop, read on the next launch.
+    private java.io.File paintingFile() {
+        return new java.io.File(getFilesDir(), "painting.bin");
+    }
+
+    private void savePainting() {
+        ui.removeCallbacks(savePaintingSoon);
+        if (renderer == null) return;
+        final byte[] data = renderer.encodePainting();
+        final java.io.File f = paintingFile();
+        new Thread(() -> {
+            java.io.File tmp = new java.io.File(f.getPath() + ".tmp");
+            try (java.io.FileOutputStream out = new java.io.FileOutputStream(tmp)) {
+                out.write(data);
+            } catch (java.io.IOException e) {
+                return;
+            }
+            if (!tmp.renameTo(f)) tmp.delete();
+        }, "painting").start();
+    }
+
+    private void loadPainting() {
+        java.io.File f = paintingFile();
+        if (!f.isFile()) return;
+        try (java.io.FileInputStream in = new java.io.FileInputStream(f)) {
+            java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) > 0) bo.write(buf, 0, n);
+            final byte[] data = bo.toByteArray();
+            view.queueEvent(() -> renderer.setPainting(data));
+        } catch (java.io.IOException ignored) {
+        }
     }
 
     // ------------------------------------------------------------------ equalizer

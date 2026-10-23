@@ -5,6 +5,7 @@
 //
 //   node web/tools/measure.js [--level 0-3] [--palette N] [--colour N] [--scenes halo,spiro]
 //                             [--track demo|dense] [--sym N] [--tune a,b,c] [--root DIR] [--out DIR]
+//                             [--shots 15.2,15.5,...]
 //
 // --colour picks the colour motion mode (0 Still, 1 Drift, 2 Beat, 3 Bands); --palette 9 is Rainbow.
 // --tune sets every scene's three sliders (0..1; the default 0.5,0.5,0.5 is each scene's own look).
@@ -12,7 +13,7 @@
 // --track dense mixes side-chained pink noise into the demo and limits it hard: a stand-in for a
 // loud mastered song, which fills the whole spectrum the way the synthetic demo doesn't.
 // --root renders another checkout (e.g. a `git worktree` of the previous commit) for before/after.
-// --out also saves the frames as PNGs.
+// --out also saves the frames as PNGs; --shots picks the capture times (seconds into the track).
 //
 // Columns (mean over the captures; max = the worst capture):
 //   clip  share of pixels with every channel above 0.95
@@ -40,7 +41,7 @@ const palette = +(args.palette || 0), colour = +(args.colour || 0), sym = +(args
 const only = args.scenes ? args.scenes.split(',') : null;
 const tune = args.tune ? args.tune.split(',').map(Number) : null;
 const W = 405, H = 900, FPS = 30, START = 9.0;
-const SHOTS = [15.2, 15.5, 16.0, 17.0, 18.5, 20.0, 22.5, 25.0];   // the drop starts at 15.0 s
+const SHOTS = args.shots ? args.shots.split(',').map(Number) : [15.2, 15.5, 16.0, 17.0, 18.5, 20.0, 22.5, 25.0];   // the drop starts at 15.0 s
 
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.glsl': 'text/plain', '.frag': 'text/plain', '.vert': 'text/plain' };
 const server = http.createServer((req, res) => {
@@ -161,7 +162,7 @@ function measureFrame(wantPng) {
         window.__advance(1000 / FPS, frames);
         return window.measureFrame(png);
       }, { frames, FPS, png: !!args.out });
-      if (m.png) fs.writeFileSync(path.join(args.out, `${scenes[si]}_${shot.toFixed(1)}.png`), Buffer.from(m.png, 'base64'));
+      if (m.png) fs.writeFileSync(path.join(args.out, `${scenes[si]}_${shot.toFixed(shot === Math.round(shot * 10) / 10 ? 1 : 3)}.png`), Buffer.from(m.png, 'base64'));
       ms.push(m);
     }
     const mean = (k) => ms.reduce((a, m) => a + m[k], 0) / ms.length, pct = (v) => (v * 100).toFixed(2).padStart(6);

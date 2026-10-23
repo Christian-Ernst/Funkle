@@ -64,7 +64,7 @@ v.load(null);
 check('load(null) resets', v.doneCount() === 0 && !v.isOff());
 
 const ids = new Set();
-let sound = TOUR_STEPS.length >= 8;
+let sound = TOUR_STEPS.length >= 9;
 TOUR_STEPS.forEach((p, i) => {
   if (ids.has(p.id)) sound = false; ids.add(p.id);
   if (p.after && !TOUR_STEPS.slice(0, i).some((q) => q.id === p.after)) sound = false;

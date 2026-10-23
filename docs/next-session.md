@@ -11,9 +11,21 @@ restarts the tour. The ×n badge in the quick bar shows the mirror count and cyc
   lengthen the gap or lower `MAX_SHOWS` to 1. If they feel rare, the first few steps could come faster.
 - The bubble sits 168 dp from the bottom, above the quick bar; on a short phone it may cover the middle of the
   scene for 16 s. The sheet, any card, and Pause keep it away.
-- The Canvas scene (parallel thread) has no tour step yet; add one to `Tour.PHONE` and `TOUR_STEPS` once it lands.
 - The tour events (`tour_shown`, `tour_done`, `tour_skip`, `tour_restart`) reach the cloud's events table; a step
   that is often skipped or never done is a feature nobody finds.
+## The Canvas scene (2026-10-23, judged in headless Chromium and on an emulator only)
+
+A black sheet to paint on (`canvas.frag`, the paint bar and Paint page in `MainActivity`, the `painting` list in
+`TavRenderer`/`engine.js`). Not yet on a phone:
+
+- The brush sizes (`BRUSH_MIN`/`BRUSH_MAX`, a half-width of 0.008–0.16 of the short screen axis) and the spray's
+  faintness are browser guesses; so is how bright a pen line should be against the glow (`stroke.frag`, paint pen).
+- The paint bar sits 78 dp from the top, under the scene name; check it clears the camera cut-out and the
+  status bar on the owner's phone, and that 30 dp swatches are big enough for a thumb.
+- Each stroke is a draw call (up to 400 on the Canvas): fine in SwiftShader, not yet timed on a phone GPU. If it
+  stutters, merge finished strokes into one buffer.
+- The web edition's own-colour picker is the browser's `<input type=color>`; Android has hue, saturation and
+  brightness sliders on the Paint page.
 
 ## The menu as a bottom sheet (2026-10-22, judged on an emulator only)
 
@@ -109,6 +121,15 @@ look the scene had before; the ends were picked so Normal brightness stays at 0 
   only in headless Chromium: check on the phone that Ink's motion is smooth and visible between drops (raise
   `gain` or the fade if it is too thin), that Horizon's skyline varies on a real song (the dense test track
   saturates it into a plateau) and that Mandala's gems are not too big at Jewels = 100 %.
+- Pulsar (2026-10-23, after Christian found it rough and its motion aimless): filled ridges (a lit slope under
+  each crest, fog toward the horizon) instead of 80 hairlines, the spectrum smoothed across seven bins, and
+  every ridge keeps its own spectrogram row: the 6..12 ridges share the 128-row ring (`spacing = 128 / n`,
+  `ph = fract(uHistHead / spacing)`), so a ridge is born at the bottom edge with the sound of now and glides
+  to the horizon in 4.3 s without its shape ever changing. The old version sampled fixed screen rows from a
+  scrolling history, which made every line flicker. Beats lift the front ridges and flash a pulsar on the
+  horizon; a drop lifts the range. Judged in headless Chromium only (`web/tools/measure.js --shots` renders
+  a frame sequence): check on the phone that 4.3 s per ridge feels right and that Ridges = 100 % (12) is not
+  too busy near the horizon.
 - The sliders' ends (`tune(k, lo, hi)` in each shader) are guesses from the measurement, not from a phone:
   Halo at full Trails and Spiro at full Trails give large solid (not white) blobs; shorten those ranges if
   they look muddy on an OLED.

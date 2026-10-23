@@ -152,8 +152,9 @@ beat pulse and drop flash). The visuals change while you drag.
 ripple, and a drop fires the rays and flares the core.
 **Wormhole** — a neon tunnel flown at the speed of the music, its far end lost in fog; a drop twists it and
 re-rolls the panels.
-**Pulsar** — the spectrogram as receding ridgelines ("Unknown Pleasures") under an aurora; a drop lifts the
-whole landscape.
+**Pulsar** — a landscape of soft, solid ridges under an aurora, each ridge the spectrum of one moment, gliding
+off to the horizon while the newest rises at your feet; a beat lifts the front ridges and flashes the pulsar
+on the horizon, a drop lifts the whole range.
 **Mandala** — a kaleidoscope of filled gems on rings that reach the top and bottom of the screen, each ring
 swelling with its slice of the spectrum, folded over a slow echo of its own previous frame; a drop draws the
 echoes in and, unless Mirror fixes the symmetry, re-rolls the fold count.
@@ -168,12 +169,17 @@ the treble sprinkles from the top, a beat spins the basin and a drop pours in a 
 **Horizon** — a night sea under a striped sun: far mountains on the horizon are the spectrogram of a few seconds
 ago, the water mirrors the sun and the sky in a glittering path broken by waves that roll toward you with the
 music, their crests lit by what just played; an aurora breathes with the treble and a drop lifts the land.
+**Canvas** — a black sheet that is yours to paint on. A bar over the picture holds the colours: your palette's
+three, white, one of your own and the spectrum along the line; the Paint page has the brush (pen, marker,
+spray, eraser), its size, the mirror (every stroke drawn 2–12 times around the centre, named so you see it)
+and undo. A tap is a dot. The paint keeps still; only its glow breathes with the music, and the painting stays
+when you leave the scene or the app. The autopilot never switches to it.
 
 **Tune this scene** (menu, under the scene chips) opens three sliders made for the scene you are looking at,
 with the scene changing as you drag: Halo's rays, trails and rings; Wormhole's speed, panels and twist;
 Pulsar's ridges, height and stars; Mandala's jewels, echo and spin; Ferro's spikes, size and trails; Nebula's
 spin, glow and spread; Spiro's pen, thickness and trails; Ink's flow, ink and swirl; Horizon's height, haze
-and glow. The middle of every slider is the look the scene was made with; *Reset* puts them back.
+and glow; Canvas's echo, pulse and haze. The middle of every slider is the look the scene was made with; *Reset* puts them back.
 
 Every scene is composed for a phone held upright: the top and bottom carry haze, rings, sky or a floor in the
 palette's own deep tone instead of black. On every drop the music clock surges, so all motion lurches forward

@@ -81,6 +81,14 @@
   #tune { align-items: center; gap: 14px; }
   #tune label { display: flex; align-items: center; gap: 8px; font: 600 10.5px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--mute); white-space: nowrap; }
   #tune input[type=range] { width: 110px; accent-color: var(--hot); }
+  /* the Canvas scene's paint rail: round swatches, the brush, its size and the user's own colour */
+  #paint { align-items: center; gap: 8px; }
+  #paint .swatch { flex: none; width: 26px; height: 26px; border-radius: 50%; border: 1px solid rgba(255,255,255,.4); padding: 0; cursor: pointer; }
+  #paint .swatch[aria-pressed="true"] { border: 3px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.6); }
+  #paint .spectrum { background: conic-gradient(red, yellow, lime, cyan, blue, magenta, red); }
+  #paint label { display: flex; align-items: center; gap: 8px; font: 600 10.5px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--mute); white-space: nowrap; }
+  #paint input[type=range] { width: 90px; accent-color: var(--hot); }
+  #paint input[type=color] { width: 26px; height: 26px; border: 0; padding: 0; background: none; cursor: pointer; }
 
   button, .file {
     flex: none; font: 500 13.5px/1 var(--ui); color: var(--text);
@@ -205,6 +213,14 @@
     <label><span id="tuneL1"></span><input type="range" id="tune1" min="0" max="1" step="0.01"></label>
     <label><span id="tuneL2"></span><input type="range" id="tune2" min="0" max="1" step="0.01"></label>
     <button id="tuneReset" type="button">Reset</button>
+  </div>
+  <div class="rail" id="paint" role="toolbar" aria-label="Paint" hidden>
+    <span class="label">Paint</span>
+    <span id="swatches" style="display:contents"></span>
+    <label>Own <input type="color" id="ownColour" value="#ffb347" title="A colour of your own: the fifth swatch"></label>
+    <span id="brushes" style="display:contents"></span>
+    <label>Size <input type="range" id="brushSize" min="0" max="1" step="0.01" value="0.5"></label>
+    <button id="paintMirror" type="button" title="Every stroke is drawn this many times around the centre">Mirror off</button>
   </div>
   <div class="rail" role="toolbar" aria-label="Tools">
     <button id="play" type="button">Play</button>
@@ -437,12 +453,14 @@ function setScene(i, by = 'user', fade = 0.9) {
   if (!eng) return;
   eng.setScene(i, fade);
   if (by === 'user') tourDid('scene');
+  if (SCENES[eng.scene].paint) tourDid('canvas');
   if (by === 'user' || by === 'look') {
     director.onUserScene(eng.scene);
     try { localStorage.setItem(WEIGHTS_KEY, director.weights()); } catch (e) { /* private mode */ }
   } else if (by !== 'autopilot') director.onScene(eng.scene);
   sceneButtons.forEach((b, k) => b.setAttribute('aria-pressed', String(k === eng.scene)));
   showTune();
+  showPaint();
   if (by !== 'autopilot') toast(SCENES[eng.scene].name);
   TavCloud.track('scene', { scene: SCENES[eng.scene].id, by });
   if (by === 'user') saveSettings();
@@ -489,6 +507,64 @@ function showTune() {
 }
 function toggleTune() { tuneOpen = !tuneOpen; showTune(); }
 $('tuneToggle').addEventListener('click', () => { tourDid('tune'); toggleTune(); poke(); });
+
+// ---------------------------------------------------------------- paint: the Canvas scene's rail (MainActivity.buildPaintBar / showPaint)
+// Swatches: the palette's three colours, white, the user's own colour, the spectrum. The brush is kept in
+// localStorage; the painting itself too (eng.exportPainting), so it is there again on the next visit.
+const BRUSH_KEY = 'tav.brush', PAINTING_KEY = 'tav.painting';
+const SWATCH_NAMES = ['Palette colour 1', 'Palette colour 2', 'Palette colour 3', 'White', 'My colour', 'Spectrum along the line'];
+let brush = { tool: BRUSH_PEN, size: 0.5, swatch: 0, own: '#ffb347' };
+try { brush = Object.assign(brush, JSON.parse(localStorage.getItem(BRUSH_KEY)) || {}); } catch (e) { /* none */ }
+const hexRgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255);
+const swatchButtons = SWATCH_NAMES.map((name, k) => {
+  const b = document.createElement('button');
+  b.type = 'button'; b.className = 'swatch' + (k === SWATCH_SPECTRUM ? ' spectrum' : ''); b.title = name; b.setAttribute('aria-label', name);
+  b.addEventListener('click', () => { brush.swatch = k; if (brush.tool === BRUSH_ERASER) brush.tool = BRUSH_PEN; pushBrush(); toast(name); poke(); });
+  $('swatches').appendChild(b);
+  return b;
+});
+const brushButtons = BRUSHES.map((name, k) => {
+  const b = chip(name, () => { brush.tool = k; pushBrush(); poke(); });
+  $('brushes').appendChild(b);
+  return b;
+});
+$('brushSize').addEventListener('input', () => { brush.size = +$('brushSize').value; pushBrush(); });
+$('ownColour').addEventListener('input', () => { brush.own = $('ownColour').value; brush.swatch = SWATCH_OWN; if (brush.tool === BRUSH_ERASER) brush.tool = BRUSH_PEN; pushBrush(); });
+$('paintMirror').addEventListener('click', () => $('mirror').click());
+function pushBrush() {
+  if (!eng) return;
+  eng.setBrush(brush.tool, brush.size, brush.swatch, hexRgb(brush.own));
+  try { localStorage.setItem(BRUSH_KEY, JSON.stringify(brush)); } catch (e) { /* private mode */ }
+  showPaint();
+}
+function showPaint() {
+  if (!eng) return;
+  const on = !!SCENES[eng.scene].paint;
+  $('paint').hidden = !on;
+  if (!on) return;
+  const pal = targetPalette || eng.palette;
+  swatchButtons.forEach((b, k) => {
+    if (k < 3) b.style.background = 'rgb(' + pal[k].map((c) => Math.round(c * 255)).join(',') + ')';
+    else if (k === SWATCH_WHITE) b.style.background = '#f2f2ff';
+    else if (k === SWATCH_OWN) b.style.background = brush.own;
+    b.setAttribute('aria-pressed', String(k === brush.swatch && brush.tool !== BRUSH_ERASER));
+  });
+  brushButtons.forEach((b, k) => b.setAttribute('aria-pressed', String(k === brush.tool)));
+  $('brushSize').value = brush.size;
+  $('ownColour').value = brush.own;
+  $('paintMirror').textContent = $('mirror').textContent;
+}
+let paintingTimer;
+function savePainting() {
+  clearTimeout(paintingTimer);
+  paintingTimer = setTimeout(() => {
+    try { localStorage.setItem(PAINTING_KEY, JSON.stringify(eng.exportPainting())); } catch (e) { /* full or private */ }
+  }, 1500);
+}
+function loadPainting() {
+  try { const p = JSON.parse(localStorage.getItem(PAINTING_KEY)); if (p) eng.importPainting(p); } catch (e) { /* none */ }
+}
+
 for (let k = 0; k < TUNE; k++) {
   $('tune' + k).addEventListener('input', (e) => { if (eng) eng.setTune(eng.scene, k, +e.target.value); poke(); });
   $('tune' + k).addEventListener('change', (e) => {
@@ -561,6 +637,7 @@ $('mirror').addEventListener('click', () => {
   mirrorIdx = (mirrorIdx + 1) % MIRRORS.length;
   if (eng) eng.sym = MIRRORS[mirrorIdx];
   $('mirror').textContent = MIRRORS[mirrorIdx] === 1 ? 'Mirror off' : 'Mirror ×' + MIRRORS[mirrorIdx];
+  showPaint();
   TavCloud.track('setting_changed', { key: 'mirror', to: MIRRORS[mirrorIdx] });
   saveSettings(); poke();
 });
@@ -578,6 +655,7 @@ function setPalette(i, quiet) {
   if (quiet) return;
   TavCloud.track('palette', { palette: PALETTES[palIdx][0] });
   saveSettings();
+  showPaint();
 }
 function setCustomPalette(colours, name, quiet) {
   customPalette = colours.map((c) => c.slice());
@@ -589,6 +667,7 @@ function setCustomPalette(colours, name, quiet) {
   if (quiet) return;
   TavCloud.track('palette', { palette: customName });
   saveSettings();
+  showPaint();
 }
 $('shuffle').addEventListener('click', () => {
   tourDid('shuffle');
@@ -1144,6 +1223,9 @@ async function boot() {
   eng.sym = 1;
   setColourMode(DEFAULT_COLOUR_MODE, true);   // boot must not stamp the settings as changed, or the cloud copy never wins
   eng.compileAll();
+  eng.onPaintingChanged = savePainting;
+  loadPainting();
+  pushBrush();
   useDemo();
   resize();
   addEventListener('resize', resize);
@@ -1184,7 +1266,7 @@ function frame(now) {
   fillWindow();
   an.process(win, dt);
   for (let k = 0; k < 3; k++) for (let c = 0; c < 3; c++) eng.palette[k][c] += (targetPalette[k][c] - eng.palette[k][c]) * (1 - Math.exp(-dt * 1.5));
-  const look = director.step(dt, an.bands, an.intensity, an.onBeat, an.drop, an.silent || !audio.playing, null);
+  const look = director.step(dt, an.bands, an.intensity, an.onBeat, an.drop, an.silent || !audio.playing, SCENES.map((s) => !s.paint));   // never a blank canvas mid-song
   if (look) applyAutopilotLook(look);
   eng.frame(dt, an);
   for (let i = 0; i < 4; i++) meters[i].style.width = Math.round(an.bands[i] * 100) + '%';
