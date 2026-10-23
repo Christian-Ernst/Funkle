@@ -61,8 +61,9 @@ which loads the Android shaders). README.md is the user-facing description. Open
     `web/engine.js` has the same `SCENES`. The sliders reach the shaders as `uTune` (0..1 each, 0.5 = the
     look the scene was made with) through `tune(k, lo, hi)` and `tuneExp(k, lo, hi)` in `common.glsl`;
     `TavRenderer.setTune` and `eng.setTune(scene, k, v)` set them. Ink (`fluid.frag`, dye advected through
-    the feedback buffer by a curl-noise current) and Horizon (`landscape.frag`, a raymarched terrain whose
-    height is the spectrogram) are the two scenes that aren't built around a circle.
+    the feedback buffer by a curl-noise current) and Horizon (`landscape.frag`, a night sea that mirrors a
+    striped sun and a skyline made of the spectrogram's oldest lines) are the two scenes that aren't built
+    around a circle.
   - `CrashLog.java`: the default uncaught-exception handler, installed first thing in `onCreate`. It writes the
     trace to `files/last-crash.txt`; the next launch shows it on a card with a Copy button (`showCrash`), since the
     owner tests without adb. The `cloud` field is created in `onCreate` before `buildOverlay` (the Account row asks
@@ -108,8 +109,8 @@ which loads the Android shaders). README.md is the user-facing description. Open
   the chorus) and LookCheck (needs a real org.json jar, fetched once; android.jar's is a stub).
 - `web/tools/looks-check.js`: the same for `web/looks.js`, in node, including a payload written by Look.java.
 - `web/tools/perf.js`: times every scene's frame in headless Chromium (SwiftShader) and prints the cost relative
-  to the median scene; absolute numbers mean nothing for a phone, the ratios do. At full resolution Halo and
-  Horizon are the two heaviest (about 1.8x Mandala), Pulsar next.
+  to the median scene; absolute numbers mean nothing for a phone, the ratios do. At full resolution Halo is the
+  heaviest (about 1.8x Mandala), Pulsar next; Horizon stopped raymarching on 2026-10-23 and is cheap now.
 - `web/tools/measure.js`: renders every scene at the demo's drop in headless Chromium on a virtual clock
   and prints clipped, near-white and saturated-flat shares per scene. `--track dense` stands in for a
   loud mastered song; `--root` measures another checkout (a `git worktree`) for before/after; `--colour N`

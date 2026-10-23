@@ -1,99 +1,115 @@
-// HORIZON: a flight over a terrain whose height is the spectrogram: what just played rises right
-// in front of the camera and drifts away toward the horizon (bass ridge in the middle, treble at
-// the sides). The ground is dark with a neon grid on its rows and peaks that glow hot; the far
-// end sinks into haze. Above the horizon a sky in the palette's deep tone, a sun that pulses with
-// the bass, an aurora that breathes with the treble and stars for the hi-hats fill the top of a
-// tall screen. A drop lifts the whole landscape and flares the sun.
-// Sliders: height (how tall the music builds the ground), haze (how soon it fades), glow (the
-// grid and sky lights).
-const float ROWS = 10.0;   // spectrogram rows per unit of depth: 128 rows reach ~13 units
-float hScale;
-float ground(vec2 xz) {
-    float ax = abs(xz.x) / 2.4;
-    float fx = 0.02 + 0.72 * pow(min(ax, 1.0), 0.85);
-    float age = min(xz.y * ROWS, 127.0);
-    // three taps across the bins, so the spectrum's steps don't show as terraces
-    float v = 0.5 * hist(fx, age) + 0.25 * (hist(fx - 1.0 / 256.0, age) + hist(fx + 1.0 / 256.0, age));
-    float env = smoothstep(1.3, 0.4, ax);                           // calm plains at the sides
-    float n = noise(xz * vec2(2.5, 1.8) + vec2(0.0, uSeed * 1.3)) - 0.5;
-    return v * v * hScale * (0.3 + 0.7 * env) + 0.05 * n * (0.3 + v) + 0.04 * env;
+// HORIZON: a night sea under a striped sun. Far mountains on the horizon are the spectrogram of a
+// few seconds ago, a calm skyline that reshapes itself slowly; the water in front mirrors the
+// sun, the sky and the mountains, broken into a shimmering path by waves that roll toward the
+// camera in time with the music clock, their crests lit by what just played (bass in the
+// middle, treble at the sides) and by every beat. Above, an aurora breathes with the treble and
+// stars twinkle with the hi-hats, so a tall screen is full from the bottom edge to the top.
+// A drop lifts the mountains, flares the sun and heightens the waves.
+// Sliders: height (mountains and waves), haze (how soon the sea fades into the sky), glow (the
+// sun, crests and sky lights).
+float hScale, lights, hueT, hor;
+// spectrum at a world x (bass in the middle, treble at the sides), smoothed across seven bins
+float ridge(float xw, float age) {
+    float ax = min(abs(xw) / 2.6, 1.0);
+    float fx = 0.02 + 0.72 * pow(ax, 0.85);
+    const float d = 1.0 / 256.0;
+    float v = 0.2 * hist(fx, age)
+            + 0.17 * (hist(fx - d, age) + hist(fx + d, age))
+            + 0.13 * (hist(fx - 2.0 * d, age) + hist(fx + 2.0 * d, age))
+            + 0.1 * (hist(fx - 3.0 * d, age) + hist(fx + 3.0 * d, age));
+    return v * v * (0.4 + 0.6 * smoothstep(1.2, 0.3, ax));
 }
-void main() {
-    vec2 p = toP(gl_FragCoord.xy);
-    float dp = drop(), b = bass(), tr = treble();
-    hScale = tune(0, 0.25, 0.95) * (1.0 + 0.6 * dp);
-    float haze = tune(1, 0.03, 0.17), lights = tune(2, 0.4, 1.6);
-    vec3 sky0 = palBg() * 1.2, sky1 = mix(palBg() * 2.0, pal(0.6 + uFlow * 0.01), 0.2);
-    vec3 fogC = mix(palBg() * 2.2, pal(0.6 + uFlow * 0.01), 0.12);
-    vec3 sunDir = normalize(vec3(0.35, 0.22, 1.0));
-
-    vec3 ro = vec3(0.0, 0.9, 0.0);
-    vec3 rd = normalize(vec3(p.x * 0.8, p.y * 0.8 - 0.22, 1.0));
-    // the camera sways with the low mids, like a slow banking turn
-    rd.xy = rot(0.05 * sin(uTime * 0.19) * (0.5 + lowmid())) * rd.xy;
-
-    // ---- sky
-    float up = max(rd.y, 0.0);
-    vec3 col = mix(sky1, sky0, smoothstep(0.0, 0.5, up));
-    float sunD = max(dot(rd, sunDir), 0.0);
-    vec3 sunCol = mix(pal(0.1 + uFlow * 0.01), palHi(), 0.4);
-    col += sunCol * (smoothstep(0.985, 0.996, sunD) * (0.5 + 0.6 * b + 1.2 * dp)
-                   + pow(sunD, 12.0) * (0.12 + 0.2 * b + 0.4 * dp)
-                   + pow(sunD, 3.0) * exp(-abs(rd.y - sunDir.y) * 30.0) * (0.1 + 0.3 * b)) * lights;
-    // aurora: a curtain that brightens with the treble
-    vec2 sp = rd.xy / max(rd.z, 0.2);
-    float cur = fbm(vec2(sp.x * 1.4 + uFlow * 0.05, sp.y * 0.8 - uFlow * 0.03));
-    col += pal(0.5 + sp.x * 0.1 + cur * 0.3) * cur * cur * smoothstep(0.05, 0.6, up) * (0.1 + 0.5 * tr + 0.4 * dp) * lights;
+// the skyline: the spectrogram of three to four seconds ago, averaged so it drifts rather than jumps
+float mountains(float x) {
+    float xw = x * 1.4;
+    float v = (ridge(xw, 96.0) + ridge(xw, 108.0) + ridge(xw, 120.0)) / 3.0;
+    float peaks = 0.4 + 0.6 * noise(vec2(xw * 0.7 + uSeed * 0.3, 4.2));   // some summits, some passes
+    return (0.03 + 0.2 * noise(vec2(xw * 1.5 + uSeed, 1.7)) + v * 0.7 * peaks) * hScale;
+}
+// everything above the water line, so the sea can mirror it
+vec3 sky(vec2 p, float b, float tr, float dp) {
+    float up = p.y - hor;
+    vec3 sky0 = palBg() * 0.9, sky1 = mix(palBg() * 1.8, pal(0.6 + hueT), 0.18);
+    vec3 col = mix(sky1, sky0, smoothstep(0.0, 1.3, up));
+    // the sun: a big disc with the classic horizontal cuts in its lower half, swelling with the bass
+    vec2 sunC = vec2(0.0, hor + 0.5);
+    float sunR = 0.3 + 0.05 * b + 0.1 * dp;
+    float sd = length(p - sunC);
+    float disc = smoothstep(sunR + 0.012, sunR - 0.012, sd);
+    float cutY = (p.y - sunC.y) / sunR;        // -1 at the bottom of the disc, 0 at its middle
+    float cuts = 1.0 - smoothstep(0.35, 0.55, sin((p.y - hor) * 40.0 + uTime * 0.3) * 0.5 + 0.5) * smoothstep(0.1, -0.3, cutY);
+    vec3 sunCol = mix(pal(0.1 + hueT), pal(0.35 + hueT), smoothstep(-1.0, 1.0, cutY));
+    sunCol = mix(sunCol, palHi(), 0.1 * smoothstep(0.2, 1.0, cutY));
+    col += sunCol * disc * cuts * (0.42 + 0.25 * b + 0.8 * dp) * lights;
+    col += sunCol * exp(-max(sd - sunR, 0.0) * 4.0) * (0.12 + 0.15 * b + 0.4 * dp) * lights;   // corona
+    // aurora: a slow curtain high in the sky that brightens with the treble
+    float cur = fbm(vec2(p.x * 0.9 + uFlow * 0.03, up * 0.6 - uFlow * 0.02));
+    col += pal(0.5 + p.x * 0.08 + cur * 0.3 + hueT) * cur * cur * smoothstep(0.3, 1.4, up) * (0.12 + 0.5 * tr + 0.4 * dp) * lights;
     // stars that twinkle with the hi-hats
-    vec2 g = sp * 30.0;
+    vec2 g = p * 24.0;
     vec2 cell = floor(g);
     float star = hash12(cell + 2.1);
     vec2 so = hash22(cell + 5.3) - 0.5;
     float tw = 0.5 + 0.5 * sin(uTime * (2.0 + 4.0 * star) + star * 40.0);
-    col += palHi() * step(0.986, star) * glow(length(g - cell - 0.5 - so * 0.6), 0.06) * smoothstep(0.02, 0.3, up) * (0.15 + 0.7 * tr) * tw * 0.8 * lights;
-    // the horizon glows where the ground meets the sky
-    col += pal(0.4) * exp(-abs(rd.y) * 18.0) * (0.15 + 0.3 * b + 0.6 * dp) * lights;
+    col += palHi() * step(0.984, star) * glow(length(g - cell - 0.5 - so * 0.6), 0.07) * smoothstep(0.2, 0.9, up) * (0.15 + 0.7 * tr) * tw * 0.8 * lights;
+    // the horizon glows where the sea meets the sky
+    col += pal(0.4 + hueT) * exp(-max(up, 0.0) * 10.0) * (0.07 + 0.15 * b + 0.5 * dp) * lights;
+    // the mountains: a dark skyline with a lit crest, sunk a little into the haze
+    float mh = mountains(p.x);
+    float crest = up - mh;
+    vec3 rock = mix(palBg() * 0.4, sky1, 0.2);
+    rock += pal(0.15 + hueT) * exp(-max(-crest, 0.0) * 16.0) * (0.08 + 0.2 * b) * lights;    // the sun's glow on the slopes
+    col = mix(col, rock, smoothstep(0.006, -0.006, crest) * step(0.0, up));
+    col += pal(0.2 + hueT) * glow(crest, 0.003) * step(0.0, up) * (0.15 + 0.3 * b + 0.5 * dp) * lights;
+    return col;
+}
+void main() {
+    vec2 p = toP(gl_FragCoord.xy);
+    float halfH = uRes.y / min(uRes.x, uRes.y);
+    float dp = drop(), b = bass(), tr = treble(), bt = beat();
+    hScale = tune(0, 0.35, 1.2) * (1.0 + 0.5 * dp);
+    float hazeK = tune(1, 0.06, 0.4);
+    lights = tune(2, 0.5, 1.6);
+    hueT = uFlow * 0.01;
+    hor = -0.1 * halfH;                        // the water line sits a little under the middle
+    float camH = 0.5;                          // camera height over the water, in world units
 
-    // ---- ground: a fixed march with growing steps, then one interpolation at the hit
-    if (rd.y < -0.005) {
-        float t = 0.05, tPrev = 0.05, hPrev = 1.0;
-        float hit = -1.0;
-        for (int i = 0; i < 64; i++) {
-            vec3 pos = ro + rd * t;
-            float h = pos.y - ground(pos.xz);
-            if (h < 0.0) {
-                hit = mix(tPrev, t, hPrev / (hPrev - h));   // where the ray crossed the ground
-                break;
-            }
-            tPrev = t;
-            hPrev = h;
-            t += 0.03 + t * 0.065;
-            if (t > 16.0) break;
-        }
-        if (hit > 0.0) {
-            vec3 pos = ro + rd * hit;
-            const vec2 e = vec2(0.03, 0.0);
-            float h0 = ground(pos.xz);
-            vec3 n = normalize(vec3(h0 - ground(pos.xz + e.xy), e.x, h0 - ground(pos.xz + e.yx)));
-            float ax = abs(pos.x) / 2.4;
-            float v = hist(0.02 + 0.72 * pow(min(ax, 1.0), 0.85), min(pos.z * ROWS, 127.0));
-            float diff = max(dot(n, sunDir), 0.0);
-            vec3 base = palBg() * 0.9 * (0.2 + 0.9 * diff);                         // dark ground
-            vec3 glowC = pal(0.15 + v * 0.3 + pos.z * 0.03 + uFlow * 0.01);
-            base += glowC * v * v * (0.25 + 0.6 * diff) * (0.8 + dp);                // lit by what it heard
-            // the neon grid: a line on every spectrogram row and lanes across
-            float rowF = fract(pos.z * ROWS * 0.5), laneF = fract(pos.x * 2.0 + 0.5);
-            float rowL = glow(min(rowF, 1.0 - rowF), 0.03) * (0.5 + 2.0 * v);
-            float laneL = glow(min(laneF, 1.0 - laneF), 0.012) * 0.4;
-            base += glowC * (rowL * 0.7 + laneL) * (0.1 + 0.5 * v * v + 0.15 * beat()) * lights;
-            // peaks catch fire
-            base += mix(glowC, palHi(), 0.2) * smoothstep(0.5, 1.0, v) * v * (0.2 + 0.5 * dp) * lights;
-            // a wave of light rolls out from the camera on each beat
-            float frontD = (pos.z - (1.0 - beat()) * 8.0) * 1.5;
-            base += glowC * exp(-frontD * frontD) * beat() * 0.3 * lights;
-            float fog = 1.0 - exp(-hit * haze * (1.0 + 0.4 * lowmid()));
-            col = mix(base, fogC, fog);
-        }
+    vec3 col;
+    if (p.y >= hor) {
+        col = sky(p, b, tr, dp);
+    } else {
+        // ---- the sea
+        float z = camH / (hor - p.y);          // distance along the water
+        float xw = p.x * z;
+        // waves: rows that roll toward the camera with the music clock, lit by what just played
+        float roll = uFlow * 0.35;
+        float rows = z * 2.5 - roll;
+        float wn = noise(vec2(xw * 1.5 + 3.0, rows * 2.0)) - 0.5;                    // chop
+        float age = min(z * 6.0, 127.0);
+        float v = ridge(xw, age);
+        float rowF = fract(rows + 0.15 * wn);
+        float near = smoothstep(14.0, 2.0, z);                                       // crests vanish into the distance
+        // the reflection: the sky mirrored in the water line and smeared along the swell, which
+        // stretches the sun into a shimmering path; strongest near the camera, where the waves
+        // are big on screen, and dimmer in the near, steep view
+        float swell = noise(vec2(xw * 1.2 + 1.0, rows * 4.0)) - 0.5;
+        float amp = (0.25 + 0.4 * hScale * (0.3 + v) + 0.3 * dp) / (0.5 + z * 0.5);
+        vec2 pr = vec2(p.x + amp * 0.3 * wn, 2.0 * hor - p.y + amp * 2.0 * swell);
+        vec3 refl = sky(pr, b, tr, dp);
+        float fres = mix(0.4, 0.75, smoothstep(0.0, 12.0, z));
+        col = palBg() * 0.4 + refl * fres;
+        // the crests: a neon line on every wave, brighter where the music was loud and on the beat
+        float wave = exp(-pow((z - (1.0 - bt) * 10.0) * 0.6, 2.0)) * bt;              // a beat rolls out to the horizon
+        vec3 crestC = pal(0.15 + v * 0.3 + z * 0.02 + hueT);
+        col += crestC * glow(min(rowF, 1.0 - rowF), 0.025) * (0.08 + 0.6 * v + 0.15 * b + 0.5 * wave) * (0.5 + 0.5 * hScale) * near * lights;
+        // glitter: thin flecks of chop that catch the sun and the crests
+        float sp = noise(vec2(xw * 10.0, rows * 40.0 + 3.0));
+        sp *= sp; sp *= sp; sp *= sp;
+        float path = 1.0 + 3.0 * exp(-p.x * p.x / (0.03 + 0.02 * z));                   // the sun's glitter path
+        col += mix(crestC, palHi(), 0.3) * sp * path * (0.25 + 0.5 * v + 0.4 * b) * smoothstep(8.0, 1.0, z) * lights;
+        // haze toward the horizon
+        float fog = 1.0 - exp(-z * hazeK);
+        col = mix(col, mix(palBg() * 1.8, pal(0.6 + hueT), 0.18), fog * 0.85);
     }
     fragColor = vec4(col, 1.0);
 }
