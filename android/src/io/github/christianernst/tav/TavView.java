@@ -23,7 +23,13 @@ final class TavView extends GLSurfaceView implements SensorEventListener {
         void onAnyTouch();
 
         void onLongPress();
+
+        /** A gesture was recognised (one of the GESTURE_ constants), on the UI thread; the tour listens. */
+        default void onGesture(int kind) {
+        }
     }
+
+    static final int GESTURE_TAP = 0, GESTURE_SCENE = 1, GESTURE_PINCH = 2, GESTURE_CLEAR = 3;
 
     /** A pinch is one when the fingers' distance changed by this share before they swiped. */
     private static final float PINCH_START = 0.12f;
@@ -179,6 +185,7 @@ final class TavView extends GLSurfaceView implements SensorEventListener {
                             final float px = cx(avgX(e)), py = cy(avgY(e));
                             pinchDist0 = Math.max(1f, span(e));
                             queueEvent(() -> renderer.pinchBegin(px, py));
+                            gestures.onGesture(GESTURE_PINCH);
                         }
                         if (pinching) {
                             final float sc = span(e) / pinchDist0, px = cx(avgX(e)), py = cy(avgY(e));
@@ -218,6 +225,7 @@ final class TavView extends GLSurfaceView implements SensorEventListener {
             case MotionEvent.ACTION_POINTER_UP:
                 if (e.getPointerCount() == 3 && threeTap && e.getEventTime() - threeDownAt < THREE_TAP_MS) {
                     queueEvent(renderer::clearStrokes);
+                    gestures.onGesture(GESTURE_CLEAR);
                     threeTap = false;
                     twoStartX = twoLastX;   // the remaining two fingers do not count as a swipe
                     return true;
@@ -231,6 +239,7 @@ final class TavView extends GLSurfaceView implements SensorEventListener {
                         if (Math.abs(dx) > swipeMin) {
                             final int dir = dx < 0 ? 1 : -1;
                             queueEvent(() -> renderer.nextScene(dir));
+                            gestures.onGesture(GESTURE_SCENE);
                         }
                     }
                     twoStartX = twoLastX;
@@ -244,6 +253,7 @@ final class TavView extends GLSurfaceView implements SensorEventListener {
                 } else if (!multi && !longFired) {
                     final float x = cx(e.getX()), y = cy(e.getY());
                     queueEvent(() -> renderer.tap(x, y));
+                    gestures.onGesture(GESTURE_TAP);
                 } else {
                     queueEvent(renderer::touchUp);
                 }
