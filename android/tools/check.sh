@@ -55,12 +55,13 @@ javac -nowarn -d "$OUT/classes" -cp "$JAR" src/io/github/christianernst/tav/*.ja
     test/io/github/christianernst/tav/AnalyzerCheck.java test/io/github/christianernst/tav/AdaptiveScaleCheck.java \
     test/io/github/christianernst/tav/EqualizerCheck.java test/io/github/christianernst/tav/ColourDriveCheck.java \
     test/io/github/christianernst/tav/LookCheck.java test/io/github/christianernst/tav/AutopilotCheck.java \
-    test/io/github/christianernst/tav/ProfileCheck.java
+    test/io/github/christianernst/tav/ProfileCheck.java test/io/github/christianernst/tav/TourCheck.java
 java -cp "$OUT/classes" io.github.christianernst.tav.AnalyzerCheck
 java -cp "$OUT/classes" io.github.christianernst.tav.AdaptiveScaleCheck
 java -cp "$OUT/classes" io.github.christianernst.tav.EqualizerCheck
 java -cp "$OUT/classes" io.github.christianernst.tav.ColourDriveCheck
 java -cp "$OUT/classes" io.github.christianernst.tav.AutopilotCheck
+java -cp "$OUT/classes" io.github.christianernst.tav.TourCheck
 
 echo "[looks]"
 # Look (saved looks, share payload, shuffle) uses org.json, which android.jar only stubs: run it
@@ -80,6 +81,7 @@ fi
 if command -v node >/dev/null 2>&1; then
     echo "[web]"
     node ../web/tools/autopilot-check.js | tail -1
+    node ../web/tools/tour-check.js | tail -1
 else
     echo "[web] skipped: node not installed"
 fi

@@ -1,5 +1,18 @@
 # Next session: open items
 
+## The guided introduction and the mirror badge (2026-10-23, judged on an emulator and in the browser)
+
+The first-run "Three moves" card is gone; `Tour.java` explains one feature at a time on a bubble above the quick
+bar, at its moment (the first stroke brings "Mirrored ×n", a new song title brings the title swipe) or from a slow
+clock (one every 25 s, each at most twice). Doing the thing ticks it off; "Gestures and help" lists the steps and
+restarts the tour. The ×n badge in the quick bar shows the mirror count and cycles it. Not yet on a phone:
+
+- The pacing (`Tour.GAP_MS` 25 s, `FIRST_MS` 9 s, `TOUR_SHOW_MS` 16 s) is a guess; if the bubbles feel naggy,
+  lengthen the gap or lower `MAX_SHOWS` to 1. If they feel rare, the first few steps could come faster.
+- The bubble sits 168 dp from the bottom, above the quick bar; on a short phone it may cover the middle of the
+  scene for 16 s. The sheet, any card, and Pause keep it away.
+- The tour events (`tour_shown`, `tour_done`, `tour_skip`, `tour_restart`) reach the cloud's events table; a step
+  that is often skipped or never done is a feature nobody finds.
 ## The Canvas scene (2026-10-23, judged in headless Chromium and on an emulator only)
 
 A black sheet to paint on (`canvas.frag`, the paint bar and Paint page in `MainActivity`, the `painting` list in

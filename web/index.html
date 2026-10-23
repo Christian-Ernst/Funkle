@@ -139,6 +139,22 @@
   .start .shared { display: inline-flex; gap: 4px; margin-right: 6px; vertical-align: middle; }
   .start .shared i { width: 10px; height: 10px; border-radius: 50%; display: block; }
 
+  /* The tour's bubble: above the rails, never modal; "Got it" or doing the thing takes it down. */
+  .tour {
+    position: fixed; left: 50%; bottom: calc(118px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 3;
+    width: min(380px, calc(100% - 32px)); box-sizing: border-box; padding: 14px 18px 8px; border-radius: 18px;
+    background: var(--glass); border: 1px solid var(--edge); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    display: grid; gap: 4px; opacity: 0; transition: opacity .5s ease, transform .5s ease; pointer-events: none;
+  }
+  .tour.show { opacity: 1; pointer-events: auto; }
+  .tour:not(.show) { transform: translate(-50%, 14px); }
+  .tour .eyebrow { font: 600 10.5px/1 var(--mono); letter-spacing: .18em; text-transform: uppercase; color: var(--mute); }
+  .tour .eyebrow.found { color: #7cf2c4; }
+  .tour h3 { margin: 2px 0 0; font: 700 17px/1.25 var(--display); }
+  .tour p { margin: 0 0 6px; color: var(--text); font-size: 13.5px; opacity: .9; }
+  .tour .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .tour .skip { background: none; border: none; color: var(--mute); padding: 8px 2px; }
+
   @media (max-width: 520px) {
     .meters { grid-template-columns: auto 40px; }
     .mark { font-size: 22px; }
@@ -164,6 +180,16 @@
 </header>
 
 <div class="toast" id="toast" role="status"></div>
+
+<aside class="tour" id="tour" role="status" aria-live="polite">
+  <span class="eyebrow" id="tourEyebrow">Try this</span>
+  <h3 id="tourTitle"></h3>
+  <p id="tourBody"></p>
+  <div class="row">
+    <button class="skip" id="tourSkip" type="button">Skip the tour</button>
+    <button id="tourGotIt" type="button">Got it</button>
+  </div>
+</aside>
 
 <section class="start" id="start">
   <h2 id="startTitle">Music, turned into light</h2>
@@ -212,6 +238,7 @@
     <button id="quality" type="button" title="How many pixels the scenes render. Auto finds the sharpest this device keeps smooth.">Quality: Auto</button>
     <button id="auto" type="button" aria-pressed="true" title="Follows the music: scenes by energy, new colours per section">Autopilot: Scenes + colours</button>
     <button id="full" type="button">Fullscreen</button>
+    <button id="tourBtn" type="button" title="The guided introduction, one feature at a time">Tour</button>
     <button id="looks" type="button">Looks</button>
     <button id="account" type="button" hidden>Account</button>
   </div>
@@ -261,6 +288,7 @@
 <script src="engine.js"></script>
 <script src="demo.js"></script>
 <script src="looks.js"></script>
+<script src="tour.js"></script>
 <script src="cloud-config.js"></script>
 <script src="cloud.js"></script>
 <script>
@@ -340,7 +368,7 @@ function play(fromStart) {
   audio.node = node;
   audio.playing = true;
   node.onended = () => { if (audio.node === node && !audio.loop) { audio.playing = false; audio.pausedAt = 0; syncPlay(); } };
-  $('start').hidden = true;
+  if (!$('start').hidden) { $('start').hidden = true; tour.start(performance.now()); }   // the tour's clock runs from the first play
   syncPlay();
   wakeLock();
   sessionStart();
@@ -424,6 +452,8 @@ try { director.loadWeights(localStorage.getItem(WEIGHTS_KEY)); } catch (e) { /* 
 function setScene(i, by = 'user', fade = 0.9) {
   if (!eng) return;
   eng.setScene(i, fade);
+  if (by === 'user') tourDid('scene');
+  if (SCENES[eng.scene].paint) tourDid('canvas');
   if (by === 'user' || by === 'look') {
     director.onUserScene(eng.scene);
     try { localStorage.setItem(WEIGHTS_KEY, director.weights()); } catch (e) { /* private mode */ }
@@ -476,7 +506,7 @@ function showTune() {
   }
 }
 function toggleTune() { tuneOpen = !tuneOpen; showTune(); }
-$('tuneToggle').addEventListener('click', () => { toggleTune(); poke(); });
+$('tuneToggle').addEventListener('click', () => { tourDid('tune'); toggleTune(); poke(); });
 
 // ---------------------------------------------------------------- paint: the Canvas scene's rail (MainActivity.buildPaintBar / showPaint)
 // Swatches: the palette's three colours, white, the user's own colour, the spectrum. The brush is kept in
@@ -534,6 +564,7 @@ function savePainting() {
 function loadPainting() {
   try { const p = JSON.parse(localStorage.getItem(PAINTING_KEY)); if (p) eng.importPainting(p); } catch (e) { /* none */ }
 }
+
 for (let k = 0; k < TUNE; k++) {
   $('tune' + k).addEventListener('input', (e) => { if (eng) eng.setTune(eng.scene, k, +e.target.value); poke(); });
   $('tune' + k).addEventListener('change', (e) => {
@@ -602,6 +633,7 @@ $('fileStart').addEventListener('change', (e) => openFile(e.target.files[0]));
 $('clear').addEventListener('click', () => { if (eng) eng.clearStrokes(); poke(); });
 $('undo').addEventListener('click', () => { if (eng) eng.undoStroke(); poke(); });
 $('mirror').addEventListener('click', () => {
+  tourDid('mirror');
   mirrorIdx = (mirrorIdx + 1) % MIRRORS.length;
   if (eng) eng.sym = MIRRORS[mirrorIdx];
   $('mirror').textContent = MIRRORS[mirrorIdx] === 1 ? 'Mirror off' : 'Mirror ×' + MIRRORS[mirrorIdx];
@@ -612,7 +644,7 @@ $('mirror').addEventListener('click', () => {
 // colours: a preset from PALETTES, or custom colours (a shuffle, or a look) with a name of their own
 let customPalette = null, customName = 'Custom';
 const paletteName = () => (customPalette ? customName : PALETTES[palIdx][0]);
-$('colours').addEventListener('click', () => { setPalette(customPalette ? 0 : palIdx + 1); director.onUserPalette(); poke(); });   // the user's colours stay for this track
+$('colours').addEventListener('click', () => { tourDid('shuffle'); setPalette(customPalette ? 0 : palIdx + 1); director.onUserPalette(); poke(); });   // the user's colours stay for this track
 function setPalette(i, quiet) {
   palIdx = ((i % PALETTES.length) + PALETTES.length) % PALETTES.length;
   customPalette = null;
@@ -638,6 +670,7 @@ function setCustomPalette(colours, name, quiet) {
   showPaint();
 }
 $('shuffle').addEventListener('click', () => {
+  tourDid('shuffle');
   setCustomPalette(TavLooks.shuffle(), 'Shuffle');
   if (eng) eng.palette = customPalette.map((c) => c.slice());   // snap, so the roll is seen at once
   TavCloud.track('setting_changed', { key: 'colours_shuffle', to: customPalette.map(TavLooks.hex).join(' ') });
@@ -664,7 +697,7 @@ $('quality').addEventListener('click', () => {
   TavCloud.track('setting_changed', { key: 'quality', to: QUALITY[quality].name });
   saveSettings(); poke();
 });
-$('auto').addEventListener('click', () => { setAutopilotMode(autopilotMode + 1); poke(); });
+$('auto').addEventListener('click', () => { tourDid('autopilot'); setAutopilotMode(autopilotMode + 1); poke(); });
 
 // ---------------------------------------------------------------- account sheet: streak, sign-in, privacy
 const sheet = $('sheet');
@@ -858,7 +891,7 @@ function receiveLook(st, code, presetId, fromUrl) {
     if (/android/i.test(navigator.userAgent)) { $('openApp').href = TavLooks.appUrl(TavLooks.make(st), code); $('openApp').hidden = false; }
   } else if (!already && confirm('Keep “' + st.name + '” in your looks?')) keep();
 }
-$('looks').addEventListener('click', () => { showLooks(looksSheet.hidden); poke(); });
+$('looks').addEventListener('click', () => { tourDid('looks'); showLooks(looksSheet.hidden); poke(); });
 $('looksClose').addEventListener('click', () => showLooks(false));
 $('lookSave').addEventListener('click', () => { saveLook($('lookName').value); showLooks(false); });
 $('lookShare').addEventListener('click', () => { const e = saveLook($('lookName').value); showLooks(false); shareLook(e); });
@@ -1016,7 +1049,7 @@ canvas.addEventListener('pointermove', (e) => {
   if (multi) {
     if (pointers.size === 2) {
       const scale = span() / pinchDist0, [ax, ay] = avg();
-      if (!pinching && Math.abs(scale - 1) > 0.12 && Math.abs(ax - swipeX0) < 80) { pinching = true; pinchDist0 = Math.max(1, span()); eng.pinchBegin(...toCentred(ax, ay)); }
+      if (!pinching && Math.abs(scale - 1) > 0.12 && Math.abs(ax - swipeX0) < 80) { pinching = true; pinchDist0 = Math.max(1, span()); eng.pinchBegin(...toCentred(ax, ay)); tourDid('pinch'); }
       if (pinching) eng.pinchUpdate(span() / pinchDist0, ...toCentred(ax, ay));
     } else if (threeTap && Math.hypot(e.clientX - downX, e.clientY - downY) > 20) threeTap = false;
     return;
@@ -1029,7 +1062,7 @@ canvas.addEventListener('pointermove', (e) => {
 });
 function release(e, cancelled) {
   if (!pointers.has(e.pointerId)) return;
-  if (eng && pointers.size === 3 && threeTap && performance.now() - threeAt < 350) { eng.clearStrokes(); threeTap = false; swipeX0 = avg()[0]; }
+  if (eng && pointers.size === 3 && threeTap && performance.now() - threeAt < 350) { eng.clearStrokes(); tourDid('pinch'); threeTap = false; swipeX0 = avg()[0]; }
   else if (multi && pointers.size === 2) {
     if (pinching) { if (eng) eng.pinchEnd(); pinching = false; }
     else { const dx = avg()[0] - swipeX0; if (Math.abs(dx) > 80 && eng) setScene(eng.scene + (dx < 0 ? 1 : -1)); }
@@ -1037,8 +1070,8 @@ function release(e, cancelled) {
   pointers.delete(e.pointerId);
   if (pointers.size > 0) return;
   if (!eng) return;
-  if (drawing) eng.endStroke();
-  else if (!multi && !cancelled) eng.tap(...toCentred(e.clientX, e.clientY));
+  if (drawing) { eng.endStroke(); onStrokeDrawn(); }
+  else if (!multi && !cancelled) { eng.tap(...toCentred(e.clientX, e.clientY)); tourDid('tap'); }
   eng.touchUp();
   drawing = false;
 }
@@ -1050,6 +1083,74 @@ addEventListener('deviceorientation', (e) => {
   const g = e.gamma * Math.PI / 180, b = e.beta * Math.PI / 180;
   eng.setTilt(-Math.sin(g), Math.sin(b));   // gamma > 0: right edge down, so the view pans right (as TavView)
 }, { passive: true });
+
+// ---------------------------------------------------------------- the tour (tour.js): one feature at a time, when its moment comes
+const TOUR_KEY = 'tav.tour', TOUR_SHOW_MS = 16000;
+const tour = new Tour(TOUR_STEPS);
+try { tour.load(localStorage.getItem(TOUR_KEY)); } catch (e) { /* none */ }
+function tourSave() { try { localStorage.setItem(TOUR_KEY, tour.save()); } catch (e) { /* private mode */ } }
+function tourBusy() { return !$('start').hidden || !$('looksSheet').hidden || !$('sheet').hidden || document.hidden || $('tour').classList.contains('show'); }
+function tourWords(s) {
+  const n = MIRRORS[mirrorIdx], scenes = SCENES.length;
+  let title = s.title, body = s.body;
+  if (s.id === 'mirror' && n <= 1) { title = 'One line, as you drew it'; body = 'The Mirror button below repeats your drawing around the centre: 2, 3, 4, 6, 8 or 12 copies, like a mandala.'; }
+  else if (s.id === 'autopilot' && autopilotMode === AUTOPILOT_OFF) body = 'Turn it on with the Autopilot button: it changes scenes with the music\u2019s energy and waits for the drop. Your own picks always win.';
+  const fill = (t) => t.replace(/\{n\}/g, n).replace(/\{scenes\}/g, scenes);
+  return [fill(title), fill(body)];
+}
+let tourFadeTimer;
+function showTourStep(s) {
+  tour.shown(s, performance.now());
+  tourSave();
+  const [title, body] = tourWords(s), left = tour.size() - tour.doneCount();
+  $('tourEyebrow').textContent = tour.doneCount() === 0 ? 'Try this' : 'Try this \u00B7 ' + left + ' more to find';
+  $('tourEyebrow').classList.remove('found');
+  $('tourTitle').textContent = title;
+  $('tourBody').textContent = body;
+  $('tour').classList.add('show');
+  clearTimeout(tourFadeTimer);
+  tourFadeTimer = setTimeout(() => { tour.hid(performance.now()); hideTourBubble(false); }, TOUR_SHOW_MS);
+  TavCloud.track('tour_shown', { step: s.id });
+}
+function hideTourBubble(ticked) {
+  clearTimeout(tourFadeTimer);
+  if (!$('tour').classList.contains('show')) return;
+  if (ticked) { $('tourEyebrow').textContent = '\u2713 Found it'; $('tourEyebrow').classList.add('found'); }
+  tourFadeTimer = setTimeout(() => $('tour').classList.remove('show'), ticked ? 900 : 0);
+}
+function tourDid(id) {
+  if (tour.isDone(id)) return;
+  const up = tour.did(id, performance.now());
+  tourSave();
+  if (up) hideTourBubble(true);
+  TavCloud.track('tour_done', { step: id });
+}
+function onStrokeDrawn() {
+  tourDid('draw');
+  if (!tour.isDone('mirror')) {
+    if (!tour.isOff()) tour.cue('mirror');
+    else if (MIRRORS[mirrorIdx] > 1 && !localStorage.getItem('tav.mirror_told')) {   // the tour was skipped: say it once anyway
+      try { localStorage.setItem('tav.mirror_told', '1'); } catch (e) { /* private mode */ }
+      toast('Drawn \u00D7' + MIRRORS[mirrorIdx] + ' \u00B7 Mirror below changes it');
+    }
+  }
+}
+$('tourGotIt').addEventListener('click', () => {
+  if (tour.current) { tour.did(tour.current.id, performance.now()); tourSave(); TavCloud.track('tour_done', { step: tour.current ? tour.current.id : 'got_it' }); }
+  hideTourBubble(false);
+});
+$('tourSkip').addEventListener('click', () => {
+  tour.skip(); tourSave(); hideTourBubble(false);
+  TavCloud.track('tour_skip', { found: tour.doneCount() });
+  toast('Tour off \u00B7 the Tour button restarts it');
+});
+$('tourBtn').addEventListener('click', () => {
+  tour.restart(performance.now()); tourSave(); hideTourBubble(false);
+  TavCloud.track('tour_restart', { from: 'button' });
+  toast('Tour: ' + tour.size() + ' things to find');
+  poke();
+});
+setInterval(() => { const s = tour.pick(performance.now(), tourBusy()); if (s) showTourStep(s); }, 2000);
 
 // ---------------------------------------------------------------- render loop
 let targetPalette = PALETTES[0][1], demo;

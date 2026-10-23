@@ -87,6 +87,13 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     private final List<View> sceneTiles = new ArrayList<>(), paletteSwatches = new ArrayList<>();
     private final Map<String, Bitmap> thumbs = new java.util.HashMap<>();
     private View intro, notice;
+    // the guided introduction (Tour.java): a bubble over the visuals, the ×n mirror badge in the quick bar
+    private Tour tour;
+    private LinearLayout tourBubble;
+    private TextView tourEyebrow, tourTitle, tourBody, quickMirror, rowHelp;
+    private int strokeCount;
+    /** How long a tour bubble stays before it fades unanswered. */
+    private static final long TOUR_SHOW_MS = 16_000;
     private TextView introBody, introButton;
     private boolean permissionPending, openSettingsInstead, askedNotificationAccess;
     private final List<TextView> sourceChips = new ArrayList<>();
@@ -193,6 +200,8 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         prefs = getSharedPreferences("tav", MODE_PRIVATE);
         firstRun = getSharedPreferences("tav_state", MODE_PRIVATE);
         if (!firstRun.contains("first_open_at")) firstRun.edit().putLong("first_open_at", System.currentTimeMillis()).apply();
+        tour = new Tour(Tour.PHONE);
+        tour.load(firstRun.getString("tour", null));
         looks = new LookStore(this);
         profiles = new ProfileStore(this);
         cloud = Cloud.get(this);   // before buildOverlay, which asks cloud.enabled() for the Account row
@@ -233,6 +242,11 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
             @Override
             public void onLongPress() {
                 togglePanel();
+            }
+
+            @Override
+            public void onGesture(int kind) {
+                tourDid(kind == TavView.GESTURE_TAP ? "tap" : kind == TavView.GESTURE_SCENE ? "scene" : "pinch");
             }
         });
 
@@ -285,6 +299,9 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     protected void onStart() {
         super.onStart();
         visible = true;
+        tour.start(System.currentTimeMillis());
+        ui.removeCallbacks(tourTick);
+        ui.postDelayed(tourTick, 2000);
         NowPlayingNudge.tavVisible = true;
         NowPlayingNudge.cancel(this);   // TAV is on screen: the offer to open it is moot
         view.onResume();
@@ -352,6 +369,14 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         if (dm != null) dm.unregisterDisplayListener(displayListener);
         NowPlayingNudge.tavVisible = false;
         ui.removeCallbacks(showHint);   // otherwise the hint loop keeps waking the CPU in the background
+        ui.removeCallbacks(tourTick);
+        ui.removeCallbacks(tourFade);
+        if (tourBubble.getVisibility() == View.VISIBLE) {   // whatever was up comes back another time
+            tour.hid(System.currentTimeMillis());
+            tourBubble.animate().cancel();
+            tourBubble.setAlpha(0f);
+            tourBubble.setVisibility(View.GONE);
+        }
         savePainting();
         view.onPause();
         capture.stop();
@@ -460,6 +485,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         ui.post(() -> {
             prefs.edit().putInt("scene", scene).apply();
             loadSceneSettings(scene);   // the scene's own colours, if it has any
+            if (Scene.ALL[scene].paint()) tourDid("canvas");
             sceneLabel.setText(spaced(Scene.ALL[scene].name));
             sceneLabel.animate().cancel();
             sceneLabel.setAlpha(1f);
@@ -519,9 +545,12 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     @Override
     public void onStrokesChanged(int count) {
         ui.post(() -> {
+            boolean grew = count > strokeCount;
+            strokeCount = count;
             strokesOnScreen = count > 0;
             if (strokesOnScreen && onCanvas() && hint.getAlpha() > 0f) hint.animate().alpha(0f).setDuration(400).start();
             refreshQuick();
+            if (grew) onStrokeDrawn();
         });
     }
 
@@ -579,8 +608,9 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         trackBox.animate().alpha(trackAlpha()).translationY(0).setDuration(900).start();
         ui.removeCallbacks(hideTrack);
         ui.postDelayed(hideTrack, 7000);
-        int shown = firstRun.getInt("title_hints", 0);   // the swipe nobody guesses: said with the first few songs
-        if (shown < 3 && intro == null) {
+        tour.cue("title");   // the swipe nobody guesses: the tour says it while the title is up
+        int shown = firstRun.getInt("title_hints", 0);
+        if (tour.isOff() && shown < 3 && intro == null) {   // the tour was skipped: the old one-liner, for the first few songs
             firstRun.edit().putInt("title_hints", shown + 1).apply();
             showHintNow("Swipe the title for the next track  \u00B7  tap it to pause");
         }
@@ -736,6 +766,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     /** Glass card with the current scene's three sliders; every change shows on the scene at once. */
     private void showTune() {
         if (tuneCard != null) return;
+        tourDid("tune");
         final int s = Math.max(0, Math.min(Scene.ALL.length - 1, prefs.getInt("scene", 0)));
         final Scene sc = Scene.ALL[s];
         tuneScene = s;
@@ -956,6 +987,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         root.addView(menuButton, lp);
 
         buildQuickBar();
+        buildTourBubble();
         buildSheet();
         buildPaintBar();
     }
@@ -971,7 +1003,10 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         quickBar.setBackground(glass(0x66000000, 24));
         quickBar.setPadding(px(4), 0, px(4), 0);
         quickBar.setAlpha(0f);
-        quickBar.addView(quickButton("\u2039", "Previous scene", v -> view.queueEvent(() -> renderer.nextScene(-1))));
+        quickBar.addView(quickButton("\u2039", "Previous scene", v -> {
+            view.queueEvent(() -> renderer.nextScene(-1));
+            tourDid("scene");
+        }));
         quickScene = flat(12.5f, Color.WHITE, false);
         quickScene.setLetterSpacing(0.2f);
         quickScene.setGravity(Gravity.CENTER);
@@ -984,11 +1019,18 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
             showScenes();
         });
         quickBar.addView(quickScene);
-        quickBar.addView(quickButton("\u203A", "Next scene", v -> view.queueEvent(() -> renderer.nextScene(1))));
+        quickBar.addView(quickButton("\u203A", "Next scene", v -> {
+            view.queueEvent(() -> renderer.nextScene(1));
+            tourDid("scene");
+        }));
         quickBar.addView(divider());
         quickPause = quickButton("\u275A\u275A", "Pause the visuals", v -> setFrozen(!frozen));
         quickBar.addView(quickPause);
         quickBar.addView(quickButton("\u2684", "Shuffle the colours", v -> shuffleColours()));
+        quickMirror = quickButton("\u00D71", "Mirror", v -> cycleMirror());   // the copies of a drawing, where the drawing happens
+        quickMirror.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13.5f);
+        quickMirror.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        quickBar.addView(quickMirror);
         quickUndo = quickButton("\u21B6", "Undo the last drawing", v -> undoDrawing());
         quickUndo.setVisibility(View.GONE);
         quickBar.addView(quickUndo);
@@ -1026,6 +1068,13 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     }
 
     private void refreshQuick() {
+        if (quickMirror != null) {
+            int sym = prefs.getInt("sym", 1);
+            quickMirror.setText("\u00D7" + Math.max(1, sym));
+            quickMirror.setAlpha(sym > 1 ? 1f : 0.6f);
+            quickMirror.setContentDescription(sym > 1 ? "Mirror: the drawing is repeated " + sym + " times. Tap to change."
+                    : "Mirror off: one line. Tap to repeat the drawing around the centre.");
+        }
         if (quickClear != null) quickClear.setVisibility(strokesOnScreen ? View.VISIBLE : View.GONE);
         if (quickUndo != null) quickUndo.setVisibility(strokesOnScreen ? View.VISIBLE : View.GONE);
         if (quickPause != null) {
@@ -1139,7 +1188,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         rowSound = row(list, "Sound", this::showSound);
         rowDisplay = row(list, "Display", this::showDisplay);
         if (cloud.enabled()) rowAccount = row(list, "Account", this::showAccount);
-        row(list, "Gestures and help", this::showHelp);
+        rowHelp = row(list, "Gestures and help", this::showHelp);
         TextView exit = row(list, "Exit Funkle", this::exitApp);
         exit.setText("everything stops");
         home.addView(list);
@@ -1251,7 +1300,10 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
 
     /** The home page shows what is set: tile pictures and values, row values. Cheap, so it runs after every change. */
     private void refreshHome() {
+        refreshQuick();   // the ×n badge follows the scene's own mirror too
         if (sheet == null) return;
+        if (rowHelp != null) rowHelp.setText(tour.isOff() ? "tour off" : tour.doneCount() >= tour.size() ? "tour done"
+                : "tour " + tour.doneCount() + "/" + tour.size());
         int s = clampScene(prefs.getInt("scene", 0)), pal = prefs.getInt("palette", Palettes.ALBUM);
         ((TextView) tileScenes[2]).setText(Scene.ALL[s].name + (tuneMoved(Scene.ALL[s]) ? " · tuned" : ""));
         ((ImageView) tileScenes[1]).setImageBitmap(thumb(Scene.ALL[s].id));
@@ -1377,6 +1429,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
                 Sheet.tick(v);
                 markScene(idx);
                 view.queueEvent(() -> renderer.setScene(idx));
+                tourDid("scene");
                 pokeMenu();
             });
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, px(132), 1f);
@@ -1417,6 +1470,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
 
     /** Colours: the palettes as swatches, Shuffle, the Custom editor, and the colour motion. */
     private void showColours() {
+        tourDid("shuffle");
         LinearLayout box = pageBox();
         box.addView(label("Palette"));
         paletteSwatches.clear();
@@ -1532,6 +1586,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     }
 
     private void showAutopilot() {
+        tourDid("autopilot");
         LinearLayout box = pageBox();
         addRow(box, "Autopilot", Autopilot.MODE_NAMES, autopilotMode(), autoChips, i -> {
             setAutopilotMode(i);
@@ -1558,11 +1613,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         String[] syms = {"Off", "2", "3", "4", "6", "8", "12"};
         int symSel = 0;
         for (int i = 0; i < SYMMETRY.length; i++) if (SYMMETRY[i] == prefs.getInt("sym", 1)) symSel = i;
-        addRow(box, "Mirror · copies of the drawing, like a mandala", syms, symSel, mirrorChips, i -> {
-            prefs.edit().putInt("sym", SYMMETRY[i]).apply();
-            view.queueEvent(() -> renderer.setSymmetry(SYMMETRY[i]));
-            refreshHome();
-        });
+        addRow(box, "Mirror · copies of every stroke, like a mandala; the \u00D7n at the bottom is the same setting", syms, symSel, mirrorChips, this::setMirror);
         LinearLayout actions = new LinearLayout(this);
         actions.setPadding(0, px(12), 0, 0);
         actions.addView(chip("\u21B6  Undo", false, v -> undoDrawing()));
@@ -1648,6 +1699,40 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
 
     private void showHelp() {
         LinearLayout box = pageBox();
+        box.addView(label(tour.isOff() ? "The tour is off" : tour.doneCount() >= tour.size() ? "The tour: all found"
+                : "The tour \u00B7 " + (tour.size() - tour.doneCount()) + " to find"));
+        for (Tour.Step st : tour.steps()) {
+            boolean found = tour.isDone(st.id);
+            LinearLayout r = new LinearLayout(this);
+            r.setPadding(0, px(5), 0, px(5));
+            TextView mark = flat(14, found ? 0xFF7CF2C4 : 0x66FFFFFF, true);
+            mark.setText(found ? "\u2713" : "\u25CB");
+            mark.setMinWidth(px(26));
+            r.addView(mark);
+            TextView name = flat(14.5f, found ? Color.WHITE : 0x99FFFFFF, false);
+            name.setText(st.title.replace("{n}", String.valueOf(prefs.getInt("sym", 1))).replace("{scenes}", String.valueOf(Scene.ALL.length)));
+            r.addView(name, new LinearLayout.LayoutParams(0, -2, 1f));
+            box.addView(r);
+        }
+        LinearLayout tourActions = new LinearLayout(this);
+        tourActions.setPadding(0, px(10), 0, px(14));
+        tourActions.addView(chip(tour.isOff() ? "Start the tour" : "Start the tour again", true, v -> {
+            tour.restart(System.currentTimeMillis());
+            firstRun.edit().putString("tour", tour.save()).apply();
+            cloud.track("tour_restart", "from", "help");
+            closeAll();   // back to the light: the first bubble follows in a moment
+        }));
+        if (!tour.isOff() && tour.doneCount() < tour.size()) {
+            TextView stop = chip("Stop the tour", false, v -> {
+                tourSkip();
+                closeAll();
+            });
+            LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(-2, -2);
+            slp.leftMargin = px(8);
+            tourActions.addView(stop, slp);
+        }
+        box.addView(tourActions);
+        box.addView(label("Gestures"));
         String[][] lines = {
                 {"Tap", "a ripple"},
                 {"Drag", "draw a line that sings"},
@@ -1655,6 +1740,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
                 {"Long-press", "this menu"},
                 {"Song title", "swipe it to skip, tap it to pause"},
                 {"‹ › at the bottom", "scene, shuffle colours, clear the drawing"},
+                {"×n at the bottom", "how many times a drawing is repeated"},
         };
         for (String[] l : lines) {
             LinearLayout r = new LinearLayout(this);
@@ -1780,6 +1866,11 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
 
     private void showPanel(boolean show) {
         if (show) {
+            tourDid("menu");
+            if (tourBubble.getVisibility() == View.VISIBLE) {   // the sheet explains things now; the bubble comes back later
+                tour.hid(System.currentTimeMillis());
+                hideTourBubble(false);
+            }
             refreshHome();
             sheet.show();
             hint.setVisibility(View.INVISIBLE);   // the sheet explains things now
@@ -2467,21 +2558,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     private void removeIntro() {
         if (intro != null) root.removeView(intro);
         intro = null;
-        introBody = introButton = null;
-        ui.postDelayed(this::showGestureCoach, 1500);
-    }
-
-    /** Once, after the first-run card: the gestures nobody would guess, on a card over the running visuals. */
-    private void showGestureCoach() {
-        if (firstRun.getBoolean("coached", false) || notice != null || intro != null) return;
-        firstRun.edit().putBoolean("coached", true).apply();
-        notice = card("Three moves",
-                "Swipe with two fingers for the next scene.\n\n"
-                        + "Swipe the song title for the next track; tap it to pause the music.\n\n"
-                        + "Drag one finger to draw with sound. Long-press, or \u2630, for the menu.",
-                "Got it", this::dismissNotice, this::dismissNotice);
-        TextView[] parts = (TextView[]) notice.getTag();
-        parts[0].setGravity(Gravity.START);
+        introBody = introButton = null;   // the tour (tourTick) takes it from here, one move at a time
     }
 
     /**
@@ -2503,6 +2580,167 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     private void dismissNotice() {
         if (notice != null) root.removeView(notice);
         notice = null;
+    }
+
+    // ------------------------------------------------------------------ the tour (Tour.java)
+
+    /** Every two seconds while on screen: is it time for the next step? */
+    private final Runnable tourTick = new Runnable() {
+        @Override
+        public void run() {
+            if (!visible) return;
+            ui.postDelayed(this, 2000);
+            Tour.Step s = tour.pick(System.currentTimeMillis(), tourBusy());
+            if (s != null) showTourStep(s);
+        }
+    };
+    /** The bubble stayed unanswered: it fades, and comes back another time (at most twice). */
+    private final Runnable tourFade = () -> {
+        tour.hid(System.currentTimeMillis());
+        hideTourBubble(false);
+    };
+
+    /** Nothing explains itself over a card, the menu or a frozen picture. */
+    private boolean tourBusy() {
+        return intro != null || notice != null || sheet.shown() || frozen || tourBubble.getVisibility() == View.VISIBLE;
+    }
+
+    /** The tour's bubble: above the quick bar, never modal. "Got it", or doing the thing, dismisses it. */
+    private void buildTourBubble() {
+        tourBubble = new LinearLayout(this);
+        tourBubble.setOrientation(LinearLayout.VERTICAL);
+        tourBubble.setBackground(glass(0xE60B0B14, 20));
+        tourBubble.setPadding(px(18), px(14), px(18), px(6));
+        tourBubble.setClickable(true);   // touches on the bubble don't fall through to the visuals
+        tourBubble.setVisibility(View.GONE);
+        tourBubble.setAlpha(0f);
+        tourEyebrow = flat(10.5f, 0x99FFFFFF, true);
+        tourEyebrow.setLetterSpacing(0.18f);
+        tourBubble.addView(tourEyebrow);
+        tourTitle = flat(17, Color.WHITE, true);
+        tourTitle.setPadding(0, px(3), 0, 0);
+        tourBubble.addView(tourTitle);
+        tourBody = flat(14, 0xD9FFFFFF, false);
+        tourBody.setLineSpacing(0, 1.25f);
+        tourBody.setPadding(0, px(4), 0, px(8));
+        tourBubble.addView(tourBody);
+        LinearLayout actions = new LinearLayout(this);
+        actions.setGravity(Gravity.CENTER_VERTICAL);
+        TextView skip = flat(13, 0x99FFFFFF, false);
+        skip.setText("Skip the tour");
+        skip.setPadding(px(2), px(10), px(16), px(10));
+        skip.setOnClickListener(v -> tourSkip());
+        actions.addView(skip, new LinearLayout.LayoutParams(0, -2, 1f));
+        actions.addView(chip("Got it", true, v -> tourGotIt()));
+        tourBubble.addView(actions);
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+        lp.setMargins(px(20), 0, px(20), px(168));
+        root.addView(tourBubble, lp);
+    }
+
+    /** A step's words for this moment: the mirror count, the scene count, whether the autopilot is on. */
+    private String[] tourWords(Tour.Step s) {
+        int sym = prefs.getInt("sym", 1);
+        String title = s.title, body = s.body;
+        if (s.id.equals("mirror") && sym <= 1) {
+            title = "One line, as you drew it";
+            body = "Tap \u00D71 at the bottom to repeat your drawing around the centre: 2, 3, 4, 6, 8 or 12 copies, like a mandala.";
+        } else if (s.id.equals("autopilot") && autopilotMode() == 0) {
+            body = "Turn it on in the menu: it changes scenes with the music's energy and waits for the drop. Your own picks always win.";
+        }
+        String n = String.valueOf(Math.max(1, sym)), scenes = String.valueOf(Scene.ALL.length);
+        return new String[]{title.replace("{n}", n).replace("{scenes}", scenes), body.replace("{n}", n).replace("{scenes}", scenes)};
+    }
+
+    private void showTourStep(Tour.Step s) {
+        tour.shown(s, System.currentTimeMillis());
+        firstRun.edit().putString("tour", tour.save()).apply();
+        String[] words = tourWords(s);
+        int left = tour.size() - tour.doneCount();
+        tourEyebrow.setText(tour.doneCount() == 0 ? "TRY THIS" : "TRY THIS  \u00B7  " + left + (left == 1 ? " MORE TO FIND" : " MORE TO FIND"));
+        tourTitle.setText(words[0]);
+        tourBody.setText(words[1]);
+        tourBubble.animate().cancel();
+        tourBubble.animate().setStartDelay(0);
+        tourBubble.setVisibility(View.VISIBLE);
+        tourBubble.setTranslationY(px(14));
+        tourBubble.animate().alpha(1f).translationY(0).setDuration(500).start();
+        ui.removeCallbacks(tourFade);
+        ui.postDelayed(tourFade, TOUR_SHOW_MS);
+        cloud.track("tour_shown", "step", s.id);
+    }
+
+    /** Takes the bubble down; with a tick it says "found it" first. */
+    private void hideTourBubble(boolean ticked) {
+        ui.removeCallbacks(tourFade);
+        if (tourBubble.getVisibility() != View.VISIBLE) return;
+        if (ticked) tourEyebrow.setText("\u2713  FOUND IT");
+        tourBubble.animate().cancel();
+        tourBubble.animate().setStartDelay(ticked ? 900 : 0).alpha(0f).setDuration(450).withEndAction(() -> {
+            tourBubble.setVisibility(View.GONE);
+            tourBubble.animate().setStartDelay(0);
+        }).start();
+    }
+
+    /** The user did the thing a step is about (from anywhere in the app): it is found, and the bubble, if up, says so. */
+    private void tourDid(String id) {
+        if (tour == null || tour.isDone(id)) return;
+        boolean up = tour.did(id, System.currentTimeMillis());
+        firstRun.edit().putString("tour", tour.save()).apply();
+        if (up) hideTourBubble(true);
+        if (sheet != null && sheet.shown()) refreshHome();
+        cloud.track("tour_done", "step", id);
+    }
+
+    private void tourGotIt() {
+        Tour.Step c = tour.current();
+        if (c != null) {
+            tour.did(c.id, System.currentTimeMillis());
+            firstRun.edit().putString("tour", tour.save()).apply();
+            cloud.track("tour_done", "step", c.id + ":got_it");
+        }
+        hideTourBubble(false);
+    }
+
+    private void tourSkip() {
+        tour.skip();
+        firstRun.edit().putString("tour", tour.save()).apply();
+        hideTourBubble(false);
+        cloud.track("tour_skip", "found", tour.doneCount());
+        showHintNow("The tour is off. Start it again under \u2630 \u2192 Gestures and help.");
+    }
+
+    /** A stroke or a shape just landed: drawing is found, and the mirror explains itself right after. */
+    private void onStrokeDrawn() {
+        tourDid("draw");
+        if (!tour.isDone("mirror")) {
+            if (!tour.isOff()) tour.cue("mirror");
+            else if (prefs.getInt("sym", 1) > 1 && !firstRun.getBoolean("mirror_told", false)) {   // the tour was skipped: say it once anyway
+                int sym = prefs.getInt("sym", 1);
+                firstRun.edit().putBoolean("mirror_told", true).apply();
+                showHintNow("Your line is drawn " + sym + " times  \u00B7  tap \u00D7" + sym + " at the bottom to change it");
+            }
+        }
+        pokeMenu();   // the ×n badge is on screen as the copies appear
+    }
+
+    /** The ×n badge in the quick bar: the next mirror count, round and round. */
+    private void cycleMirror() {
+        int sym = prefs.getInt("sym", 1), idx = 0;
+        for (int i = 0; i < SYMMETRY.length; i++) if (SYMMETRY[i] == sym) idx = i;
+        setMirror((idx + 1) % SYMMETRY.length);
+    }
+
+    /** The mirror count by index into SYMMETRY, from the badge or the Draw page; shown at the top as it changes. */
+    private void setMirror(int idx) {
+        final int sym = SYMMETRY[idx];
+        prefs.edit().putInt("sym", sym).apply();
+        view.queueEvent(() -> renderer.setSymmetry(sym));
+        view.requestRender();
+        select(mirrorChips, idx);
+        refreshHome();
+        flash(spaced(sym <= 1 ? "Mirror off" : "Mirror \u00D7" + sym));
+        tourDid("mirror");
     }
 
     /** Swipe the on-screen song title to skip, tap it to play or pause. Invisible: lets touches through. */
@@ -3172,6 +3410,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
 
     /** Three random colours that go together, into the Custom slot (menu → Colours → Shuffle, or the editor). */
     private void shuffleColours() {
+        tourDid("shuffle");
         System.arraycopy(Palettes.shuffle(rnd), 0, custom, 0, 3);
         saveCustom();
         prefs.edit().putInt("palette", Palettes.CUSTOM).apply();
@@ -3233,6 +3472,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     /** Looks → Save this look: a name (suggested from scene and colours), Save, Save and share. */
     private void showSaveLook() {
         if (looksCard != null) return;
+        tourDid("looks");
         final Look look = captureLook();
         int pal = prefs.getInt("palette", Palettes.ALBUM);
         String colours = pal == Palettes.ALBUM ? (lastTitle.isEmpty() ? "Album" : lastTitle) : pal == Palettes.CUSTOM ? "my colours" : Palettes.NAMES[pal];
@@ -3286,6 +3526,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     /** Looks → My looks: tap a name to apply it; Share and ✕ per Look. */
     private void showLooks() {
         if (looksCard != null) return;
+        tourDid("looks");
         LinearLayout box = cardBox("Looks");
         note(box, "A look is everything on screen: scene, colours and their motion, mirror, brightness, motion and equalizer. Save one, and bring it back or share it as a link or a six-letter code.");
         LinearLayout actions = new LinearLayout(this);
@@ -3496,8 +3737,11 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
                     tracking = false;
                     float dx = e.getRawX() - x0, dy = e.getRawY() - y0;
                     float slop = ViewConfiguration.get(MainActivity.this).getScaledTouchSlop();
+                    boolean used = true;
                     if (Math.abs(dx) > 56 * dp && Math.abs(dx) > 1.5f * Math.abs(dy)) skip(dx < 0);
                     else if (Math.hypot(dx, dy) < slop) v.performClick();
+                    else used = false;
+                    if (used) tourDid("title");
                     if (!titleAlways) {   // using it keeps it around a little longer
                         ui.removeCallbacks(hideTrack);
                         ui.postDelayed(hideTrack, 5000);

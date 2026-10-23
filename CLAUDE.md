@@ -9,8 +9,8 @@ which loads the Android shaders). README.md is the user-facing description. Open
 
 - `android/src/io/github/christianernst/tav/`
   - `MainActivity.java`: all UI is built in code (no XML layouts). It holds the intro and permission
-    cards, the first-run gesture card (`showGestureCoach`), the menu, the quick bar (`buildQuickBar`: scene
-    ‹ ›, pause the visuals (`setFrozen`, render mode WHEN_DIRTY), shuffle, clear the drawing; it shows with the
+    cards, the guided introduction (see `Tour.java`), the menu, the quick bar (`buildQuickBar`: scene
+    ‹ ›, pause the visuals (`setFrozen`, render mode WHEN_DIRTY), shuffle, clear the drawing, and the ×n mirror badge; it shows with the
     ☰ button on any touch and fades with it), the song-title overlay and gestures. The menu is a bottom
     sheet (`Sheet.java`: a page stack with a header, drag-to-close handle, haptics via `Sheet.tick`, and
     `setGhost` which makes it see-through while a slider is dragged). `buildSheet` makes the home page: now
@@ -89,6 +89,17 @@ which loads the Android shaders). README.md is the user-facing description. Open
     dot. The paint bar over the picture (`buildPaintBar`: six swatches and the brush) and the Paint page (`showPaint`,
     prefs `paint_tool`, `paint_size`, `paint_swatch`, `paint_own`) are the tools; the autopilot skips the scene.
     `web/tools/paint-check.js` plays the tools in headless Chromium and makes the scene's thumbnail for `thumbs.sh`.
+  - `Tour.java`: the guided introduction. Pure Java: a step table (`PHONE`: draw, mirror, tap, scene, canvas, title, menu,
+    shuffle, pinch, autopilot, tune, looks; `{n}` and `{scenes}` are filled by the host), one step at a time on a
+    bubble above the quick bar (`buildTourBubble`, `showTourStep`, `tourTick` every 2 s while on screen), shown at
+    its moment (`cue`: the first stroke, a new title) or from the clock (one per `GAP_MS`), done when the user does
+    the thing (`tourDid(id)` is called from the gestures (`TavView.Gestures.onGesture`), the quick bar and the pages)
+    or taps Got it; a step ignored `MAX_SHOWS` times stops coming back. Skip turns it off; "Gestures and help" lists
+    every step with a tick and restarts it. State in prefs `tav_state` key `tour` (`Tour.save()`). The ×n badge in the
+    quick bar (`quickMirror`, `cycleMirror`/`setMirror`) shows the mirror count wherever drawing happens; with the
+    tour off, the first mirrored stroke still gets a one-line hint (`mirror_told`). `web/tour.js` is the same class
+    with the browser's table (`TOUR_STEPS`); `TourCheck` and `web/tools/tour-check.js` run the same cases.
+
   - `CrashLog.java`: the default uncaught-exception handler, installed first thing in `onCreate`. It writes the
     trace to `files/last-crash.txt`; the next launch shows it on a card with a Copy button (`showCrash`), since the
     owner tests without adb. The `cloud` field is created in `onCreate` before `buildOverlay` (the Account row asks
