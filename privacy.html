@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>TAV privacy policy</title>
+<title>Funkle privacy policy</title>
 <link rel="icon" href="docs/brand/icon-96.png">
 <style>
   :root { color-scheme: dark; }
@@ -21,10 +21,10 @@
 </head>
 <body>
 <main>
-<h1>TAV privacy policy</h1>
-<p class="meta">Effective 23 October 2026 · applies to the TAV Android app and the TAV web page</p>
+<h1>Funkle privacy policy</h1>
+<p class="meta">Effective 23 October 2026 · applies to the Funkle Android app and web page (the app was called TAV until October 2026; the package id <code>io.github.christianernst.tav</code> is unchanged)</p>
 
-<p>TAV turns the music playing on your device into light. It is built so that the music itself never leaves your device, and so that the app works fully without an account. This page says what the app does see, what it stores, and how you get rid of it.</p>
+<p>Funkle turns the music playing on your device into light. It is built so that the music itself never leaves your device, and so that the app works fully without an account. This page says what the app does see, what it stores, and how you get rid of it.</p>
 
 <h2>The short version</h2>
 <ul>
@@ -36,10 +36,10 @@
 </ul>
 
 <h2>Audio</h2>
-<p>On Android, TAV listens to the device's audio output through Android's <code>Visualizer</code> interface, or to the microphone if you choose that, which is why it asks for the <em>record audio</em> permission. The samples are turned into levels, bands and beats on the device and are discarded frame by frame. Nothing is recorded, nothing is sent. In the browser, TAV uses the Web Audio API on a file or stream you pick, again entirely on your device.</p>
+<p>On Android, Funkle listens to the device's audio output through Android's <code>Visualizer</code> interface, or to the microphone if you choose that, which is why it asks for the <em>record audio</em> permission. The samples are turned into levels, bands and beats on the device and are discarded frame by frame. Nothing is recorded, nothing is sent. In the browser, Funkle uses the Web Audio API on a file or stream you pick, again entirely on your device.</p>
 
 <h2>Now playing</h2>
-<p>With your permission (Android's <em>notification access</em>), TAV reads the media session of your music player, such as Spotify, to show the song title and progress, to colour the visuals from the album art, and, if you turn that on, to offer a silent notification when music starts. That data is used on the device and is not sent to our servers or anyone else. TAV does not use the Spotify API and has no access to your Spotify account.</p>
+<p>With your permission (Android's <em>notification access</em>), Funkle reads the media session of your music player, such as Spotify, to show the song title and progress, to colour the visuals from the album art, and, if you turn that on, to offer a silent notification when music starts. That data is used on the device and is not sent to our servers or anyone else. Funkle does not use the Spotify API and has no access to your Spotify account.</p>
 
 <h2>Accounts</h2>
 <p>When the cloud is enabled, the app signs in anonymously on first start and is given a random account id. If you add an email address (magic link) or sign in with Google, that same account becomes yours. From Google we receive only your email address and basic profile (name, picture), which we use to identify your account. Supabase, our authentication and database provider, processes this on our behalf. We do not read your contacts, calendar, Drive or anything else.</p>
@@ -51,7 +51,7 @@
 <tr><td>Saved looks (a name and the colours and settings of a look)</td><td>Your shelf of looks</td><td>Only you, unless you share a look, which gives it a public six-letter code</td></tr>
 <tr><td>Usage events: scene changed, setting changed, look saved or shared, session started and ended, with timestamps, app version and a session id</td><td>To learn which scenes and settings people use, and to improve the app</td><td>Only the developer, in aggregate. Clients cannot read them back</td></tr>
 </table>
-<p>Usage events never contain audio, song titles, artists, your location or the contents of any other app. Collection can be turned off at any time with the <em>Help improve TAV with anonymous usage stats</em> switch in the account card, and <em>Delete my usage history</em> removes what was collected so far.</p>
+<p>Usage events never contain audio, song titles, artists, your location or the contents of any other app. Collection can be turned off at any time with the <em>Help improve Funkle with anonymous usage stats</em> switch in the account card, and <em>Delete my usage history</em> removes what was collected so far.</p>
 
 <h2>Where it is stored</h2>
 <p>All cloud data is stored by Supabase in the <code>eu-west-1</code> region (Ireland, European Union). Transfers between the app and the servers are encrypted (HTTPS). Row-level security on the database means each account can only read and write its own rows.</p>
@@ -68,13 +68,13 @@
 </ul>
 
 <h2>Children</h2>
-<p>TAV is not directed at children under 13 and does not knowingly collect data from them.</p>
+<p>Funkle is not directed at children under 13 and does not knowingly collect data from them.</p>
 
 <h2>Changes</h2>
 <p>If this policy changes, the new version is published at this address with a new effective date. The source of this page is in the app's public repository, so every change is visible in its history.</p>
 
 <h2>Contact</h2>
-<p>TAV is made by Christian Ernst, Norway. Questions and requests: the support address shown on the sign-in screen, or <a href="https://github.com/Christian-Ernst/TAV/issues">an issue on GitHub</a>.</p>
+<p>Funkle is made by Christian Ernst, Norway. Questions and requests: the support address shown on the sign-in screen, or <a href="https://github.com/Christian-Ernst/TAV/issues">an issue on GitHub</a>.</p>
 </main>
 </body>
 </html>

@@ -50,7 +50,7 @@ final class CrashLog {
         }
         StringWriter sw = new StringWriter();
         PrintWriter pw = new PrintWriter(sw);
-        pw.println("TAV " + version + " on Android " + android.os.Build.VERSION.RELEASE
+        pw.println("Funkle " + version + " on Android " + android.os.Build.VERSION.RELEASE
                 + " (" + android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL + "), thread " + thread.getName());
         e.printStackTrace(pw);
         pw.flush();

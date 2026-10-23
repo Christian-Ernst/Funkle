@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>TAV Visualizer</title>
+<title>Funkle</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="icon" type="image/png" sizes="96x96" href="../docs/brand/icon-96.png">
 <link rel="apple-touch-icon" href="../docs/brand/icon-192.png">
@@ -145,7 +145,7 @@
 <canvas id="stage" aria-label="Audio visualizer. Tap for a burst, drag to draw, pinch to zoom."></canvas>
 
 <header class="chrome">
-  <h1 class="mark">TAV<small>Termux Audio Visualizer</small></h1>
+  <h1 class="mark">Funkle<small>Your music, turned into light</small></h1>
   <div class="meters" aria-hidden="true">
     <span>30–150 Hz</span><span class="bar"><i id="m0"></i></span>
     <span>150–600 Hz</span><span class="bar"><i id="m1"></i></span>
@@ -166,7 +166,7 @@
   </div>
   <div class="row" id="sharedRow" hidden>
     <button id="keepLook" type="button">Keep this look</button>
-    <a id="openApp" hidden><button type="button">Open in the TAV app</button></a>
+    <a id="openApp" hidden><button type="button">Open in the Funkle app</button></a>
   </div>
   <p>Tap for a burst · drag to draw and stir · pinch to zoom · swipe or ← → for scenes</p>
 </section>
@@ -222,7 +222,7 @@
 
 <section class="sheet" id="sheet" hidden role="dialog" aria-labelledby="sheetTitle">
   <button class="close" id="sheetClose" type="button" aria-label="Close">✕</button>
-  <h2 id="sheetTitle">Your TAV</h2>
+  <h2 id="sheetTitle">Your Funkle</h2>
   <div class="stats" id="stats" hidden>
     <div><b id="stStreak">0</b><span>day streak</span></div>
     <div><b id="stDays">0</b><span>days this week</span></div>
@@ -234,7 +234,7 @@
     <button id="sendLink" type="button" class="primary">Email me a link</button>
     <button id="google" type="button">Google</button>
   </div>
-  <label class="check"><input type="checkbox" id="analytics" checked> Help improve TAV with anonymous usage stats</label>
+  <label class="check"><input type="checkbox" id="analytics" checked> Help improve Funkle with anonymous usage stats</label>
   <div class="row">
     <button id="signOut" type="button" hidden>Sign out</button>
     <button id="forget" type="button" hidden>Delete my usage history</button>
@@ -738,11 +738,11 @@ async function shareLook(e) {
     try { const row = await TavCloud.presets.publish(e.cloudId, true); if (row && row.code) { TavLooks.update(e.id, { code: row.code }); e.code = row.code; } } catch (err) { /* no code, the link still works */ }
   }
   const url = TavLooks.shareUrl(e.doc, e.code);
-  const text = 'My TAV look “' + e.doc.name + '”' + (e.code ? ' · code ' + e.code : '');
+  const text = 'My Funkle look “' + e.doc.name + '”' + (e.code ? ' · code ' + e.code : '');
   TavCloud.track('look_shared', { preset_id: e.cloudId || null, channel: e.code ? 'code' : 'link' });
   renderLooks();
   try {
-    if (navigator.share) { await navigator.share({ title: 'TAV look: ' + e.doc.name, text, url }); return; }
+    if (navigator.share) { await navigator.share({ title: 'Funkle look: ' + e.doc.name, text, url }); return; }
   } catch (err) { if (err.name === 'AbortError') return; }
   try { await navigator.clipboard.writeText(text + '\n' + url); toast('Link copied'); }
   catch (err) { prompt('Copy this link', url); }
@@ -751,7 +751,7 @@ async function shareLook(e) {
 async function openLookText(s, fromUrl) {
   const code = TavLooks.codeIn(s), inline = TavLooks.decode(TavLooks.payloadIn(s));
   if (inline) { receiveLook(inline, code, null, fromUrl); return true; }
-  if (!code) { if (!fromUrl) toast('Not a TAV code or link'); return false; }
+  if (!code) { if (!fromUrl) toast('Not a Funkle code or link'); return false; }
   if (!TavCloud.enabled) { toast('Codes need the cloud; ask for the whole link'); return false; }
   try {
     const row = await TavCloud.presets.byCode(code);
@@ -1029,7 +1029,7 @@ function resize() {
 async function boot() {
   gl = canvas.getContext('webgl2', { antialias: false, alpha: false, powerPreference: 'high-performance' });
   if (!gl) {
-    $('startText').textContent = 'This browser has no WebGL2, which TAV needs. Try a current Chrome, Firefox or Safari.';
+    $('startText').textContent = 'This browser has no WebGL2, which Funkle needs. Try a current Chrome, Firefox or Safari.';
     $('startText').className = 'err';
     $('playDemo').disabled = true;
     return;

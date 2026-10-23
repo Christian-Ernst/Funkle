@@ -1,6 +1,6 @@
 # TAV: notes for Claude
 
-A music visualizer with three editions sharing one audio engine: an Android app (`android/`, Java and
+A music visualizer, named **Funkle** since 2026-10-23 (user-facing strings, store listing, consent screen; the repository, the package id `io.github.christianernst.tav`, `TAV.apk`, the `tav://` links and the code keep TAV). Three editions share one audio engine: an Android app (`android/`, Java and
 GLES 3.0, no Gradle), a terminal edition for Termux (`termux/tav.c`) and a browser edition (`web/`,
 which loads the Android shaders). README.md is the user-facing description. Open work is in
 `docs/next-session.md`.
