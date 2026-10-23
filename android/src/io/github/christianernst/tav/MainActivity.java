@@ -74,7 +74,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     private LinearLayout trackBox, quickBar;
     private Sheet sheet;
     private View[] tileScenes, tileColours, tileLooks, tileAutopilot;   // {tile, picture, value}
-    private TextView rowTune, rowDraw, rowSound, rowDisplay, rowAccount, quickScene, quickPause;
+    private TextView rowProfile, rowTune, rowDraw, rowSound, rowDisplay, rowAccount, quickScene, quickPause;
     private View quickClear, quickUndo;
     private boolean strokesOnScreen, frozen;
     private final List<View> sceneTiles = new ArrayList<>(), paletteSwatches = new ArrayList<>();
@@ -90,6 +90,9 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     private SharedPreferences firstRun;   // first-run bookkeeping, kept out of the synced settings
     private LookStore looks;
     private View looksCard, incoming;   // Looks: save, list, open a code; a shared Look that just arrived
+    private ProfileStore profiles;
+    private View profileCard;           // Profiles: new, manage, rename
+    private boolean loadingPrefs;       // prefs are being written from a profile, a scene's own colours or the cloud: not the user's hand
     private TextView looksChip;
     private final java.util.Random rnd = new java.util.Random();
     private static float[] demoSamples;   // the built-in beat, made once per process
@@ -175,6 +178,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         firstRun = getSharedPreferences("tav_state", MODE_PRIVATE);
         if (!firstRun.contains("first_open_at")) firstRun.edit().putLong("first_open_at", System.currentTimeMillis()).apply();
         looks = new LookStore(this);
+        profiles = new ProfileStore(this);
         cloud = Cloud.get(this);   // before buildOverlay, which asks cloud.enabled() for the Account row
         titleAlways = prefs.getBoolean("titleAlways", false);
         equalizer = savedEqualizer();
@@ -191,6 +195,8 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
             if (prefs.contains("quality")) e.putInt("quality", qualityV3(prefs.getInt("quality", 1)));
             e.apply();
         }
+        // the first profile is whatever the app is set to now, so an update changes nothing on screen
+        if (profiles.isEmpty()) profiles.activate(profiles.add(captureProfile(ProfileStore.DEFAULT_NAME)));
         Window w = getWindow();
         w.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         if (Build.VERSION.SDK_INT >= 28) {
@@ -223,6 +229,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         buildOverlay();
         setContentView(root);
         applyPrefs();
+        prefs.registerOnSharedPreferenceChangeListener(scenePrefs);   // after applyPrefs: the start-up is not the user's hand
         if (!hasAudioPermission()) showIntro();
         startCloud(getIntent());
         handleLink(getIntent().getData());
@@ -355,6 +362,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         else if (accountCard != null) closeAccount(true);
         else if (colourCard != null) closeColourMotion(true);
         else if (looksCard != null) closeLooks(true);
+        else if (profileCard != null) closeProfiles(true);
         else if (incoming != null) dismissIncoming();
         else if (sheet.shown()) {
             if (sheet.depth() > 0) sheet.pop();
@@ -433,6 +441,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     public void onSceneChanged(int scene) {
         ui.post(() -> {
             prefs.edit().putInt("scene", scene).apply();
+            loadSceneSettings(scene);   // the scene's own colours, if it has any
             sceneLabel.setText(spaced(Scene.ALL[scene].name));
             sceneLabel.animate().cancel();
             sceneLabel.setAlpha(1f);
@@ -447,7 +456,9 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     @Override
     public void onAutopilotLook(Autopilot.Look look) {
         ui.post(() -> {
-            int pal = look.palette == null ? -1 : indexOf(Palettes.NAMES, look.palette);
+            // a scene the user gave colours of their own keeps them: the autopilot paints only the others
+            boolean owned = sceneOwned(prefs.getInt("scene", 0));
+            int pal = look.palette == null || owned ? -1 : indexOf(Palettes.NAMES, look.palette);
             if (pal >= 0) {   // shown, not saved: the user's own choice comes back when the autopilot stops painting
                 final float[][] p = paletteFor(pal);
                 view.queueEvent(() -> {
@@ -455,13 +466,13 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
                     renderer.setRainbow(pal == Palettes.RAINBOW);
                 });
             }
-            if (look.colourMode >= 0) {
+            if (look.colourMode >= 0 && !owned) {
                 final ColourDrive d = ColourDrive.preset(look.colourMode);
                 view.queueEvent(() -> renderer.setColourDrive(d));
             }
             StringBuilder label = new StringBuilder(Scene.ALL[look.scene >= 0 ? look.scene : Math.max(0, Math.min(Scene.ALL.length - 1, prefs.getInt("scene", 0)))].name);
             if (pal >= 0) label.append(" \u00b7 ").append(look.palette);
-            if (look.colourMode >= 0) label.append(" \u00b7 ").append(ColourDrive.MODE_NAMES[look.colourMode]);
+            if (look.colourMode >= 0 && !owned) label.append(" \u00b7 ").append(ColourDrive.MODE_NAMES[look.colourMode]);
             sceneLabel.setText(spaced(label.toString()));
             sceneLabel.animate().cancel();
             sceneLabel.setAlpha(1f);
@@ -1092,6 +1103,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         LinearLayout list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
         list.setPadding(0, px(14), 0, 0);
+        rowProfile = row(list, "Profile", this::showProfiles);
         rowTune = row(list, "Tune this scene", this::showTune);
         rowDraw = row(list, "Draw", this::showDraw);
         rowSound = row(list, "Sound", this::showSound);
@@ -1231,6 +1243,11 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
                 + " · " + QUALITY_NAMES[Math.max(0, Math.min(3, prefs.getInt("quality", TavRenderer.DEFAULT_QUALITY)))]
                 + (prefs.getInt("motion", 0) == 1 ? " · Calm" : ""));
         if (rowAccount != null) rowAccount.setText(cloud.anonymous() ? "Guest" : cloud.email());
+        if (rowProfile != null) {
+            ProfileStore.Entry active = profiles.active();
+            int count = profiles.all().size();
+            rowProfile.setText(active == null ? "" : active.name() + (count > 1 ? "  \u00B7  " + count : ""));
+        }
         if (quickScene != null) quickScene.setText(spaced(sc.name));
     }
 
@@ -1438,7 +1455,13 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
             else setColourDrive(ColourDrive.preset(i), i);
             refreshHome();
         });
-        note(box, "Album takes the colours from the cover of what is playing. Shuffle makes three colours that go together and keeps them under Custom.");
+        addRow(box, "This scene's colours \u00B7 every scene remembers its own colours, motion, mirror and sliders",
+                new String[]{"Use these for every scene", "Forget this scene's own"}, -1, null, i -> {
+                    if (i == 0) ownEverywhere();
+                    else forgetScene();
+                });
+        note(box, "Album takes the colours from the cover of what is playing. Shuffle makes three colours that go together and keeps them under Custom. "
+                + "The first colour you pick on a scene becomes that scene's own; a scene without its own shows whatever is on screen.");
         openCard("Colours", box);
     }
 
@@ -1611,7 +1634,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
             r.addView(b, new LinearLayout.LayoutParams(0, -2, 1.3f));
             box.addView(r);
         }
-        note(box, "A look is the scene, colours and their motion, mirror, brightness, motion and equalizer together. Share one as a link or a six-letter code.\n"
+        note(box, "A look is one scene with its colours, made to share as a link or a six-letter code. A profile is your whole set-up: every scene's own colours and sliders, brightness, motion, equalizer and autopilot.\n"
                 + "Album colours and the music-started nudge need notification access, used only to read what is playing.");
         openCard("Gestures and help", box);
     }
@@ -1704,6 +1727,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         else if (accountCard != null) closeAccount(false);
         else if (colourCard != null) closeColourMotion(false);
         else if (looksCard != null) closeLooks(false);
+        else if (profileCard != null) closeProfiles(false);
         else showPanel(!sheet.shown());
     }
 
@@ -1715,6 +1739,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         else if (accountCard != null) closeAccount(false);
         else if (colourCard != null) closeColourMotion(false);
         else if (looksCard != null) closeLooks(false);
+        else if (profileCard != null) closeProfiles(false);
         else showPanel(false);
     }
 
@@ -2237,6 +2262,9 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
                 showLooks();
             }
         }), 4500);
+        ui.postDelayed(() -> profiles.sync(cloud, (changed, err) -> {
+            if (changed) refreshProfileRow();
+        }), 6000);
     }
 
     private void endSession() {
@@ -2267,6 +2295,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     /** The cloud copy is newer: take it, keeping each key's type, and push it to the renderer. */
     private void applyRemoteSettings(JSONObject remote) {
         prefs.unregisterOnSharedPreferenceChangeListener(cloudPrefs);
+        loadingPrefs = true;
         SharedPreferences.Editor ed = prefs.edit();
         Map<String, ?> all = prefs.getAll();
         for (java.util.Iterator<String> it = remote.keys(); it.hasNext(); ) {
@@ -2282,6 +2311,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
             else ed.putString(k, v.toString());
         }
         ed.putLong(SETTINGS_AT, remote.optLong("_updated_at", System.currentTimeMillis())).apply();
+        loadingPrefs = false;
         prefs.registerOnSharedPreferenceChangeListener(cloudPrefs);
         titleAlways = prefs.getBoolean("titleAlways", false);
         equalizer = savedEqualizer();
@@ -2396,6 +2426,348 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         final View card = accountCard;
         if (card == null) return;
         accountCard = null;
+        closeCard(card, backToMenu);
+    }
+
+    // ------------------------------------------------------------------ a scene's own colours
+
+    /**
+     * Every scene remembers its own colours, colour motion, palette and mirror (the sliders are per
+     * scene already, {@code tune_*}). A scene gets its own the first time the user picks any of them
+     * while it is on screen; from then on switching to the scene brings them back, and the autopilot
+     * does not paint over them. A scene without its own keeps whatever was showing, so a new user who
+     * picks Neon once sees Neon everywhere until they colour a second scene differently.
+     */
+    private static String ownKey(Scene sc) {
+        return "own_" + sc.id;
+    }
+
+    private boolean sceneOwned(int s) {
+        return prefs.contains(ownKey(Scene.ALL[clampScene(s)]));
+    }
+
+    /** The colours, colour motion, palette and mirror showing now, as a Look without a scene or name. */
+    private Look liveLook() {
+        Look l = new Look();
+        int pal = prefs.getInt("palette", Palettes.ALBUM);
+        System.arraycopy(Palettes.toColors(paletteFor(pal)), 0, l.argb, 0, 3);
+        l.palette = Palettes.NAMES[Math.max(0, Math.min(Palettes.NAMES.length - 1, pal))];   // "Album" stays a choice here, unlike in a shared Look
+        l.rainbow = pal == Palettes.RAINBOW;
+        l.motion = colourDrive;
+        l.sym = prefs.getInt("sym", 1);
+        return l;
+    }
+
+    /** The prefs that are a scene's own. Brightness and Motion are not: they are about the room and the eyes, not the scene. */
+    private static final String[] LIVE_KEYS = {"palette", "custom0", "custom1", "custom2", "cm_mode", "cm_drift", "cm_beat", "cm_drop", "cm_tilt", "cm_pump", "sym"};
+
+    private final Runnable rememberScene = () -> {
+        Scene sc = Scene.ALL[clampScene(prefs.getInt("scene", 0))];
+        String doc = Profile.colourGroup(liveLook()).toString();
+        if (!doc.equals(prefs.getString(ownKey(sc), null))) prefs.edit().putString(ownKey(sc), doc).apply();
+    };
+    private final Runnable pushProfile = () -> {
+        ProfileStore.Entry e = profiles.active();
+        if (e != null) profiles.pushEntry(cloud, e, null);
+    };
+    private final Runnable rememberProfile = () -> {
+        ProfileStore.Entry e = profiles.active();
+        if (e != null && profiles.update(e, captureProfile(e.name()))) {
+            ui.removeCallbacks(pushProfile);
+            ui.postDelayed(pushProfile, 4000);
+        }
+    };
+
+    /** The user changed a setting: it becomes the scene's own, and the active profile follows. */
+    private final SharedPreferences.OnSharedPreferenceChangeListener scenePrefs = (p, key) -> {
+        if (key == null || loadingPrefs) return;
+        boolean live = indexOf(LIVE_KEYS, key) >= 0;
+        if (live) {
+            ui.removeCallbacks(rememberScene);
+            ui.postDelayed(rememberScene, 300);
+        }
+        if (live || key.startsWith("own_") || key.startsWith("tune_") || key.startsWith("eq_") || key.equals("scene")
+                || key.equals("brightness") || key.equals("motion") || key.equals("autopilot_mode")) {
+            ui.removeCallbacks(rememberProfile);
+            ui.postDelayed(rememberProfile, 1500);
+        }
+    };
+
+    /** The scene on screen changed: its own colours, if it has any, replace what was showing. */
+    private void loadSceneSettings(int s) {
+        Look own = Profile.colourGroupLook(jsonOrNull(prefs.getString(ownKey(Scene.ALL[clampScene(s)]), null)));
+        if (own != null) applyLiveLook(own);
+    }
+
+    /** Puts a Look's colours, colour motion, palette and mirror on screen and in prefs, without touching the scene. */
+    private void applyLiveLook(Look l) {
+        boolean was = loadingPrefs;
+        loadingPrefs = true;
+        SharedPreferences.Editor ed = prefs.edit();
+        int pal = indexOf(Palettes.NAMES, l.palette);   // Album, a preset, or Custom
+        if (pal < 0 || pal == Palettes.CUSTOM) {
+            pal = Palettes.CUSTOM;
+            for (int k = 0; k < 3; k++) {
+                custom[k] = l.argb[k];
+                ed.putInt("custom" + k, l.argb[k]);
+            }
+        }
+        ed.putInt("palette", pal);
+        if (l.sym > 0) ed.putInt("sym", l.sym);
+        ed.apply();
+        if (l.motion != null) {
+            int mode = ColourDrive.CUSTOM;
+            for (int m = 0; m < ColourDrive.CUSTOM; m++) if (sameDrive(ColourDrive.preset(m), l.motion)) mode = m;
+            setColourDrive(l.motion, mode);
+        }
+        loadingPrefs = was;
+        pushPalette();
+        final int sym = prefs.getInt("sym", 1);
+        view.queueEvent(() -> renderer.setSymmetry(sym));
+        if (colourEditor != null) closeColourEditor(false);   // it edited the colours of the scene that just left
+        refreshChips();
+    }
+
+    /** Menu → This scene's colours → Use these for every scene. */
+    private void ownEverywhere() {
+        String doc = Profile.colourGroup(liveLook()).toString();
+        SharedPreferences.Editor ed = prefs.edit();
+        for (Scene sc : Scene.ALL) ed.putString(ownKey(sc), doc);
+        ed.apply();
+        flash("E V E R Y   S C E N E");
+        cloud.track("setting_changed", "key", "own_everywhere");
+    }
+
+    /** Menu → This scene's colours → Forget: the scene follows the others again, sliders back in the middle. */
+    private void forgetScene() {
+        int s = clampScene(prefs.getInt("scene", 0));
+        prefs.edit().remove(ownKey(Scene.ALL[s])).apply();
+        for (int k = 0; k < Scene.TUNE; k++) setTune(s, k, 0.5f);
+        if (tuneCard != null && tuneScene == s) {
+            for (int k = 0; k < Scene.TUNE; k++) tuneSliders[k].setValue(0.5f);
+            refreshTuneLabels(Scene.ALL[s]);
+        }
+        flash("F O R G O T T E N");
+        cloud.track("setting_changed", "key", "own_forget");
+    }
+
+    private static JSONObject jsonOrNull(String s) {
+        if (s == null) return null;
+        try {
+            return new JSONObject(s);
+        } catch (JSONException e) {
+            return null;
+        }
+    }
+
+    // ------------------------------------------------------------------ profiles
+
+    /** Everything as it is now, as a Profile with the given name. */
+    private Profile captureProfile(String name) {
+        Profile p = new Profile();
+        p.name = name;
+        p.scene = Scene.ALL[clampScene(prefs.getInt("scene", 0))].id;
+        p.look = liveLook();
+        for (Scene sc : Scene.ALL) {
+            Profile.SceneEntry e = new Profile.SceneEntry();
+            e.look = Profile.colourGroupLook(jsonOrNull(prefs.getString(ownKey(sc), null)));
+            JSONObject tune = new JSONObject();
+            for (int k = 0; k < Scene.TUNE; k++) {
+                float v = tuneValue(sc, k);
+                if (v != 0.5f) try {
+                    tune.put(sc.tuneId(k), Math.round(v * 1000) / 1000.0);
+                } catch (JSONException ignored) {
+                }
+            }
+            if (tune.length() > 0) e.tune = tune;
+            if (e.look != null || e.tune != null) p.scenes.put(sc.id, e);
+        }
+        p.brightness = prefs.getInt("brightness", TavRenderer.DEFAULT_BRIGHTNESS);
+        p.calm = prefs.getInt("motion", 0);
+        p.autopilot = autopilotMode();
+        p.eq = equalizer;
+        p.eqMode = eqMode;
+        return p;
+    }
+
+    /** Switches to a profile: every scene's own colours and sliders, the app settings, then the scene it had on screen. */
+    private void applyProfile(ProfileStore.Entry e) {
+        Profile p = e.profile;
+        ui.removeCallbacks(rememberScene);
+        ui.removeCallbacks(rememberProfile);
+        loadingPrefs = true;
+        SharedPreferences.Editor ed = prefs.edit();
+        for (Scene sc : Scene.ALL) {
+            Profile.SceneEntry se = p.scenes.get(sc.id);
+            if (se != null && se.look != null) ed.putString(ownKey(sc), Profile.colourGroup(se.look).toString());
+            else ed.remove(ownKey(sc));
+            for (int k = 0; k < Scene.TUNE; k++)
+                ed.putFloat(tuneKey(sc, k), se != null && se.tune != null ? (float) se.tune.optDouble(sc.tuneId(k), 0.5) : 0.5f);
+        }
+        if (p.scene != null) ed.putInt("scene", Scene.indexOf(p.scene));
+        if (p.brightness >= 0) ed.putInt("brightness", p.brightness);
+        if (p.calm >= 0) ed.putInt("motion", p.calm);
+        if (p.autopilot >= 0) ed.putInt("autopilot_mode", p.autopilot).putBoolean("autopilot", p.autopilot != Autopilot.OFF);
+        ed.apply();
+        if (p.eq != null) setEqualizer(p.eq, p.eqMode >= 0 ? p.eqMode : 2);
+        if (p.look != null) applyLiveLook(p.look);   // what the profile had on screen
+        loadingPrefs = false;
+        profiles.activate(e);
+        applyPrefs();
+        final int scene = clampScene(prefs.getInt("scene", 0));
+        view.queueEvent(() -> {   // the user's pick: the autopilot holds the scene and keeps the colours for this track
+            renderer.setScene(scene);
+            renderer.autopilotUserColours();
+        });
+        if (tuneCard != null) closeTune(true);
+        refreshChips();
+        refreshProfileRow();
+        flash(spaced(p.name));
+        cloud.track("profile_applied", "name", p.name);
+    }
+
+    /** The Profile row on the sheet's home page shows the active profile; the Profiles page lists them. */
+    private void refreshProfileRow() {
+        refreshHome();
+    }
+
+    /** Profile → New: a copy of everything as it is now, under a new name, and active from then on. */
+    private void showNewProfile() {
+        if (profileCard != null) return;
+        final EditText name = field("Name", profiles.suggestName("Profile"));
+        LinearLayout box = cardBox("New profile");
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, px(6), 0, px(4));
+        row.addView(name, new LinearLayout.LayoutParams(0, -2, 1f));
+        box.addView(row);
+        TextView what = text(12.5f, 0x99FFFFFF, false);
+        what.setShadowLayer(0, 0, 0, 0);
+        what.setText("Starts as a copy of everything as it is now: every scene's colours and sliders, brightness, motion, equalizer and autopilot. "
+                + "What you change from here on is kept in the new profile; “" + profiles.active().name() + "” stays as it is.");
+        what.setLineSpacing(0, 1.25f);
+        what.setPadding(0, px(6), 0, px(10));
+        box.addView(what);
+        final Runnable create = () -> {
+            String n = Look.cleanName(name.getText().toString());
+            if (profiles.byName(n) != null) {
+                Toast.makeText(this, "There is a profile called " + n + " already", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            ProfileStore.Entry e = profiles.add(captureProfile(n));
+            profiles.activate(e);
+            profiles.pushEntry(cloud, e, null);
+            refreshProfileRow();
+            closeProfiles(false);
+            flash(spaced(n));
+            cloud.track("profile_saved", "name", n);
+        };
+        LinearLayout actions = new LinearLayout(this);
+        actions.addView(actionChip("Create", true, v -> create.run()));
+        box.addView(actions);
+        name.setOnEditorActionListener((v, action, ev) -> {
+            if (action != EditorInfo.IME_ACTION_DONE) return false;
+            create.run();
+            return true;
+        });
+        profileCard = openCard("New profile", box);
+        name.requestFocus();
+        name.selectAll();
+    }
+
+    /** Profile: tap a name to switch; New, Rename and ✕. */
+    private void showProfiles() {
+        if (profileCard != null) return;
+        LinearLayout box = cardBox("Profiles");
+        note(box, "A profile is your whole set-up: every scene's own colours and sliders, brightness, motion, equalizer and autopilot. "
+                + "Switch to swap all of it; the active one keeps up with what you change.");
+        LinearLayout actions = new LinearLayout(this);
+        actions.setPadding(0, px(4), 0, px(10));
+        actions.addView(actionChip("+ New profile", true, v -> {
+            closeProfiles(true);
+            showNewProfile();
+        }));
+        box.addView(actions);
+        ProfileStore.Entry active = profiles.active();
+        for (final ProfileStore.Entry e : new ArrayList<>(profiles.all())) {
+            LinearLayout row = new LinearLayout(this);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(0, px(5), 0, px(5));
+            TextView name = text(15, Color.WHITE, e == active);
+            name.setShadowLayer(0, 0, 0, 0);
+            name.setSingleLine(true);
+            name.setEllipsize(TextUtils.TruncateAt.END);
+            int owned = e.profile.ownedScenes();
+            name.setText((e == active ? "\u25cf " : "") + e.name() + (owned > 0 ? "  \u00b7 " + owned + (owned == 1 ? " scene" : " scenes") : ""));
+            name.setContentDescription("Switch to the profile " + e.name());
+            name.setOnClickListener(v -> {
+                if (e != profiles.active()) applyProfile(e);
+                closeProfiles(false);
+            });
+            row.addView(name, new LinearLayout.LayoutParams(0, -2, 1f));
+            row.addView(actionChip("Rename", false, v -> {
+                closeProfiles(true);
+                showRenameProfile(e);
+            }));
+            TextView del = actionChip("✕", false, v -> {
+                if (profiles.all().size() <= 1) {
+                    Toast.makeText(this, "The last profile stays; make a new one first", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                boolean wasActive = e == profiles.active();
+                profiles.delete(cloud, e);
+                closeProfiles(true);
+                if (wasActive) applyProfile(profiles.active());   // the screen follows the profile that takes over
+                else refreshProfileRow();
+                showProfiles();
+            });
+            del.setContentDescription("Delete the profile " + e.name());
+            row.addView(del);
+            box.addView(row);
+        }
+        note(box, "Looks are different: a look is one scene with its colours, saved to share or bring back.");
+        profileCard = openCard("Profiles", box);
+    }
+
+    private void showRenameProfile(final ProfileStore.Entry e) {
+        if (profileCard != null) return;
+        final EditText name = field("Name", e.name());
+        LinearLayout box = cardBox("Rename profile");
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, px(6), 0, px(6));
+        row.addView(name, new LinearLayout.LayoutParams(0, -2, 1f));
+        TextView ok = actionChip("Rename", true, v -> renameProfile(e, name.getText().toString()));
+        ((LinearLayout.LayoutParams) ok.getLayoutParams()).leftMargin = px(8);
+        row.addView(ok);
+        box.addView(row);
+        name.setOnEditorActionListener((v, action, ev) -> {
+            if (action != EditorInfo.IME_ACTION_DONE) return false;
+            renameProfile(e, name.getText().toString());
+            return true;
+        });
+        profileCard = openCard("Rename profile", box);
+        name.requestFocus();
+        name.selectAll();
+    }
+
+    private void renameProfile(ProfileStore.Entry e, String name) {
+        String n = Look.cleanName(name);
+        ProfileStore.Entry other = profiles.byName(n);
+        if (other != null && other != e) {
+            Toast.makeText(this, "There is a profile called " + n + " already", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        profiles.rename(e, n);
+        profiles.pushEntry(cloud, e, null);
+        refreshProfileRow();
+        closeProfiles(false);
+    }
+
+    private void closeProfiles(boolean backToMenu) {
+        final View card = profileCard;
+        if (card == null) return;
+        profileCard = null;
         closeCard(card, backToMenu);
     }
 
