@@ -82,7 +82,13 @@ which loads the Android shaders). README.md is the user-facing description. Open
     `TavRenderer.setTune` and `eng.setTune(scene, k, v)` set them. Ink (`fluid.frag`, dye advected through
     the feedback buffer by a curl-noise current) and Horizon (`landscape.frag`, a night sea that mirrors a
     striped sun and a skyline made of the spectrogram's oldest lines) are the two scenes that aren't built
-    around a circle.
+    around a circle. Canvas (`canvas.frag`, `Scene.paint()`) is the black sheet the user paints on: the renderer
+    keeps a second stroke list, `painting` (`MAX_PAINT` 400, saved as `files/painting.bin` by `MainActivity.savePainting`,
+    web `localStorage` `tav.painting`), draws it with `uBrush`/`uInk` in `stroke.vert`/`stroke.frag` (pen, marker,
+    spray, eraser with the blend (0, 1 - src); all zero = the singing line every other scene draws), and a tap is a
+    dot. The paint bar over the picture (`buildPaintBar`: six swatches and the brush) and the Paint page (`showPaint`,
+    prefs `paint_tool`, `paint_size`, `paint_swatch`, `paint_own`) are the tools; the autopilot skips the scene.
+    `web/tools/paint-check.js` plays the tools in headless Chromium and makes the scene's thumbnail for `thumbs.sh`.
   - `CrashLog.java`: the default uncaught-exception handler, installed first thing in `onCreate`. It writes the
     trace to `files/last-crash.txt`; the next launch shows it on a card with a Copy button (`showCrash`), since the
     owner tests without adb. The `cloud` field is created in `onCreate` before `buildOverlay` (the Account row asks
