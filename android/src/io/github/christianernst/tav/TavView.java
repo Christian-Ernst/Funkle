@@ -16,6 +16,9 @@ final class TavView extends GLSurfaceView {
         void onAnyTouch();
 
         void onLongPress();
+
+        /** A drag became a stroke (called on the UI thread, once per stroke). */
+        void onDraw();
     }
 
     private final TavRenderer renderer;
@@ -91,6 +94,7 @@ final class TavView extends GLSurfaceView {
                 if (!drawing && Math.hypot(e.getX() - downX, e.getY() - downY) > slop) {
                     drawing = true;
                     removeCallbacks(longPress);
+                    gestures.onDraw();
                     final float x0 = cx(downX), y0 = cy(downY);
                     queueEvent(() -> renderer.beginStroke(x0, y0));
                 }

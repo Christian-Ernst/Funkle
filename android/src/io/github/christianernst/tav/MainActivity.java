@@ -53,14 +53,14 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
-/** Full-screen visualizer with a glassy pop-up control panel. */
+/** Full-screen visualizer with a bottom-sheet menu (Sheet) and a quick bar over the visuals. */
 public final class MainActivity extends Activity implements TavRenderer.Host, AudioCapture.Listener, MediaWatcher.Listener {
     private static final int REQ_AUDIO = 7, REQ_NOTIFY = 8;
     private static final int[] SYMMETRY = {1, 2, 3, 4, 6, 8, 12};
     private static final String HINT_IDLE = "Play something on Spotify \u266A\nTap to make ripples \u00B7 drag to draw with sound";
-    private static final String HINT_BLOCKED = "Music is playing, but TAV hears silence.\nTurn the volume up, or open \u2630 \u2192 Listen to \u2192 Microphone.";
+    private static final String HINT_BLOCKED = "Music is playing, but TAV hears silence.\nTurn the volume up, or open \u2630 \u2192 Sound \u2192 Microphone.";
     private static final String HINT_NO_PERMISSION = "Without audio access TAV can't hear the music.\nTap and drag still make waves.";
-    private static final String HINT_DEMO = "This is TAV's built-in beat.\nTap to make ripples \u00B7 drag to draw \u00B7 \u2630 \u2192 Listen to, for your own music";
+    private static final String HINT_DEMO = "This is TAV's built-in beat.\nTap to make ripples \u00B7 drag to draw \u00B7 \u2630 \u2192 Sound, for your own music";
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private SharedPreferences prefs;
@@ -71,14 +71,20 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
 
     private FrameLayout root;
     private TextView sceneLabel, hint, title, artist, menuButton;
-    private LinearLayout trackBox, panelContent;
-    private ScrollView panel;
+    private LinearLayout trackBox, quickBar;
+    private Sheet sheet;
+    private View[] tileScenes, tileColours, tileLooks, tileAutopilot;   // {tile, picture, value}
+    private TextView rowTune, rowDraw, rowSound, rowDisplay, rowAccount, quickScene, quickPause;
+    private View quickClear;
+    private boolean strokesOnScreen, frozen;
+    private final List<View> sceneTiles = new ArrayList<>(), paletteSwatches = new ArrayList<>();
+    private final Map<String, Bitmap> thumbs = new java.util.HashMap<>();
     private View intro, notice;
     private TextView introBody, introButton;
     private boolean permissionPending, openSettingsInstead, askedNotificationAccess;
-    private final List<TextView> sceneChips = new ArrayList<>(), sourceChips = new ArrayList<>();
+    private final List<TextView> sourceChips = new ArrayList<>();
     // the other rows, so a Look or a newer cloud copy of the settings can move the chips too
-    private final List<TextView> mirrorChips = new ArrayList<>(), paletteChips = new ArrayList<>(), cmChips = new ArrayList<>(),
+    private final List<TextView> mirrorChips = new ArrayList<>(), cmChips = new ArrayList<>(),
             brightChips = new ArrayList<>(), motionChips = new ArrayList<>(), eqChips = new ArrayList<>(),
             autoChips = new ArrayList<>(), qualityChips = new ArrayList<>();
     private SharedPreferences firstRun;   // first-run bookkeeping, kept out of the synced settings
@@ -125,8 +131,10 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     private final TextView[] tuneLabels = new TextView[Scene.TUNE];
 
     private final Runnable hideMenu = () -> {
-        if (panel.getVisibility() != View.VISIBLE && colourEditor == null && equalizerCard == null && tuneCard == null)
+        if (!sheet.shown()) {
             menuButton.animate().alpha(0f).setDuration(600).start();
+            if (!frozen) quickBar.animate().alpha(0f).setDuration(600).start();
+        }
     };
     private final Runnable hideTrack = () -> {
         if (!titleAlways) fadeTrack(0f, 1200);
@@ -150,7 +158,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     private final Runnable showHint = () -> {
         if (!visible) return;   // stopped (in the background): nothing to explain, don't wake up
         ui.postDelayed(this.showHint, 3000);   // keep re-checking until sound returns (onSilence stops it)
-        if (intro != null || notice != null) return;   // a card is explaining things already
+        if (intro != null || notice != null || sheet.shown()) return;   // a card or the menu is explaining things already
         // Music is known to be playing but the output mix reads as silence: the ROM or the
         // player is keeping audio away from the visualizer. Point at the microphone.
         boolean blocked = capture.source() == AudioCapture.SOURCE_SYSTEM && media.isPlaying();
@@ -203,6 +211,14 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
             @Override
             public void onLongPress() {
                 togglePanel();
+            }
+
+            @Override
+            public void onDraw() {
+                if (!strokesOnScreen) {
+                    strokesOnScreen = true;
+                    ui.post(() -> refreshQuick());
+                }
             }
         });
 
@@ -348,7 +364,10 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         else if (colourCard != null) closeColourMotion(true);
         else if (looksCard != null) closeLooks(true);
         else if (incoming != null) dismissIncoming();
-        else if (panel.getVisibility() == View.VISIBLE) togglePanel();
+        else if (sheet.shown()) {
+            if (sheet.depth() > 0) sheet.pop();
+            else showPanel(false);
+        }
         else super.onBackPressed();
     }
 
@@ -427,8 +446,9 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
             sceneLabel.setAlpha(1f);
             ui.removeCallbacks(hideScene);
             ui.postDelayed(hideScene, 1800);
-            for (int i = 0; i < sceneChips.size(); i++) styleChip(sceneChips.get(i), i == scene);
-            if (tuneCard != null && tuneScene != scene) closeTune(false);   // the sliders belong to the old scene
+            markScene(scene);
+            refreshHome();
+            if (tuneCard != null && tuneScene != scene) closeTune(true);   // the sliders belong to the old scene
         });
     }
 
@@ -520,6 +540,11 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         trackBox.animate().alpha(trackAlpha()).translationY(0).setDuration(900).start();
         ui.removeCallbacks(hideTrack);
         ui.postDelayed(hideTrack, 7000);
+        int shown = firstRun.getInt("title_hints", 0);   // the swipe nobody guesses: said with the first few songs
+        if (shown < 3 && intro == null) {
+            firstRun.edit().putInt("title_hints", shown + 1).apply();
+            showHintNow("Swipe the title for the next track  \u00B7  tap it to pause");
+        }
     }
 
     @Override
@@ -674,12 +699,18 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         final int s = Math.max(0, Math.min(Scene.ALL.length - 1, prefs.getInt("scene", 0)));
         final Scene sc = Scene.ALL[s];
         tuneScene = s;
-        LinearLayout box = sliderCard("Tune " + sc.name, sc.tune, tuneSliders, tuneLabels,
+        LinearLayout box = sliderCard("Three sliders that are " + sc.name + "'s own. The middle is the look the scene was made with; every change shows at once.",
+                sc.tune, tuneSliders, tuneLabels,
                 (k, v) -> {
                     setTune(s, k, v);
                     refreshTuneLabels(sc);
-                }, () -> closeTune(false));
-        tuneCard = openCard(box);
+                    refreshHome();
+                });
+        LinearLayout actions = new LinearLayout(this);
+        actions.setPadding(0, px(14), 0, 0);
+        actions.addView(chip("Reset to the scene's own look", false, v -> resetTune()));
+        box.addView(actions);
+        tuneCard = openCard("Tune " + sc.name, box);
         for (int k = 0; k < Scene.TUNE; k++) tuneSliders[k].setValue(tuneValue(sc, k));
         refreshTuneLabels(sc);
     }
@@ -699,6 +730,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
             refreshTuneLabels(Scene.ALL[s]);
         }
         flash("Tune reset");
+        refreshHome();
     }
 
     private void closeTune(boolean backToMenu) {
@@ -815,7 +847,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         hint.setAlpha(0f);
         // anchored to the bottom so it stays on screen in landscape too
         lp = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
-        lp.setMargins(px(24), 0, px(24), px(120));
+        lp.setMargins(px(24), 0, px(24), px(172));
         root.addView(hint, lp);
 
         trackBox = new LinearLayout(this);
@@ -882,182 +914,623 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         lp.setMargins(0, 0, px(24), px(36));
         root.addView(menuButton, lp);
 
-        buildPanel();
+        buildQuickBar();
+        buildSheet();
     }
 
-    private void buildPanel() {
-        panel = new ScrollView(this);
-        panel.setBackground(glass(0xD90B0B14));
-        panel.setVisibility(View.GONE);
-        panel.setVerticalScrollBarEnabled(false);
-        panelContent = new LinearLayout(this);
-        panelContent.setOrientation(LinearLayout.VERTICAL);
-        panelContent.setPadding(px(18), px(16), px(18), px(18));
-        panel.addView(panelContent);
+    /**
+     * The quick bar: a pill above the song title with the things people reach for between songs,
+     * scene back and forth, pause the visuals, shuffle the colours, clear the drawing. It shows with
+     * the menu button on any touch and fades with it.
+     */
+    private void buildQuickBar() {
+        quickBar = new LinearLayout(this);
+        quickBar.setGravity(Gravity.CENTER_VERTICAL);
+        quickBar.setBackground(glass(0x66000000, 24));
+        quickBar.setPadding(px(4), 0, px(4), 0);
+        quickBar.setAlpha(0f);
+        quickBar.addView(quickButton("\u2039", "Previous scene", v -> view.queueEvent(() -> renderer.nextScene(-1))));
+        quickScene = flat(12.5f, Color.WHITE, false);
+        quickScene.setLetterSpacing(0.2f);
+        quickScene.setGravity(Gravity.CENTER);
+        quickScene.setMinWidth(px(96));
+        quickScene.setPadding(px(4), px(12), px(4), px(12));
+        quickScene.setContentDescription("Scene. Opens the scene list.");
+        quickScene.setOnClickListener(v -> {
+            Sheet.tick(v);
+            showPanel(true);
+            showScenes();
+        });
+        quickBar.addView(quickScene);
+        quickBar.addView(quickButton("\u203A", "Next scene", v -> view.queueEvent(() -> renderer.nextScene(1))));
+        quickBar.addView(divider());
+        quickPause = quickButton("\u275A\u275A", "Pause the visuals", v -> setFrozen(!frozen));
+        quickBar.addView(quickPause);
+        quickBar.addView(quickButton("\u2684", "Shuffle the colours", v -> shuffleColours()));
+        quickClear = quickButton("\u232B", "Clear the drawing", v -> clearDrawing());
+        quickClear.setVisibility(View.GONE);
+        quickBar.addView(quickClear);
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-2, px(48), Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+        lp.bottomMargin = px(108);
+        root.addView(quickBar, lp);
+    }
 
-        TextView head = text(18, Color.WHITE, true);
-        head.setText("T A V");
-        head.setLetterSpacing(0.3f);
-        panelContent.addView(head);
+    private TextView quickButton(String glyph, String description, View.OnClickListener on) {
+        TextView b = flat(glyph.length() > 1 ? 11 : 24, Color.WHITE, false);
+        b.setText(glyph);
+        b.setGravity(Gravity.CENTER);
+        b.setContentDescription(description);
+        b.setClickable(true);
+        b.setFocusable(true);
+        b.setOnClickListener(v -> {
+            Sheet.tick(v);
+            on.onClick(v);
+            pokeMenu();
+        });
+        b.setLayoutParams(new LinearLayout.LayoutParams(px(44), px(44)));
+        return b;
+    }
 
-        TextView nowLabel = text(11.5f, 0x99FFFFFF, false);
-        nowLabel.setText("NOW PLAYING");
-        nowLabel.setLetterSpacing(0.12f);
-        nowLabel.setPadding(0, px(14), 0, px(4));
-        panelContent.addView(nowLabel);
+    private View divider() {
+        View d = new View(this);
+        d.setBackgroundColor(0x33FFFFFF);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(px(1), px(22));
+        lp.setMargins(px(4), 0, px(4), 0);
+        d.setLayoutParams(lp);
+        return d;
+    }
+
+    private void refreshQuick() {
+        if (quickClear != null) quickClear.setVisibility(strokesOnScreen ? View.VISIBLE : View.GONE);
+        if (quickPause != null) {
+            quickPause.setText(frozen ? "\u25B6" : "\u275A\u275A");
+            quickPause.setTextSize(TypedValue.COMPLEX_UNIT_SP, frozen ? 18 : 11);
+            quickPause.setContentDescription(frozen ? "Resume the visuals" : "Pause the visuals");
+        }
+    }
+
+    /** Pause: the picture freezes where it is (and the demo beat goes quiet); the bar stays so it can be resumed. */
+    private void setFrozen(boolean f) {
+        frozen = f;
+        view.setRenderMode(f ? android.opengl.GLSurfaceView.RENDERMODE_WHEN_DIRTY : android.opengl.GLSurfaceView.RENDERMODE_CONTINUOUSLY);
+        if (f && capture.demoAudible()) capture.setDemoAudible(false);
+        refreshQuick();
+        flash(f ? "P A U S E D" : "");
+    }
+
+    // ------------------------------------------------------------------ the menu (a bottom sheet with pages)
+
+    /**
+     * Builds the sheet and its home page: now playing with the transport, four big tiles (Scenes,
+     * Colours, Looks, Autopilot) and a list of groups (Tune, Draw, Sound, Display, Account, Help).
+     * Every setting from before is still here, one tap deeper; the pages are built on demand.
+     */
+    private void buildSheet() {
+        sheet = new Sheet(this, new Sheet.Host() {
+            @Override
+            public void onDismiss() {
+                closeAll();
+            }
+
+            @Override
+            public void onBack() {
+                onBackPressed();
+            }
+        });
+        LinearLayout home = new LinearLayout(this);
+        home.setOrientation(LinearLayout.VERTICAL);
+
+        // now playing: art, title, the player, prev / play / next
         LinearLayout nowRow = new LinearLayout(this);
         nowRow.setGravity(Gravity.CENTER_VERTICAL);
-        panelArt = artView(48, 8);
+        nowRow.setPadding(px(2), px(4), 0, px(12));
+        panelArt = artView(44, 9);
         panelArt.setContentDescription("Album art");
-        LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(px(48), px(48));
-        plp.rightMargin = px(12);
+        LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(px(44), px(44));
+        plp.rightMargin = px(10);
         nowRow.addView(panelArt, plp);
         LinearLayout nowTexts = new LinearLayout(this);
         nowTexts.setOrientation(LinearLayout.VERTICAL);
-        nowPlaying = text(15, Color.WHITE, false);
-        nowPlaying.setShadowLayer(0, 0, 0, 0);
+        nowPlaying = flat(14.5f, Color.WHITE, false);
         nowPlaying.setSingleLine(true);
-        nowPlaying.setEllipsize(TextUtils.TruncateAt.END);
-        nowPlaying.setText("Nothing yet \u2014 start a song in Spotify");
+        nowPlaying.setEllipsize(TextUtils.TruncateAt.MARQUEE);
+        nowPlaying.setText("Nothing yet — start a song in Spotify");
         nowTexts.addView(nowPlaying);
-        openPlayer = text(13, 0xFFFF7AB8, false);
-        openPlayer.setShadowLayer(0, 0, 0, 0);
+        openPlayer = flat(12.5f, 0xFFFF7AB8, false);
         openPlayer.setText(playerLabel(false));
-        openPlayer.setPadding(0, px(4), px(12), px(4));
+        openPlayer.setPadding(0, px(3), px(12), px(3));
         openPlayer.setOnClickListener(v -> {
             openPlayer();
             pokeMenu();
         });
         nowTexts.addView(openPlayer);
         nowRow.addView(nowTexts, new LinearLayout.LayoutParams(0, -2, 1f));
-        panelContent.addView(nowRow);
-        LinearLayout controls = new LinearLayout(this);
-        controls.setGravity(Gravity.CENTER_VERTICAL);
-        controls.setPadding(0, px(10), 0, 0);
         TransportButton prev = new TransportButton(this, TransportButton.PREVIOUS, false);
         playButton = new TransportButton(this, TransportButton.PLAY, true);
         TransportButton next = new TransportButton(this, TransportButton.NEXT, false);
         prev.setOnClickListener(v -> {
+            Sheet.tick(v);
             skip(false);
             pokeMenu();
         });
         playButton.setOnClickListener(v -> {
+            Sheet.tick(v);
             playPause();
             pokeMenu();
         });
         next.setOnClickListener(v -> {
+            Sheet.tick(v);
             skip(true);
             pokeMenu();
         });
-        LinearLayout.LayoutParams small = new LinearLayout.LayoutParams(px(46), px(46)), big = new LinearLayout.LayoutParams(px(58), px(58));
-        small.rightMargin = big.rightMargin = px(14);
-        controls.addView(prev, small);
-        controls.addView(playButton, big);
-        controls.addView(next, new LinearLayout.LayoutParams(px(46), px(46)));
-        panelContent.addView(controls);
+        LinearLayout.LayoutParams small = new LinearLayout.LayoutParams(px(40), px(40)), big = new LinearLayout.LayoutParams(px(50), px(50));
+        small.leftMargin = big.leftMargin = px(8);
+        nowRow.addView(prev, small);
+        nowRow.addView(playButton, big);
+        nowRow.addView(next, new LinearLayout.LayoutParams(px(40), px(40), 0) {{
+            leftMargin = px(8);
+        }});
+        home.addView(nowRow);
 
-        List<TextView> lookChips = new ArrayList<>();
-        addRow("Looks (save what is on screen, share it, bring it back)", new String[]{"Save this look", "My looks", "Open a code or link"}, -1, lookChips, i -> {
-            for (TextView c : lookChips) styleChip(c, false);   // actions, not a choice
-            if (i == 0) showSaveLook();
-            else if (i == 1) showLooks();
-            else showOpenCode();
-        });
-        looksChip = lookChips.get(1);
-        for (TextView c : lookChips) styleChip(c, false);
-        refreshLooksChip();
+        // the four big tiles
+        LinearLayout grid1 = new LinearLayout(this), grid2 = new LinearLayout(this);
+        tileScenes = tile(grid1, "Scenes", "◉", this::showScenes);
+        tileColours = tile(grid1, "Colours", "◐", this::showColours);
+        tileLooks = tile(grid2, "Looks", "♡", this::showLooks);
+        tileAutopilot = tile(grid2, "Autopilot", "⟳", this::showAutopilot);
+        home.addView(grid1, new LinearLayout.LayoutParams(-1, -2));
+        LinearLayout.LayoutParams g2 = new LinearLayout.LayoutParams(-1, -2);
+        g2.topMargin = px(10);
+        home.addView(grid2, g2);
 
-        String[] sceneNames = new String[Scene.ALL.length];
-        for (int i = 0; i < sceneNames.length; i++) sceneNames[i] = Scene.ALL[i].name;
-        addRow("Scene", sceneNames, prefs.getInt("scene", 0), sceneChips, i -> view.queueEvent(() -> renderer.setScene(i)));
+        // the groups
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        list.setPadding(0, px(14), 0, 0);
+        rowTune = row(list, "Tune this scene", this::showTune);
+        rowDraw = row(list, "Draw", this::showDraw);
+        rowSound = row(list, "Sound", this::showSound);
+        rowDisplay = row(list, "Display", this::showDisplay);
+        if (cloud.enabled()) rowAccount = row(list, "Account", this::showAccount);
+        row(list, "Gestures and help", this::showHelp);
+        TextView exit = row(list, "Exit TAV", this::exitApp);
+        exit.setText("everything stops");
+        home.addView(list);
 
-        addRow("Tune this scene (three sliders, live)", new String[]{"Sliders", "Reset"}, -1, null, i -> {
-            if (i == 0) showTune();
-            else resetTune();
-        });
+        sheet.setHome(home);
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+        root.addView(sheet, lp);
+        refreshHome();
+    }
 
-        String[] shapes = new String[Shapes.NAMES.length + 1];
-        System.arraycopy(Shapes.NAMES, 0, shapes, 0, Shapes.NAMES.length);
-        shapes[shapes.length - 1] = "✕ Clear";
-        addRow("Draw a sound shape", shapes, -1, null, i -> {
-            if (i == Shapes.NAMES.length) {
-                view.queueEvent(renderer::clearStrokes);
-                return;
+    /** Exit: the activity goes, and with it (onStop) the rendering, the audio capture and the media watcher. */
+    private void exitApp() {
+        setFrozen(false);
+        capture.setDemoAudible(false);
+        endSession();
+        finishAndRemoveTask();
+        // the activity's onStop releases the visualizer, the capture and the media watcher; the process
+        // itself goes a moment later (after the session event has been flushed), so nothing idles in the background
+        new Handler(Looper.getMainLooper()).postDelayed(() -> android.os.Process.killProcess(android.os.Process.myPid()), 1500);
+    }
+
+    /** Text without the overlay's glow, for the sheet. */
+    private TextView flat(float sp, int color, boolean bold) {
+        TextView t = text(sp, color, bold);
+        t.setShadowLayer(0, 0, 0, 0);
+        return t;
+    }
+
+    /** A big home tile: a picture behind (the scene's thumbnail, the palette), a title and the current value. */
+    private View[] tile(LinearLayout into, String name, String glyph, Runnable open) {
+        FrameLayout t = new FrameLayout(this);
+        t.setClickable(true);
+        t.setFocusable(true);
+        t.setContentDescription(name);
+        t.setBackground(glass(0x1EFFFFFF, 20));
+        t.setClipToOutline(true);
+        t.setOutlineProvider(new ViewOutlineProvider() {
+            @Override
+            public void getOutline(View view, Outline outline) {
+                outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), 20 * dp);
             }
-            final List<float[]> pts = Shapes.make(i, 0, 0, 0.62f);
-            view.queueEvent(() -> renderer.addShape(pts));
         });
-
-        String[] syms = {"Off", "2", "3", "4", "6", "8", "12"};
-        int symSel = 0;
-        for (int i = 0; i < SYMMETRY.length; i++) if (SYMMETRY[i] == prefs.getInt("sym", 1)) symSel = i;
-        addRow("Mirror (mandala drawing)", syms, symSel, mirrorChips, i -> {
-            prefs.edit().putInt("sym", SYMMETRY[i]).apply();
-            view.queueEvent(() -> renderer.setSymmetry(SYMMETRY[i]));
+        ImageView picture = new ImageView(this);
+        picture.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        picture.setAlpha(0.55f);
+        t.addView(picture, new FrameLayout.LayoutParams(-1, -1));
+        View scrim = new View(this);
+        GradientDrawable sg = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, new int[]{0xB3000000, 0x26000000});
+        scrim.setBackground(sg);
+        t.addView(scrim, new FrameLayout.LayoutParams(-1, -1));
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(LinearLayout.VERTICAL);
+        texts.setPadding(px(16), px(14), px(16), px(14));
+        TextView title = flat(16, Color.WHITE, true);
+        title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        title.setText(name);
+        texts.addView(title);
+        TextView value = flat(12.5f, 0xB3FFFFFF, false);
+        value.setSingleLine(true);
+        value.setEllipsize(TextUtils.TruncateAt.END);
+        value.setPadding(0, px(3), 0, 0);
+        texts.addView(value);
+        t.addView(texts, new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM));
+        TextView g = flat(20, 0xCCFFFFFF, false);
+        g.setText(glyph);
+        FrameLayout.LayoutParams glp = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.END);
+        glp.setMargins(0, px(10), px(14), 0);
+        t.addView(g, glp);
+        t.setOnClickListener(v -> {
+            Sheet.tick(v);
+            open.run();
         });
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, px(96), 1f);
+        if (into.getChildCount() > 0) lp.leftMargin = px(10);
+        into.addView(t, lp);
+        return new View[]{t, picture, value};
+    }
 
-        String[] paletteNames = new String[Palettes.NAMES.length + 1];
-        System.arraycopy(Palettes.NAMES, 0, paletteNames, 0, Palettes.NAMES.length);
-        paletteNames[Palettes.NAMES.length] = "\u2684 Shuffle";
-        addRow("Colours", paletteNames, prefs.getInt("palette", Palettes.ALBUM), paletteChips, i -> {
-            if (i == Palettes.NAMES.length) {   // a harmonious random palette into the Custom slot
-                shuffleColours();
-                return;
+    /** A group row: name, the current value on the right, a chevron. 54 dp tall. */
+    private TextView row(LinearLayout into, String name, Runnable open) {
+        LinearLayout r = new LinearLayout(this);
+        r.setGravity(Gravity.CENTER_VERTICAL);
+        r.setClickable(true);
+        r.setFocusable(true);
+        r.setContentDescription(name);
+        r.setPadding(px(16), 0, px(12), 0);
+        r.setBackground(glass(0x12FFFFFF, 16));
+        TextView title = flat(15.5f, Color.WHITE, false);
+        title.setText(name);
+        r.addView(title, new LinearLayout.LayoutParams(-2, -2));
+        TextView value = flat(13, 0x99FFFFFF, false);
+        value.setGravity(Gravity.END);
+        value.setSingleLine(true);
+        value.setEllipsize(TextUtils.TruncateAt.END);
+        value.setPadding(px(12), 0, px(8), 0);
+        r.addView(value, new LinearLayout.LayoutParams(0, -2, 1f));
+        TextView chevron = flat(20, 0x80FFFFFF, false);
+        chevron.setText("›");
+        r.addView(chevron);
+        r.setOnClickListener(v -> {
+            Sheet.tick(v);
+            open.run();
+        });
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, px(54));
+        lp.topMargin = px(6);
+        into.addView(r, lp);
+        return value;
+    }
+
+    /** The home page shows what is set: tile pictures and values, row values. Cheap, so it runs after every change. */
+    private void refreshHome() {
+        if (sheet == null) return;
+        int s = clampScene(prefs.getInt("scene", 0)), pal = prefs.getInt("palette", Palettes.ALBUM);
+        ((TextView) tileScenes[2]).setText(Scene.ALL[s].name + (tuneMoved(Scene.ALL[s]) ? " · tuned" : ""));
+        ((ImageView) tileScenes[1]).setImageBitmap(thumb(Scene.ALL[s].id));
+        String palName = pal == Palettes.ALBUM ? (lastTitle.isEmpty() ? "Album" : "Album · " + lastTitle) : Palettes.NAMES[pal];
+        ((TextView) tileColours[2]).setText(palName + " · " + ColourDrive.MODE_NAMES[colourMode]);
+        ((ImageView) tileColours[1]).setImageDrawable(paletteDrawable(pal, 0));
+        int n = looks.all().size();
+        ((TextView) tileLooks[2]).setText(n == 0 ? "Save what is on screen" : n == 1 ? "1 saved look" : n + " saved looks");
+        ((TextView) tileAutopilot[2]).setText(Autopilot.MODE_NAMES[autopilotMode()]);
+        Scene sc = Scene.ALL[s];
+        StringBuilder tune = new StringBuilder();
+        for (int k = 0; k < Scene.TUNE; k++) tune.append(k > 0 ? " · " : "").append(Math.round(tuneValue(sc, k) * 100));
+        rowTune.setText(sc.name + "  " + tune);
+        int sym = prefs.getInt("sym", 1);
+        rowDraw.setText(sym <= 1 ? "Mirror off" : "Mirror ×" + sym);
+        int src = prefs.getInt("source", 0), eq = eqMode;
+        rowSound.setText((src == 0 ? "Phone audio" : "Microphone") + " · " + new String[]{"Flat", "Punch", "Custom EQ"}[Math.max(0, Math.min(2, eq))]);
+        rowDisplay.setText(new String[]{"Dim", "Soft", "Normal", "Bright"}[Math.max(0, Math.min(3, prefs.getInt("brightness", TavRenderer.DEFAULT_BRIGHTNESS)))]
+                + " · " + QUALITY_NAMES[Math.max(0, Math.min(3, prefs.getInt("quality", TavRenderer.DEFAULT_QUALITY)))]
+                + (prefs.getInt("motion", 0) == 1 ? " · Calm" : ""));
+        if (rowAccount != null) rowAccount.setText(cloud.anonymous() ? "Guest" : cloud.email());
+        if (quickScene != null) quickScene.setText(spaced(sc.name));
+    }
+
+    private boolean tuneMoved(Scene sc) {
+        for (int k = 0; k < Scene.TUNE; k++) if (tuneValue(sc, k) != 0.5f) return true;
+        return false;
+    }
+
+    /** A scene's thumbnail from assets/thumbs (made by android/tools/thumbs.sh); null when there is none. */
+    private Bitmap thumb(String sceneId) {
+        Bitmap b = thumbs.get(sceneId);
+        if (b != null || thumbs.containsKey(sceneId)) return b;
+        try (java.io.InputStream in = getAssets().open("thumbs/" + sceneId + ".jpg")) {
+            b = android.graphics.BitmapFactory.decodeStream(in);
+        } catch (java.io.IOException e) {
+            b = null;
+        }
+        thumbs.put(sceneId, b);
+        return b;
+    }
+
+    /** The palette as a picture: its three colours (seven hues for Rainbow) as a diagonal gradient. */
+    private GradientDrawable paletteDrawable(int idx, float radiusDp) {
+        int[] c;
+        if (idx == Palettes.RAINBOW) {
+            c = new int[7];
+            for (int i = 0; i < 7; i++) c[i] = Color.HSVToColor(new float[]{i * 51.4f, 0.9f, 1f});
+        } else {
+            c = Palettes.toColors(paletteFor(idx));
+        }
+        GradientDrawable d = new GradientDrawable(GradientDrawable.Orientation.TL_BR, c);
+        if (radiusDp > 0) d.setCornerRadius(px(radiusDp));
+        return d;
+    }
+
+    // ---- pages
+
+    private LinearLayout pageBox() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        return box;
+    }
+
+    private TextView note(LinearLayout into, String s) {
+        TextView t = flat(13, 0x99FFFFFF, false);
+        t.setText(s);
+        t.setLineSpacing(0, 1.3f);
+        t.setPadding(px(2), px(6), px(2), px(6));
+        into.addView(t);
+        return t;
+    }
+
+    /** Scenes: a grid of thumbnails, the current one framed; then the sliders and the autopilot's mode. */
+    private void showScenes() {
+        LinearLayout box = pageBox();
+        sceneTiles.clear();
+        int cols = 3;
+        LinearLayout rowL = null;
+        for (int i = 0; i < Scene.ALL.length; i++) {
+            if (i % cols == 0) {
+                rowL = new LinearLayout(this);
+                LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(-1, -2);
+                rlp.topMargin = i == 0 ? px(4) : px(8);
+                box.addView(rowL, rlp);
             }
-            // the first custom palette starts from the colours on screen, so read them before switching
-            if (i == Palettes.CUSTOM && !prefs.contains("custom0")) {
-                System.arraycopy(Palettes.toColors(paletteFor(prefs.getInt("palette", Palettes.ALBUM))), 0, custom, 0, 3);
-                saveCustom();
-            }
-            prefs.edit().putInt("palette", i).apply();
-            if (i == Palettes.ALBUM && !MediaWatcher.hasNotificationAccess(this))
-                askNotificationAccess("Allow TAV in the list to colour the visuals from album art");
-            view.queueEvent(renderer::autopilotUserColours);   // the user's colours stay for this track
-            pushPalette();
-            if (i == Palettes.CUSTOM) showColourEditor();
-        });
+            final int idx = i;
+            FrameLayout t = new FrameLayout(this);
+            t.setClickable(true);
+            t.setFocusable(true);
+            t.setContentDescription("Scene " + Scene.ALL[i].name);
+            t.setClipToOutline(true);
+            t.setOutlineProvider(new ViewOutlineProvider() {
+                @Override
+                public void getOutline(View view, Outline outline) {
+                    outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), 16 * dp);
+                }
+            });
+            ImageView img = new ImageView(this);
+            img.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            Bitmap b = thumb(Scene.ALL[i].id);
+            if (b != null) img.setImageBitmap(b);
+            else img.setBackground(paletteDrawable(prefs.getInt("palette", Palettes.ALBUM), 0));
+            t.addView(img, new FrameLayout.LayoutParams(-1, -1));
+            View scrim = new View(this);
+            scrim.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[]{0x00000000, 0xB3000000}));
+            t.addView(scrim, new FrameLayout.LayoutParams(-1, -1));
+            TextView name = flat(13.5f, Color.WHITE, true);
+            name.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+            name.setText(Scene.ALL[i].name);
+            name.setPadding(px(10), 0, px(10), px(9));
+            t.addView(name, new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM));
+            View frame = new View(this);   // the selection ring
+            t.addView(frame, new FrameLayout.LayoutParams(-1, -1));
+            t.setTag(frame);
+            t.setOnClickListener(v -> {
+                Sheet.tick(v);
+                markScene(idx);
+                view.queueEvent(() -> renderer.setScene(idx));
+                pokeMenu();
+            });
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, px(132), 1f);
+            if (i % cols > 0) lp.leftMargin = px(8);
+            rowL.addView(t, lp);
+            sceneTiles.add(t);
+        }
+        while (rowL != null && rowL.getChildCount() < cols) {   // keep the last row's tiles the same size
+            View filler = new View(this);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, 1, 1f);
+            lp.leftMargin = px(8);
+            rowL.addView(filler, lp);
+        }
+        markScene(clampScene(prefs.getInt("scene", 0)));
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        list.setPadding(0, px(8), 0, 0);
+        row(list, "Tune this scene", this::showTune);
+        box.addView(list);
+        note(box, "Two-finger swipe on the visuals also changes the scene. The autopilot picks scenes by the music's energy; it is in the Autopilot tile.");
+        openCard("Scenes", box);
+    }
 
-        addRow("Colour motion (how the colours move with the music)", ColourDrive.MODE_NAMES, colourMode, cmChips, i -> {
+    private void markScene(int scene) {
+        for (int i = 0; i < sceneTiles.size(); i++) {
+            View frame = (View) sceneTiles.get(i).getTag();
+            if (i == scene) {
+                GradientDrawable d = new GradientDrawable();
+                d.setCornerRadius(px(16));
+                d.setStroke(px(3), 0xFFFF2E8C);
+                frame.setBackground(d);
+            } else {
+                frame.setBackground(null);
+            }
+            sceneTiles.get(i).setSelected(i == scene);
+        }
+    }
+
+    /** Colours: the palettes as swatches, Shuffle, the Custom editor, and the colour motion. */
+    private void showColours() {
+        LinearLayout box = pageBox();
+        box.addView(label("Palette"));
+        paletteSwatches.clear();
+        LinearLayout rowL = null;
+        int cols = 4, count = Palettes.NAMES.length + 1;   // + Shuffle
+        for (int i = 0; i < count; i++) {
+            if (i % cols == 0) {
+                rowL = new LinearLayout(this);
+                box.addView(rowL, new LinearLayout.LayoutParams(-1, -2));
+            }
+            final int idx = i;
+            boolean shuffle = i == Palettes.NAMES.length;
+            LinearLayout cell = new LinearLayout(this);
+            cell.setOrientation(LinearLayout.VERTICAL);
+            cell.setGravity(Gravity.CENTER_HORIZONTAL);
+            cell.setClickable(true);
+            cell.setFocusable(true);
+            cell.setPadding(0, px(6), 0, px(6));
+            cell.setContentDescription(shuffle ? "Shuffle: three random colours that go together" : "Colours " + Palettes.NAMES[i]);
+            FrameLayout dot = new FrameLayout(this);
+            View fill = new View(this);
+            if (shuffle) {
+                GradientDrawable g = new GradientDrawable();
+                g.setShape(GradientDrawable.OVAL);
+                g.setColor(0x1AFFFFFF);
+                g.setStroke(px(1), 0x4DFFFFFF);
+                fill.setBackground(g);
+            } else {
+                GradientDrawable g = paletteDrawable(i, 0);
+                g.setShape(GradientDrawable.OVAL);
+                fill.setBackground(g);
+            }
+            dot.addView(fill, new FrameLayout.LayoutParams(-1, -1));
+            if (shuffle || i == Palettes.ALBUM) {
+                TextView glyph = flat(20, Color.WHITE, false);
+                glyph.setText(shuffle ? "⚄" : "♪");
+                glyph.setGravity(Gravity.CENTER);
+                dot.addView(glyph, new FrameLayout.LayoutParams(-1, -1));
+            }
+            View ring = new View(this);
+            dot.addView(ring, new FrameLayout.LayoutParams(-1, -1));
+            dot.setTag(ring);
+            cell.addView(dot, new LinearLayout.LayoutParams(px(52), px(52)));
+            TextView name = flat(12, 0xCCFFFFFF, false);
+            name.setText(shuffle ? "Shuffle" : Palettes.NAMES[i]);
+            name.setPadding(0, px(5), 0, 0);
+            cell.addView(name);
+            cell.setOnClickListener(v -> {
+                Sheet.tick(v);
+                pickPalette(idx);
+                pokeMenu();
+            });
+            rowL.addView(cell, new LinearLayout.LayoutParams(0, -2, 1f));
+            if (!shuffle) paletteSwatches.add(dot);
+        }
+        while (rowL != null && rowL.getChildCount() < cols) rowL.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1f));
+        markPalette(prefs.getInt("palette", Palettes.ALBUM));
+        TextView editChip = chip("Edit my colours", false, v -> showColourEditor());
+        LinearLayout editRow = new LinearLayout(this);
+        editRow.setPadding(0, px(4), 0, 0);
+        editRow.addView(editChip);
+        box.addView(editRow);
+
+        addRow(box, "Colour motion · how the colours move with the music", ColourDrive.MODE_NAMES, colourMode, cmChips, i -> {
             view.queueEvent(renderer::autopilotUserColours);
             if (i == ColourDrive.CUSTOM) showColourMotion();   // Custom: the sliders
             else setColourDrive(ColourDrive.preset(i), i);
+            refreshHome();
         });
+        note(box, "Album takes the colours from the cover of what is playing. Shuffle makes three colours that go together and keeps them under Custom.");
+        openCard("Colours", box);
+    }
 
-        addRow("Brightness", new String[]{"Dim", "Soft", "Normal", "Bright"},
-                prefs.getInt("brightness", TavRenderer.DEFAULT_BRIGHTNESS), brightChips, i -> {
-                    prefs.edit().putInt("brightness", i).apply();
-                    view.queueEvent(() -> renderer.setBrightness(i));
-                });
+    /** The Colours page's swatch, the old chip row's pick: the same logic as before, one place. */
+    private void pickPalette(int i) {
+        if (i == Palettes.NAMES.length) {   // a harmonious random palette into the Custom slot
+            shuffleColours();
+            return;
+        }
+        // the first custom palette starts from the colours on screen, so read them before switching
+        if (i == Palettes.CUSTOM && !prefs.contains("custom0")) {
+            System.arraycopy(Palettes.toColors(paletteFor(prefs.getInt("palette", Palettes.ALBUM))), 0, custom, 0, 3);
+            saveCustom();
+        }
+        prefs.edit().putInt("palette", i).apply();
+        if (i == Palettes.ALBUM && !MediaWatcher.hasNotificationAccess(this))
+            askNotificationAccess("Allow TAV in the list to colour the visuals from album art");
+        view.queueEvent(renderer::autopilotUserColours);   // the user's colours stay for this track
+        pushPalette();
+        markPalette(i);
+        refreshHome();
+        if (i == Palettes.CUSTOM) showColourEditor();
+    }
 
-        addRow("Motion", new String[]{"Full", "Calm (no flashes)"}, prefs.getInt("motion", 0), motionChips, i -> {
-            prefs.edit().putInt("motion", i).apply();
-            view.queueEvent(() -> renderer.setCalm(i == 1));
+    private void markPalette(int sel) {
+        for (int i = 0; i < paletteSwatches.size(); i++) {
+            View ring = (View) paletteSwatches.get(i).getTag();
+            if (i == sel) {
+                GradientDrawable d = new GradientDrawable();
+                d.setShape(GradientDrawable.OVAL);
+                d.setStroke(px(3), Color.WHITE);
+                ring.setBackground(d);
+            } else {
+                ring.setBackground(null);
+            }
+        }
+    }
+
+    private void showAutopilot() {
+        LinearLayout box = pageBox();
+        addRow(box, "Autopilot", Autopilot.MODE_NAMES, autopilotMode(), autoChips, i -> {
+            setAutopilotMode(i);
+            refreshHome();
         });
+        note(box, "Scenes: it changes the scene with the music's energy and waits for the downbeat of a drop. "
+                + "Scenes + colours: new colours per section too, on top of your own palette for this track. "
+                + "Your own picks always win; it learns which scenes you keep.");
+        openCard("Autopilot", box);
+    }
 
-        addRow("Equalizer (how hard the scenes react)", new String[]{"Flat", "Punch", "Custom"}, eqMode, eqChips, i -> {
-            if (i == 2) showEqualizer();   // Custom: the sliders
-            else setEqualizer(i == 0 ? Equalizer.flat() : Equalizer.punch(), i);
+    /** Draw: sound shapes to put on the scene, the mirror, clear. */
+    private void showDraw() {
+        LinearLayout box = pageBox();
+        note(box, "Drag a finger over the visuals to draw a line that sings; a tap makes a ripple.");
+        addRow(box, "Put a shape on screen", Shapes.NAMES, -1, null, i -> {
+            final List<float[]> pts = Shapes.make(i, 0, 0, 0.62f);
+            view.queueEvent(() -> renderer.addShape(pts));
+            strokesOnScreen = true;
+            refreshQuick();
         });
+        String[] syms = {"Off", "2", "3", "4", "6", "8", "12"};
+        int symSel = 0;
+        for (int i = 0; i < SYMMETRY.length; i++) if (SYMMETRY[i] == prefs.getInt("sym", 1)) symSel = i;
+        addRow(box, "Mirror · copies of the drawing, like a mandala", syms, symSel, mirrorChips, i -> {
+            prefs.edit().putInt("sym", SYMMETRY[i]).apply();
+            view.queueEvent(() -> renderer.setSymmetry(SYMMETRY[i]));
+            refreshHome();
+        });
+        LinearLayout actions = new LinearLayout(this);
+        actions.setPadding(0, px(12), 0, 0);
+        actions.addView(chip("✕  Clear the drawing", true, v -> clearDrawing()));
+        box.addView(actions);
+        openCard("Draw", box);
+    }
 
-        addRow("Listen to", new String[]{"Phone audio (Spotify)", "Microphone"}, prefs.getInt("source", 0), sourceChips, i -> {
+    private void clearDrawing() {
+        view.queueEvent(renderer::clearStrokes);
+        strokesOnScreen = false;
+        refreshQuick();
+        flash("C L E A R E D");
+    }
+
+    /** Sound: what TAV listens to, how hard the scenes react, the music-started nudge. */
+    private void showSound() {
+        LinearLayout box = pageBox();
+        addRow(box, "Listen to", new String[]{"Phone audio (Spotify)", "Microphone"}, prefs.getInt("source", 0), sourceChips, i -> {
             prefs.edit().putInt("source", i).apply();
             if (hasAudioPermission()) startAudio();
             else requestAudio();
+            refreshHome();
         });
-
-        addRow("Autopilot (follows the music: scenes by energy, new colours per section)", Autopilot.MODE_NAMES, autopilotMode(),
-                autoChips, this::setAutopilotMode);
-
-        addRow("Song title", new String[]{"Fades out", "Always on screen"}, titleAlways ? 1 : 0, new ArrayList<>(), i -> {
-            titleAlways = i == 1;
-            prefs.edit().putBoolean("titleAlways", titleAlways).apply();
-            ui.removeCallbacks(hideTrack);
-            if (lastTitle.isEmpty()) return;
-            if (titleAlways) fadeTrack(trackAlpha(), 400);
-            else ui.postDelayed(hideTrack, 2500);
+        addRow(box, "Equalizer · how hard the scenes react", new String[]{"Flat", "Punch", "Custom"}, eqMode, eqChips, i -> {
+            if (i == 2) showEqualizer();   // Custom: the sliders
+            else setEqualizer(i == 0 ? Equalizer.flat() : Equalizer.punch(), i);
+            refreshHome();
         });
-
-        addRow("Light up when music starts (a quiet notification)", new String[]{"Off", "Spotify", "Any player"},
+        addRow(box, "Light up when music starts · a quiet notification", new String[]{"Off", "Spotify", "Any player"},
                 prefs.getInt(NowPlayingNudge.PREF, NowPlayingNudge.OFF), new ArrayList<>(), i -> {
                     prefs.edit().putInt(NowPlayingNudge.PREF, i).apply();
                     if (i == NowPlayingNudge.OFF) {
@@ -1069,26 +1542,66 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
                     else if (Build.VERSION.SDK_INT >= 33 && !NowPlayingNudge.allowed(this))
                         requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, REQ_NOTIFY);
                 });
+        note(box, "Phone audio hears what the phone plays, through Android's visualizer. Album colours and the nudge read what is playing through notification access; nothing is recorded.");
+        openCard("Sound", box);
+    }
 
-        addRow("Quality (Auto finds the sharpest your phone keeps smooth)", QUALITY_NAMES, prefs.getInt("quality", TavRenderer.DEFAULT_QUALITY), qualityChips, i -> {
+    /** Display: brightness, motion, quality, the song title. */
+    private void showDisplay() {
+        LinearLayout box = pageBox();
+        addRow(box, "Brightness", new String[]{"Dim", "Soft", "Normal", "Bright"},
+                prefs.getInt("brightness", TavRenderer.DEFAULT_BRIGHTNESS), brightChips, i -> {
+                    prefs.edit().putInt("brightness", i).apply();
+                    view.queueEvent(() -> renderer.setBrightness(i));
+                    refreshHome();
+                });
+        addRow(box, "Motion", new String[]{"Full", "Calm (no flashes)"}, prefs.getInt("motion", 0), motionChips, i -> {
+            prefs.edit().putInt("motion", i).apply();
+            view.queueEvent(() -> renderer.setCalm(i == 1));
+            refreshHome();
+        });
+        addRow(box, "Quality · Auto finds the sharpest your phone keeps smooth", QUALITY_NAMES, prefs.getInt("quality", TavRenderer.DEFAULT_QUALITY), qualityChips, i -> {
             prefs.edit().putInt("quality", i).apply();
             view.queueEvent(() -> renderer.setQuality(i));
+            refreshHome();
         });
+        addRow(box, "Song title", new String[]{"Fades out", "Always on screen"}, titleAlways ? 1 : 0, new ArrayList<>(), i -> {
+            titleAlways = i == 1;
+            prefs.edit().putBoolean("titleAlways", titleAlways).apply();
+            ui.removeCallbacks(hideTrack);
+            if (lastTitle.isEmpty()) return;
+            if (titleAlways) fadeTrack(trackAlpha(), 400);
+            else ui.postDelayed(hideTrack, 2500);
+        });
+        openCard("Display", box);
+    }
 
-        if (cloud.enabled()) addRow("Account", new String[]{"Your streak, sign-in and privacy"}, -1, null, i -> showAccount());
-
-        TextView help = text(12.5f, 0x99FFFFFF, false);
-        help.setText("Tap: ripple   \u2022   Drag: draw with sound   \u2022   Two-finger swipe: next scene   \u2022   Long-press: this menu\n"
-                + "Song title on screen: swipe it for the next or previous track, tap it to pause.\n"
-                + "A look is the scene, colours, mirror, brightness, motion and equalizer together. Share one as a link or six-letter code.\n"
-                + "Album colours and the music-started nudge need notification access (only used to read what's playing).");
-        help.setLineSpacing(0, 1.25f);
-        help.setPadding(0, px(14), 0, 0);
-        panelContent.addView(help);
-
-        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM);
-        lp.setMargins(px(12), 0, px(12), px(100));
-        root.addView(panel, lp);
+    private void showHelp() {
+        LinearLayout box = pageBox();
+        String[][] lines = {
+                {"Tap", "a ripple"},
+                {"Drag", "draw a line that sings"},
+                {"Two fingers, swipe", "next or previous scene"},
+                {"Long-press", "this menu"},
+                {"Song title", "swipe it to skip, tap it to pause"},
+                {"‹ › at the bottom", "scene, shuffle colours, clear the drawing"},
+        };
+        for (String[] l : lines) {
+            LinearLayout r = new LinearLayout(this);
+            r.setPadding(0, px(7), 0, px(7));
+            TextView a = flat(14.5f, Color.WHITE, true);
+            a.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+            a.setText(l[0]);
+            r.addView(a, new LinearLayout.LayoutParams(0, -2, 1f));
+            TextView b = flat(14, 0xB3FFFFFF, false);
+            b.setText(l[1]);
+            b.setGravity(Gravity.END);
+            r.addView(b, new LinearLayout.LayoutParams(0, -2, 1.3f));
+            box.addView(r);
+        }
+        note(box, "A look is the scene, colours and their motion, mirror, brightness, motion and equalizer together. Share one as a link or a six-letter code.\n"
+                + "Album colours and the music-started nudge need notification access, used only to read what is playing.");
+        openCard("Gestures and help", box);
     }
 
     interface Pick {
@@ -1097,51 +1610,68 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
 
     /** Small spaced capitals above a row of chips or a slider. */
     private TextView label(String s) {
-        TextView l = text(11.5f, 0x99FFFFFF, false);
+        TextView l = flat(11.5f, 0x99FFFFFF, false);
         l.setText(s.toUpperCase(Locale.ROOT));
-        l.setLetterSpacing(0.12f);
-        l.setPadding(0, px(14), 0, px(6));
+        l.setLetterSpacing(0.1f);
+        l.setPadding(px(2), px(14), 0, px(8));
         return l;
     }
 
     private GradientDrawable glass(int fill) {
+        return glass(fill, 26);
+    }
+
+    private GradientDrawable glass(int fill, float radiusDp) {
         GradientDrawable g = new GradientDrawable();
         g.setColor(fill);
-        g.setCornerRadius(px(26));
+        g.setCornerRadius(px(radiusDp));
         g.setStroke(px(1), 0x33FFFFFF);
         return g;
     }
 
-    private void addRow(String label, String[] options, int selected, List<TextView> keep, Pick pick) {
-        panelContent.addView(label(label));
+    /** A labelled row of chips in a page; one chip is selected unless `keep` is null (actions). */
+    private void addRow(LinearLayout into, String label, String[] options, int selected, List<TextView> keep, Pick pick) {
+        into.addView(label(label));
         HorizontalScrollView hs = new HorizontalScrollView(this);
         hs.setHorizontalScrollBarEnabled(false);
+        hs.setClipToPadding(false);
         LinearLayout row = new LinearLayout(this);
         hs.addView(row);
         final List<TextView> chips = keep != null ? keep : new ArrayList<>();
+        chips.clear();
         for (int i = 0; i < options.length; i++) {
             final int idx = i;
-            TextView c = text(14, Color.WHITE, false);
-            c.setShadowLayer(0, 0, 0, 0);
-            c.setText(options[i]);
-            c.setPadding(px(14), px(8), px(14), px(8));
-            styleChip(c, i == selected);
-            c.setOnClickListener(v -> {
+            TextView c = chip(options[i], i == selected, v -> {
                 if (keep != null) for (int k = 0; k < chips.size(); k++) styleChip(chips.get(k), k == idx);
                 pick.on(idx);
                 pokeMenu();
             });
-            LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(-2, -2);
+            LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(-2, px(44));
             clp.rightMargin = px(8);
             row.addView(c, clp);
             chips.add(c);
         }
-        panelContent.addView(hs);
+        into.addView(hs);
+    }
+
+    /** A chip: 44 dp tall, a tick of haptics on tap. */
+    private TextView chip(String label, boolean selected, View.OnClickListener on) {
+        TextView c = flat(14.5f, Color.WHITE, false);
+        c.setText(label);
+        c.setGravity(Gravity.CENTER);
+        c.setPadding(px(18), px(10), px(18), px(10));
+        c.setMinHeight(px(44));
+        styleChip(c, selected);
+        c.setOnClickListener(v -> {
+            Sheet.tick(v);
+            on.onClick(v);
+        });
+        return c;
     }
 
     private void styleChip(TextView c, boolean selected) {
         GradientDrawable d = new GradientDrawable();
-        d.setCornerRadius(px(18));
+        d.setCornerRadius(px(22));
         if (selected) {
             d.setColors(new int[]{0xFFFF2E8C, 0xFF7B3CFF});
             d.setOrientation(GradientDrawable.Orientation.LEFT_RIGHT);
@@ -1162,28 +1692,42 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         else if (accountCard != null) closeAccount(false);
         else if (colourCard != null) closeColourMotion(false);
         else if (looksCard != null) closeLooks(false);
-        else showPanel(panel.getVisibility() != View.VISIBLE);
+        else showPanel(!sheet.shown());
+    }
+
+    /** ✕ or a drag on the handle: closes whichever page is open, and the sheet with it. */
+    private void closeAll() {
+        if (colourEditor != null) closeColourEditor(false);
+        else if (equalizerCard != null) closeEqualizer(false);
+        else if (tuneCard != null) closeTune(false);
+        else if (accountCard != null) closeAccount(false);
+        else if (colourCard != null) closeColourMotion(false);
+        else if (looksCard != null) closeLooks(false);
+        else showPanel(false);
     }
 
     private void showPanel(boolean show) {
         if (show) {
-            panel.setVisibility(View.VISIBLE);
-            panel.setAlpha(0f);
-            panel.setTranslationY(40 * dp);
-            panel.animate().alpha(1f).translationY(0).setDuration(250).setListener(null).start();
-            menuButton.setText("✕");
+            refreshHome();
+            sheet.show();
+            hint.setVisibility(View.INVISIBLE);   // the sheet explains things now
+            menuButton.animate().alpha(0f).setDuration(150).start();
+            quickBar.animate().alpha(0f).setDuration(150).start();
         } else {
-            panel.animate().alpha(0f).translationY(40 * dp).setDuration(200)
-                    .withEndAction(() -> panel.setVisibility(View.GONE)).start();
-            menuButton.setText("☰");
+            sheet.hide();
+            hint.setVisibility(View.VISIBLE);
+            pokeMenu();
         }
-        pokeMenu();
     }
 
+    /** Shows the menu button and the quick bar, and hides them again after a few seconds. */
     private void pokeMenu() {
+        ui.removeCallbacks(hideMenu);
+        if (sheet.shown()) return;
         menuButton.animate().cancel();
         menuButton.setAlpha(0.85f);
-        ui.removeCallbacks(hideMenu);
+        quickBar.animate().cancel();
+        quickBar.setAlpha(1f);
         ui.postDelayed(hideMenu, 3500);
     }
 
@@ -1196,10 +1740,9 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     private void showColourEditor() {
         if (colourEditor != null) return;
         System.arraycopy(savedCustom(), 0, custom, 0, 3);
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(px(18), px(4), px(18), px(16));
-        box.addView(label("Your colours · tap one to change it"));
+        LinearLayout box = pageBox();
+        note(box, "Three colours of your own. Tap a swatch, then move hue, saturation and brightness; the scene follows while you drag.");
+        box.addView(label("Your colours \u00B7 tap one to change it"));
         LinearLayout row = new LinearLayout(this);
         row.setGravity(Gravity.CENTER_VERTICAL);
         for (int k = 0; k < 3; k++) {
@@ -1213,23 +1756,9 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
             swatches[k] = s;
         }
         row.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1f));
-        TextView shuffle = text(14, Color.WHITE, false);
-        shuffle.setShadowLayer(0, 0, 0, 0);
-        shuffle.setText("\u2684 Shuffle");
+        TextView shuffle = chip("\u2684 Shuffle", false, v -> shuffleColours());
         shuffle.setContentDescription("Shuffle: three random colours that go together");
-        shuffle.setPadding(px(16), px(10), px(16), px(10));
-        styleChip(shuffle, false);
-        shuffle.setOnClickListener(v -> shuffleColours());
-        LinearLayout.LayoutParams shp = new LinearLayout.LayoutParams(-2, -2);
-        shp.rightMargin = px(8);
-        row.addView(shuffle, shp);
-        TextView done = text(15, Color.WHITE, true);
-        done.setShadowLayer(0, 0, 0, 0);
-        done.setText("Done");
-        done.setPadding(px(22), px(10), px(22), px(10));
-        styleChip(done, true);
-        done.setOnClickListener(v -> closeColourEditor(false));
-        row.addView(done);
+        row.addView(shuffle);
         box.addView(row);
         hueSlider = slider(box, "Hue");
         satSlider = slider(box, "Saturation");
@@ -1238,7 +1767,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         for (int i = 0; i < rainbow.length; i++) rainbow[i] = Color.HSVToColor(new float[]{i * 60f, 1f, 1f});
         hueSlider.setColors(rainbow);
 
-        colourEditor = openCard(box);
+        colourEditor = openCard("My colours", box);
         selectSwatch(0);
     }
 
@@ -1247,7 +1776,10 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         l.setPadding(0, px(8), 0, 0);
         box.addView(l);
         GradientSlider s = new GradientSlider(this, name);
-        s.setListener((v, done) -> editColour(done));
+        s.setListener((v, done) -> {
+            sheet.setGhost(!done);
+            editColour(done);
+        });
         box.addView(s, new LinearLayout.LayoutParams(-1, -2));
         return s;
     }
@@ -1301,6 +1833,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         if (card == null) return;
         colourEditor = null;
         saveCustom();
+        refreshHome();
         closeCard(card, backToMenu);
     }
 
@@ -1337,12 +1870,13 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     private void showColourMotion() {
         if (colourCard != null) return;
         if (colourMode != ColourDrive.CUSTOM) setColourDrive(savedColourDrive(), ColourDrive.CUSTOM);
-        LinearLayout box = sliderCard("How the colours move", ColourDrive.NAMES, cmSliders, cmLabels,
+        LinearLayout box = sliderCard("Drift turns the hue slowly on its own, Beat step and Drop jump move it on the music, Band tilt and Band pump let bass, mids and treble shift and swell the colours.",
+                ColourDrive.NAMES, cmSliders, cmLabels,
                 (i, v) -> {
                     setColourDrive(colourDrive.with(i, v * ColourDrive.MAX[i]), ColourDrive.CUSTOM);
                     refreshColourLabels();
-                }, () -> closeColourMotion(false));
-        colourCard = openCard(box);
+                });
+        colourCard = openCard("Colour motion", box);
         for (int i = 0; i < ColourDrive.NAMES.length; i++) cmSliders[i].setValue(colourDrive.amount(i) / ColourDrive.MAX[i]);
         refreshColourLabels();
     }
@@ -1365,22 +1899,13 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         void on(int index, float position);
     }
 
-    /** The body of a slider card: a title with a Done chip, then a label and a slider per name. */
-    private LinearLayout sliderCard(String title, String[] names, GradientSlider[] sliders, TextView[] labels, Slide slide, Runnable done) {
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(px(18), px(4), px(18), px(16));
-        LinearLayout head = new LinearLayout(this);
-        head.setGravity(Gravity.CENTER_VERTICAL);
-        head.addView(label(title), new LinearLayout.LayoutParams(0, -2, 1f));
-        TextView doneChip = text(15, Color.WHITE, true);
-        doneChip.setShadowLayer(0, 0, 0, 0);
-        doneChip.setText("Done");
-        doneChip.setPadding(px(22), px(10), px(22), px(10));
-        styleChip(doneChip, true);
-        doneChip.setOnClickListener(v -> done.run());
-        head.addView(doneChip);
-        box.addView(head);
+    /**
+     * The body of a slider page: a line on what it does, then a label and a slider per name. While a
+     * slider is dragged the sheet goes see-through, so the change is judged on the scene itself.
+     */
+    private LinearLayout sliderCard(String what, String[] names, GradientSlider[] sliders, TextView[] labels, Slide slide) {
+        LinearLayout box = pageBox();
+        if (what != null) note(box, what);
         for (int i = 0; i < names.length; i++) {
             final int k = i;
             labels[i] = label(names[i]);
@@ -1388,41 +1913,27 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
             GradientSlider s = new GradientSlider(this, names[i]);
             s.setColors(0xFF2A2740, 0xFFFF2E8C);
             s.setKnobColor(0xFFFFFFFF);
-            s.setListener((value, finished) -> slide.on(k, value));
+            s.setListener((value, finished) -> {
+                sheet.setGhost(!finished);
+                if (finished) Sheet.tick(s);
+                slide.on(k, value);
+            });
             box.addView(s, new LinearLayout.LayoutParams(-1, -2));
             sliders[i] = s;
         }
         return box;
     }
 
-    /** Puts a card over the visuals in the menu's place and returns it. */
-    private View openCard(View box) {
-        ScrollView card = new ScrollView(this);   // scrolls on a short landscape screen
-        card.setBackground(glass(0xE60B0B14));
-        card.setVerticalScrollBarEnabled(false);
-        card.setClickable(true);   // touches on the card don't fall through to the visuals
-        card.addView(box);
-        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM);
-        lp.setMargins(px(12), 0, px(12), px(100));
-        root.addView(card, lp);
-        card.setAlpha(0f);
-        card.setTranslationY(40 * dp);
-        card.animate().alpha(1f).translationY(0).setDuration(250).start();
-        if (panel.getVisibility() == View.VISIBLE) showPanel(false);   // the card takes its place
-        menuButton.setText("✕");
-        pokeMenu();
-        return card;
+    /** Pushes a page onto the sheet (opening it if it was closed) and returns the page. */
+    private View openCard(String title, View box) {
+        if (!sheet.shown()) showPanel(true);
+        return sheet.push(title, box);
     }
 
-    /** backToMenu: Back returns to the menu the card came from; Done and ✕ close both. */
+    /** backToMenu: Back returns to the page the card came from; ✕ and a drag close the sheet. */
     private void closeCard(View card, boolean backToMenu) {
-        card.animate().alpha(0f).translationY(40 * dp).setDuration(200).withEndAction(() -> root.removeView(card)).start();
-        if (backToMenu) {
-            showPanel(true);
-        } else {
-            menuButton.setText("☰");
-            pokeMenu();
-        }
+        if (backToMenu) sheet.remove(card);
+        else showPanel(false);
     }
 
     // ------------------------------------------------------------------ equalizer
@@ -1468,9 +1979,9 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
      */
     private void showEqualizer() {
         if (equalizerCard != null) return;
-        LinearLayout box = sliderCard("How hard the scenes react", EQ_NAMES, eqSliders, eqLabels,
-                this::editEqualizer, () -> closeEqualizer(false));
-        equalizerCard = openCard(box);
+        LinearLayout box = sliderCard("How hard the scenes react. Master and the four bands scale the music's levels; Punch makes loud passages hit harder than quiet ones; Beat is the size of each beat's pulse.",
+                EQ_NAMES, eqSliders, eqLabels, this::editEqualizer);
+        equalizerCard = openCard("Equalizer", box);
         showEqualizerValues();
     }
 
@@ -1627,6 +2138,20 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         if (intro != null) root.removeView(intro);
         intro = null;
         introBody = introButton = null;
+        ui.postDelayed(this::showGestureCoach, 1500);
+    }
+
+    /** Once, after the first-run card: the gestures nobody would guess, on a card over the running visuals. */
+    private void showGestureCoach() {
+        if (firstRun.getBoolean("coached", false) || notice != null || intro != null) return;
+        firstRun.edit().putBoolean("coached", true).apply();
+        notice = card("Three moves",
+                "Swipe with two fingers for the next scene.\n\n"
+                        + "Swipe the song title for the next track; tap it to pause the music.\n\n"
+                        + "Drag one finger to draw with sound. Long-press, or \u2630, for the menu.",
+                "Got it", this::dismissNotice, this::dismissNotice);
+        TextView[] parts = (TextView[]) notice.getTag();
+        parts[0].setGravity(Gravity.START);
     }
 
     /**
@@ -1694,8 +2219,9 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         ui.postDelayed(syncSettings, 3000);   // after the anonymous sign-in has had a chance
         ui.postDelayed(() -> looks.sync(cloud, (changed, err) -> {
             refreshLooksChip();
+            refreshHome();
             if (changed && looksCard != null) {   // redraw the list with what came in
-                closeLooks(false);
+                closeLooks(true);
                 showLooks();
             }
         }), 4500);
@@ -1760,23 +2286,8 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     /** Glass card: streak and listening time, email or Google sign-in, the analytics switch. */
     private void showAccount() {
         if (accountCard != null) return;
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(px(18), px(4), px(18), px(16));
-        LinearLayout head = new LinearLayout(this);
-        head.setGravity(Gravity.CENTER_VERTICAL);
-        TextView title = text(17, Color.WHITE, true);
-        title.setShadowLayer(0, 0, 0, 0);
-        title.setText("Your TAV");
-        head.addView(title, new LinearLayout.LayoutParams(0, -2, 1f));
-        TextView done = text(15, Color.WHITE, true);
-        done.setShadowLayer(0, 0, 0, 0);
-        done.setText("Done");
-        done.setPadding(px(22), px(10), px(22), px(10));
-        styleChip(done, true);
-        done.setOnClickListener(v -> closeAccount(false));
-        head.addView(done);
-        box.addView(head);
+        LinearLayout box = pageBox();
+        note(box, "An account keeps your looks, settings and streak on every device. Guests can do everything too; the account only makes it follow you.");
 
         streakText = text(26, Color.WHITE, true);
         streakText.setShadowLayer(0, 0, 0, 0);
@@ -1840,31 +2351,12 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         }));
         box.addView(forget);
 
-        ScrollView card = new ScrollView(this);
-        card.setBackground(glass(0xE60B0B14));
-        card.setVerticalScrollBarEnabled(false);
-        card.setClickable(true);
-        card.addView(box);
-        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM);
-        lp.setMargins(px(12), 0, px(12), px(100));
-        root.addView(card, lp);
-        card.setAlpha(0f);
-        card.setTranslationY(40 * dp);
-        card.animate().alpha(1f).translationY(0).setDuration(250).start();
-        if (panel.getVisibility() == View.VISIBLE) showPanel(false);
-        accountCard = card;
-        menuButton.setText("✕");
+        accountCard = openCard("Your TAV", box);
         refreshAccount();
-        pokeMenu();
     }
 
     private TextView actionChip(String label, boolean primary, View.OnClickListener on) {
-        TextView c = text(14, Color.WHITE, false);
-        c.setShadowLayer(0, 0, 0, 0);
-        c.setText(label);
-        c.setPadding(px(14), px(8), px(14), px(8));
-        styleChip(c, primary);
-        c.setOnClickListener(v -> {
+        TextView c = chip(label, primary, v -> {
             on.onClick(v);
             pokeMenu();
         });
@@ -1892,13 +2384,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         final View card = accountCard;
         if (card == null) return;
         accountCard = null;
-        card.animate().alpha(0f).translationY(40 * dp).setDuration(200).withEndAction(() -> root.removeView(card)).start();
-        if (backToMenu) {
-            showPanel(true);
-        } else {
-            menuButton.setText("☰");
-            pokeMenu();
-        }
+        closeCard(card, backToMenu);
     }
 
     // ------------------------------------------------------------------ looks: save, reapply, share
@@ -1985,17 +2471,18 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
 
     /** Re-styles every chip row from prefs, after a Look or a newer cloud copy of the settings. */
     private void refreshChips() {
-        select(sceneChips, clampScene(prefs.getInt("scene", 0)));
+        markScene(clampScene(prefs.getInt("scene", 0)));
         int symSel = 0;
         for (int i = 0; i < SYMMETRY.length; i++) if (SYMMETRY[i] == prefs.getInt("sym", 1)) symSel = i;
         select(mirrorChips, symSel);
-        select(paletteChips, prefs.getInt("palette", Palettes.ALBUM));
+        markPalette(prefs.getInt("palette", Palettes.ALBUM));
         select(cmChips, colourMode);
         select(brightChips, prefs.getInt("brightness", TavRenderer.DEFAULT_BRIGHTNESS));
         select(motionChips, prefs.getInt("motion", 0));
         select(eqChips, eqMode);
         select(autoChips, autopilotMode());
         select(qualityChips, prefs.getInt("quality", TavRenderer.DEFAULT_QUALITY));
+        refreshHome();
     }
 
     private void select(List<TextView> chips, int sel) {
@@ -2003,7 +2490,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     }
 
     private void refreshLooksChip() {
-        if (looksChip != null) looksChip.setText(looks.isEmpty() ? "My looks" : "My looks (" + looks.all().size() + ")");
+        refreshHome();
     }
 
     /** Three random colours that go together, into the Custom slot (menu → Colours → Shuffle, or the editor). */
@@ -2016,28 +2503,17 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
             renderer.setPalette(p, colourEditor != null);
             renderer.setRainbow(false);
         });
-        select(paletteChips, Palettes.CUSTOM);
+        markPalette(Palettes.CUSTOM);
+        refreshHome();
         if (colourEditor != null) selectSwatch(editing);
         else flash("S H U F F L E");
         cloud.track("setting_changed", "key", "colours_shuffle");
     }
 
-    /** The head of a Looks card: a title and a Done chip. */
-    private LinearLayout cardBox(String title, Runnable done) {
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(px(18), px(4), px(18), px(16));
-        LinearLayout head = new LinearLayout(this);
-        head.setGravity(Gravity.CENTER_VERTICAL);
-        head.addView(label(title), new LinearLayout.LayoutParams(0, -2, 1f));
-        TextView doneChip = text(15, Color.WHITE, true);
-        doneChip.setShadowLayer(0, 0, 0, 0);
-        doneChip.setText("Done");
-        doneChip.setPadding(px(22), px(10), px(22), px(10));
-        styleChip(doneChip, true);
-        doneChip.setOnClickListener(v -> done.run());
-        head.addView(doneChip);
-        box.addView(head);
+    /** The body of a Looks page; the title goes to the sheet's header. */
+    private LinearLayout cardBox(String title) {
+        LinearLayout box = pageBox();
+        box.setTag(title);
         return box;
     }
 
@@ -2084,7 +2560,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         int pal = prefs.getInt("palette", Palettes.ALBUM);
         String colours = pal == Palettes.ALBUM ? (lastTitle.isEmpty() ? "Album" : lastTitle) : pal == Palettes.CUSTOM ? "my colours" : Palettes.NAMES[pal];
         final EditText name = field("Name", looks.suggestName(Scene.ALL[clampScene(prefs.getInt("scene", 0))].name + " · " + colours));
-        LinearLayout box = cardBox("Save this look", () -> closeLooks(false));
+        LinearLayout box = cardBox("Save this look");
         LinearLayout row = new LinearLayout(this);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(0, px(6), 0, px(4));
@@ -2113,7 +2589,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
             closeLooks(false);
             return true;
         });
-        looksCard = openCard(box);
+        looksCard = openCard("Save this look", box);
         name.requestFocus();
     }
 
@@ -2133,15 +2609,21 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
     /** Looks → My looks: tap a name to apply it; Share and ✕ per Look. */
     private void showLooks() {
         if (looksCard != null) return;
-        LinearLayout box = cardBox("My looks", () -> closeLooks(false));
-        if (looks.isEmpty()) {
-            TextView t = text(14, 0xCCFFFFFF, false);
-            t.setShadowLayer(0, 0, 0, 0);
-            t.setText("Nothing saved yet. Set the scene, colours and mirror the way you like them, then Looks → Save this look.");
-            t.setLineSpacing(0, 1.25f);
-            t.setPadding(0, px(8), 0, px(6));
-            box.addView(t);
-        }
+        LinearLayout box = cardBox("Looks");
+        note(box, "A look is everything on screen: scene, colours and their motion, mirror, brightness, motion and equalizer. Save one, and bring it back or share it as a link or a six-letter code.");
+        LinearLayout actions = new LinearLayout(this);
+        actions.setPadding(0, px(4), 0, px(10));
+        actions.addView(actionChip("\u2661 Save this look", true, v -> {
+            closeLooks(true);
+            showSaveLook();
+        }));
+        actions.addView(actionChip("Open a code or link", false, v -> {
+            closeLooks(true);
+            showOpenCode();
+        }));
+        box.addView(actions);
+        if (looks.isEmpty()) note(box, "Nothing saved yet. Set the scene and colours the way you like them, then Save this look.");
+        else box.addView(label("My looks"));
         for (final LookStore.Entry e : new ArrayList<>(looks.all())) {
             LinearLayout row = new LinearLayout(this);
             row.setGravity(Gravity.CENTER_VERTICAL);
@@ -2162,20 +2644,20 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
             TextView del = actionChip("✕", false, v -> {
                 looks.delete(cloud, e);
                 refreshLooksChip();
-                closeLooks(false);
+                closeLooks(true);
                 showLooks();
             });
             del.setContentDescription("Delete the look " + e.look.name);
             row.addView(del);
             box.addView(row);
         }
-        looksCard = openCard(box);
+        looksCard = openCard("Looks", box);
     }
 
     /** Looks → Open a code or link: paste a six-letter code or a whole link. */
     private void showOpenCode() {
         if (looksCard != null) return;
-        LinearLayout box = cardBox("Open a shared look", () -> closeLooks(false));
+        LinearLayout box = cardBox("Open a shared look");
         final EditText f = field("Code or link", "");
         f.setImeOptions(EditorInfo.IME_ACTION_GO);
         LinearLayout row = new LinearLayout(this);
@@ -2196,7 +2678,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
         t.setText("A look someone shared with you: the six letters, or the whole link. Links from TAV open here on their own.");
         t.setLineSpacing(0, 1.25f);
         box.addView(t);
-        looksCard = openCard(box);
+        looksCard = openCard("Open a shared look", box);
         f.requestFocus();
     }
 
@@ -2233,8 +2715,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
 
     /** A Look from a link or code: on screen at once (that is the point), then offered for keeping. */
     private void receiveLook(final Look l, final String code, final String presetId) {
-        closeLooks(false);
-        if (panel.getVisibility() == View.VISIBLE) showPanel(false);
+        if (sheet.shown()) closeAll();
         applyLook(l, "shared", presetId);
         dismissIncoming();
         for (LookStore.Entry e : looks.all())

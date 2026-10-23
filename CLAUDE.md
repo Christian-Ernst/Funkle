@@ -9,8 +9,17 @@ which loads the Android shaders). README.md is the user-facing description. Open
 
 - `android/src/io/github/christianernst/tav/`
   - `MainActivity.java`: all UI is built in code (no XML layouts). It holds the intro and permission
-    cards, the long-press menu (`addRow(label, options, selected, chips, pick)`, one chip row per
-    setting), the now-playing section with `TransportButton`s, the song-title overlay and gestures.
+    cards, the first-run gesture card (`showGestureCoach`), the menu, the quick bar (`buildQuickBar`: scene
+    ‹ ›, pause the visuals (`setFrozen`, render mode WHEN_DIRTY), shuffle, clear the drawing; it shows with the
+    ☰ button on any touch and fades with it), the song-title overlay and gestures. The menu is a bottom
+    sheet (`Sheet.java`: a page stack with a header, drag-to-close handle, haptics via `Sheet.tick`, and
+    `setGhost` which makes it see-through while a slider is dragged). `buildSheet` makes the home page: now
+    playing with the transport, four tiles (Scenes with the scene's thumbnail from `assets/thumbs/<id>.jpg`,
+    made by `android/tools/thumbs.sh`; Colours; Looks; Autopilot) and rows (Tune, Draw, Sound, Display,
+    Account, help, Exit). Each `showX()` builds its page on demand (`addRow(into, label, options, selected,
+    chips, pick)` for a chip row, `note()` for the one-line explanation every page has) and pushes it with
+    `openCard(title, box)`; `closeCard(card, backToMenu)` pops it (Back) or closes the sheet (✕, drag).
+    `refreshHome()` repaints the tile and row values after any change.
     Settings are in SharedPreferences `prefs` (keys `scene`, `sym`, `palette`, `brightness`, `source`,
     `autopilot`, `titleAlways`, `quality` (0 Auto, 1 Low, 2 Medium, 3 High; `TavRenderer.QUALITY_SCALE`, web `QUALITY`), `motion` (0 Full, 1 Calm), `eq_mode` (0 Flat, 1 Punch, 2 Custom), `eq_master`, `eq_punch`, `eq_beat`,
     `eq_g0`–`eq_g3` (floats), `custom0`–`custom2`, the custom palette as ARGB ints, `cm_mode` (the Colour
