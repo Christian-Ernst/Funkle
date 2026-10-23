@@ -2207,7 +2207,7 @@ public final class MainActivity extends Activity implements TavRenderer.Host, Au
             name.setSingleLine(true);
             name.setEllipsize(TextUtils.TruncateAt.END);
             int owned = e.profile.ownedScenes();
-            name.setText(e.name() + (e == active ? "  · active" : "") + (owned > 0 ? "  · " + owned + (owned == 1 ? " scene coloured" : " scenes coloured") : ""));
+            name.setText((e == active ? "\u25cf " : "") + e.name() + (owned > 0 ? "  \u00b7 " + owned + (owned == 1 ? " scene" : " scenes") : ""));
             name.setContentDescription("Switch to the profile " + e.name());
             name.setOnClickListener(v -> {
                 if (e != profiles.active()) applyProfile(e);
