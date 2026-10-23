@@ -1,5 +1,20 @@
 # Next session: open items
 
+## The menu as a bottom sheet (2026-10-22, judged on an emulator only)
+
+The long-press menu is a bottom sheet with pages (`Sheet.java`, `MainActivity.buildSheet`), a quick bar over the
+visuals (scene ‹ ›, pause, shuffle, clear) and a first-run "Three moves" card for the gestures. Not yet on a phone:
+
+- Haptics (`Sheet.tick`, CLOCK_TICK on chips, tiles and slider release) are silent on the emulator; check they
+  feel right and not chatty. The drag-to-close threshold (22 % of the sheet's height) is a guess.
+- The sheet takes up to 68 % of the screen (`Sheet.MAX_SHARE`); on a short phone the home page scrolls. The
+  see-through on slider drag (`setGhost`, alpha 0.38) is meant for judging a change on the scene itself.
+- The scene thumbnails are the web edition's frames at the demo's drop (Neon palette); rerun
+  `android/tools/thumbs.sh` when a scene's look changes, or they lie.
+- Pause freezes the frame (render mode WHEN_DIRTY) and keeps the quick bar on screen; Exit Funkle finishes the
+  activity, which stops rendering, capture and the media watcher (onStop). The notification listener service
+  stays, by design, while notification access is granted.
+
 Brightness (menu → Brightness, plus a hue-preserving tone curve and per-scene normalisation) and own
 colours (menu → Colours → Custom) are done. What is still open, and what to ask the owner:
 
@@ -194,5 +209,5 @@ follows every change and syncs to the presets table with `kind: "profile"`.
 - The autopilot's Scenes + colours mode has nothing to paint once every scene has its own colours; the chip could say so.
 - The web edition has neither per-scene colours nor profiles yet. The document format is in `Profile.java`; `web/looks.js`
   would need `parseProfile`/`makeProfile`, and `index.html` an `own` map keyed by scene id.
-- The Modern menu thread (#18) rebuilds the menu as a bottom sheet; the Profile row (`addProfileRow`) and the
-  "This scene's colours" row need a place on its pages.
+- In the bottom-sheet menu, Profiles are a home row (the active one's name; the page lists them with New, Rename and
+  delete) and "This scene's colours" sits on the Colours page under the colour motion.
