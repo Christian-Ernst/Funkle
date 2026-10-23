@@ -167,3 +167,25 @@ look the scene had before; the ends were picked so Normal brightness stays at 0 
   branch and let the owner merge it.
 - There is no LICENSE file. Sharing the APK doesn't need one. If the owner wants others to reuse the
   code, ask which license to add.
+
+## Touch: drawing fixed, gestures that bend the picture (2026-10-22, not yet on a phone)
+
+The drawing sat away from the finger because `stroke.vert` turned every stroke with the music clock (`uFlow`),
+so after a minute of music the line was a quarter turn from where it was drawn; copy 0 now stays put. New
+gestures (`TavView`, same in `web/index.html`): tap = burst (rings plus spectrum sparks, `ripples.frag`, and
+a shove of the paint around it), drag = draw and stir (the paint under the finger comes along, a curve turns
+it), pinch = zoom in around the fingers (springs back 1.5 s after they lift), tilt = the scene leans with the
+phone (gravity sensor, deviations from how it is held), three-finger tap = clear. All of it goes through
+`uView`/`uTouch`/`uPush` in `toP()` of `common.glsl`, so every scene has it. `web/tools/touch-check.js` plays
+the gestures in headless Chromium and fails when the drawn light is not under the finger.
+
+- Judged only in headless Chromium: the strengths (`TavRenderer.STIR_MAX`, `LENS_MAX`, `BLAST`, `TILT_PAN`,
+  `TOUCH_REACH`; the same `TOUCH` table in `web/engine.js`) are guesses. On the phone, check that stirring a
+  circle visibly turns the trails without smearing the whole scene, that a tap's shove is felt and not jarring,
+  and that the tilt is a lean, not a wobble (raise `TILT_PAN` if it is invisible, lower it if it drifts).
+- Zoom springs back on purpose (a user can't get stuck zoomed in); if people want it to stay, drop the
+  `ZOOM_HOLD` reset in `touchFrame`.
+- Ink and Horizon have no feedback trails, so the stir and the drag move only the live picture there; the lens
+  twist is what shows.
+- The Modern menu thread's quick-action bar calls `renderer.clearStrokes()`/`undoStroke()` and listens to
+  `Host.onStrokesChanged(count)`.

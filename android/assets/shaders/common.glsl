@@ -110,9 +110,41 @@ float fbm(vec2 p) {
     return v;
 }
 
-// Centred coordinates: the shorter screen axis spans [-1, 1].
-vec2 toP(vec2 fragCoord) { return (fragCoord - 0.5 * uRes) / min(uRes.x, uRes.y) * 2.0; }
-vec2 toUv(vec2 p)        { return p * min(uRes.x, uRes.y) / uRes * 0.5 + 0.5; }
+// The user's hand on the picture (see TavRenderer and web/engine.js, "touch"):
+//   uView  = zoom (1 = the whole scene, pinch out to magnify), pan x, pan y (centred units: the
+//            tilt of the phone and the pinch steer them), lens (radians the picture twists around
+//            the finger while it is down; undone in toUv(), so it does not pile up in the feedback)
+//   uTouch = finger x, y (centred units), radius of its reach, stir (radians per 60 Hz frame the
+//            paint turns around the finger: drawing a curve stirs the trails, and it does pile up)
+//   uPush  = x, y (units per 60 Hz frame the paint under the finger is dragged along with it),
+//            blast (a tap's shove: the paint around it flies outward for a few frames)
+uniform vec4 uView;
+uniform vec4 uTouch;
+uniform vec4 uPush;
+float touchReach(vec2 d) { float r = max(uTouch.z, 1e-3); return exp(-dot(d, d) / (r * r)); }
+
+// Centred coordinates: the shorter screen axis spans [-1, 1], then the user's view (zoom and pan),
+// then the finger: a twist, a stir, a drag and a blast, all fading to nothing away from it.
+vec2 toP(vec2 fragCoord) {
+    vec2 p = (fragCoord - 0.5 * uRes) / min(uRes.x, uRes.y) * 2.0;
+    p = p / max(uView.x, 0.1) + uView.yz;
+    vec2 d = p - uTouch.xy;
+    float g = touchReach(d);
+    if (g < 1e-3) return p;
+    d = rot((uView.w + uTouch.w * uStep) * g) * d;
+    d *= 1.0 - uPush.z * uStep * g;
+    return uTouch.xy + d - uPush.xy * uStep * g;
+}
+// Screen position (0..1) that a point of the scene is drawn at: the inverse of toP() for the view
+// and the lens (so the feedback stays put), on purpose not for the stir, the drag and the blast
+// (so the paint keeps moving with the finger).
+vec2 toUv(vec2 p) {
+    vec2 d = p - uTouch.xy;
+    float g = touchReach(d);
+    if (g >= 1e-3) p = uTouch.xy + rot(-uView.w * g) * d;
+    p = (p - uView.yz) * max(uView.x, 0.1);
+    return p * min(uRes.x, uRes.y) / uRes * 0.5 + 0.5;
+}
 
 // Previous frame sampled through a zoom/rotate warp and faded. zoom < 1 makes the
 // old image grow outward, zoom > 1 pulls it toward the centre. All three are

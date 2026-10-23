@@ -15,7 +15,7 @@ There are two editions sharing one audio engine:
 | Reacts to Spotify **in Termux** (`ncspot`) | ✅ | ✅ |
 | Plays + shows a music file | via any player | ✅ `tav song.mp3` |
 | Renderer | OpenGL ES 3.0, bloom, feedback trails | braille dots + truecolor glow |
-| Touch | tap = ripple, drag = draw with sound | tap = ripple, drag = draw with sound |
+| Touch | tap = burst, drag = draw and stir, pinch = zoom, tilt = steer | tap = ripple, drag = draw with sound |
 
 ---
 
@@ -77,9 +77,12 @@ even without notification access, because TAV then sends ordinary media-button p
 
 | Gesture | Does |
 |---|---|
-| Tap | Ripple from that point; its rim is the live waveform |
-| Drag | Draw a line the sound wave travels along |
+| Tap | A burst from that point: rings whose rim is the live waveform, and sparks as long as each band is loud |
+| Drag | Draw a line the sound wave travels along. The paint under your finger comes along, and a curve stirs it round |
+| Pinch | Zoom into the picture around your fingers; it breathes back out when you let go |
+| Tilt the phone | The scene leans the way you do |
 | Two-finger swipe | Next / previous scene |
+| Three-finger tap | Clear your drawings (the menu has Undo and Clear too) |
 | Swipe the song title | Next (left) / previous (right) track |
 | Tap the song title | Play / pause |
 | Long-press or ☰ | Menu: playback controls, looks, scenes, the scene's sliders, shape stamps, mirror (mandala) mode, colours, colour motion, brightness, motion, equalizer, audio source, autopilot, song title, quality |
