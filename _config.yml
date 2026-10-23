@@ -1,0 +1,9 @@
+# GitHub Pages (Jekyll) settings for https://christian-ernst.github.io/TAV/.
+# The README is the home page; privacy.html and web/ have no front matter and are served as they are.
+title: Funkle
+description: Your music, turned into light.
+# Search Console ownership of the home page, which Google's OAuth brand verification checks.
+# The bundled jekyll-seo-tag writes it as <meta name="google-site-verification">.
+google_site_verification: QTs56B9kIoR2HOnWEF9O1DpTrp1d7aU2rmumM70qJ1U
+webmaster_verifications:
+  google: QTs56B9kIoR2HOnWEF9O1DpTrp1d7aU2rmumM70qJ1U
